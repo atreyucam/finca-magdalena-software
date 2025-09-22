@@ -1,0 +1,77 @@
+import { Routes, Route, Navigate } from "react-router-dom";
+import useAuth from "../hooks/useAuth";
+import Loading from "../components/Loading";
+import RequireAuth from "./RequireAuth";
+import RequireRole from "./RequireRole";
+
+import Login from "../pages/Login";
+
+// Layouts
+import OwnerLayout from "../layouts/OwnerLayout";
+import TechLayout from "../layouts/TechLayout";
+import WorkerLayout from "../layouts/WorkerLayout";
+
+// Pages
+import Dashboard from "../pages/Dashboard";
+import Tareas from "../pages/Tareas";
+import Inventario from "../pages/Inventario";
+import Notificaciones from "../pages/Notificaciones";
+import Metricas from "../pages/Metricas";
+import Usuarios from "../pages/Usuarios";
+import MisTareas from "../pages/MisTareas";
+import DetalleUsuario from "../pages/DetalleUsuario";
+
+
+export default function AppRouter() {
+  const { isBootstrapped } = useAuth();
+  if (!isBootstrapped) return <Loading />;
+
+  return (
+    <Routes>
+      {/* Público */}
+      <Route path="/login" element={<Login />} />
+
+      {/* Protegido */}
+      <Route element={<RequireAuth />}>
+        {/* Propietario */}
+        <Route element={<RequireRole roles={["Propietario"]} />}>
+          <Route path="/owner" element={<OwnerLayout />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="tareas" element={<Tareas />} />
+            <Route path="inventario" element={<Inventario />} />
+            <Route path="usuarios" element={<Usuarios />} />
+            <Route path="usuarios/:id" element={<DetalleUsuario />} />
+            <Route path="metricas" element={<Metricas />} />
+            <Route path="notificaciones" element={<Notificaciones />} />
+          </Route>
+        </Route>
+
+        {/* Técnico */}
+        <Route element={<RequireRole roles={["Tecnico"]} />}>
+          <Route path="/tech" element={<TechLayout />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="tareas" element={<Tareas />} />
+            <Route path="inventario" element={<Inventario />} />
+            <Route path="metricas" element={<Metricas />} />
+            <Route path="notificaciones" element={<Notificaciones />} />
+          </Route>
+        </Route>
+
+        {/* Trabajador */}
+        <Route element={<RequireRole roles={["Trabajador"]} />}>
+          <Route path="/worker" element={<WorkerLayout />}>
+            <Route index element={<Navigate to="mis-tareas" replace />} />
+            <Route path="mis-tareas" element={<MisTareas />} />
+            <Route path="notificaciones" element={<Notificaciones />} />
+          </Route>
+        </Route>
+      </Route>
+
+      {/* Redirects raíz */}
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
+  );
+}
