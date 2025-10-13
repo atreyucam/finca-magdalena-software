@@ -4,6 +4,7 @@
     "private": true,
     "main": "src/server.js",
     "scripts": {
+        "seed": "node scripts/seed.js",
         "dev": "nodemon -L --watch src --ext js,json src/server.js",
         "start": "NODE_ENV=production node src/server.js",
         "db:sync": "NODE_ENV=development node -e \"require('./src/db').sync()\"",

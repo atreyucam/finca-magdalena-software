@@ -17,6 +17,22 @@ exports.asignarUsuarios = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// NUEVO: iniciarTarea
+exports.iniciarTarea = async (req, res, next) => {
+  try {
+    const io = req.app.get("io");
+    const out = await service.iniciarTarea(
+      req.user,
+      +req.params.id,
+      req.body?.comentario,
+      io
+    );
+    res.json(out);
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.completarTarea = async (req, res, next) => {
   try {
     const io = req.app.get("io");
@@ -83,6 +99,34 @@ exports.configurarInsumos = async (req, res, next) => {
 exports.listarInsumos = async (req, res, next) => {
   try {
     const out = await service.listarInsumos(req.user, +req.params.id);
+    res.json(out);
+  } catch (err) { next(err); }
+};
+
+
+// controller
+exports.actualizarAsignaciones = async (req, res, next) => {
+  try {
+    const io = req.app.get("io");
+    const out = await service.actualizarAsignaciones(req.user, +req.params.id, req.body, io);
+    res.json(out);
+  } catch (err) { next(err); }
+};
+
+
+// backend/src/modules/tareas/tareas.controller.js
+exports.configurarRequerimientos = async (req, res, next) => {
+  try {
+    const io = req.app.get("io");
+    const out = await service.configurarRequerimientos(req.user, +req.params.id, req.body, io);
+    res.status(201).json(out);
+  } catch (err) { next(err); }
+};
+
+
+exports.listarRequerimientosTarea = async (req, res, next) => {
+  try {
+    const out = await service.listarRequerimientosTarea(req.user, +req.params.id);
     res.json(out);
   } catch (err) { next(err); }
 };

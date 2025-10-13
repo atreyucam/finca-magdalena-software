@@ -7,9 +7,10 @@ tipo_id: { type: DataTypes.BIGINT, allowNull: false },
 lote_id: { type: DataTypes.BIGINT, allowNull: false },
 cosecha_id: { type: DataTypes.BIGINT, allowNull: false },
 periodo_id: { type: DataTypes.BIGINT, allowNull: false },
-fecha_programada: { type: DataTypes.DATEONLY, allowNull: false },
+fecha_programada: { type: DataTypes.DATE, allowNull: false },
+titulo: { type: DataTypes.STRING, allowNull: true },
 descripcion: { type: DataTypes.TEXT },
-estado: { type: DataTypes.ENUM('Pendiente','Asignada','Completada','Verificada','Cancelada'), defaultValue: 'Pendiente' },
+estado: { type: DataTypes.ENUM('Pendiente','Asignada','En progreso','Completada','Verificada','Cancelada'), defaultValue: 'Pendiente' },
 creador_id: { type: DataTypes.BIGINT, allowNull: false },
 detalles: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} }
 }, {

@@ -1,20 +1,25 @@
 import { useEffect, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom"; 
 import {
   listarTareas,
   listarLotes,
   listarCosechas,
 } from "../api/apiClient";
 import CrearTareaModal from "../components/CrearTareaModal";
-import DetalleTareaModal from "../components/DetalleTareaModal";
+// import DetalleTareaModal from "../components/DetalleTareaModal";
+import VerificarTareaModal from "../components/VerificarTareaModal";
 
 import { io } from "socket.io-client";
 
 export default function Tareas() {
+    const navigate = useNavigate();
+  const location = useLocation();
   const [tareas, setTareas] = useState([]);
   const [lotes, setLotes] = useState([]);
   const [cosechas, setCosechas] = useState([]);
   const [periodos, setPeriodos] = useState([]);
-  const [detalleId, setDetalleId] = useState(null);
+  // const [detalleId, setDetalleId] = useState(null);
+  // const [verificarId, setVerificarId] = useState(null);
 
   const [filtros, setFiltros] = useState({
     lote_id: "",
@@ -26,11 +31,14 @@ export default function Tareas() {
   const [error, setError] = useState(null);
   const [showModal, setShowModal] = useState(false);
 
-  // 🔹 Cargar tareas desde API
+// 🔹 Cargar tareas desde API
   const fetchTareas = async () => {
     try {
       setLoading(true);
-      const res = await listarTareas(filtros);
+      const q = Object.fromEntries(
+        Object.entries(filtros).filter(([k, v]) => v !== "" && k !== "periodo_id")
+      );
+      const res = await listarTareas(q);
       setTareas(res.data?.data || []);
       setError(null);
     } catch (err) {
@@ -41,7 +49,7 @@ export default function Tareas() {
     }
   };
 
-  // 🔹 Cargar lotes y cosechas
+ // 🔹 Cargar lotes y cosechas
   const fetchFiltrosData = async () => {
     try {
       const lotesRes = await listarLotes();
@@ -77,7 +85,7 @@ export default function Tareas() {
     };
   }, []);
 
-  // 🔹 Cuando cambia filtro, recargar tareas
+// 🔹 Cuando cambia filtro, recargar tareas
   useEffect(() => {
     fetchTareas();
   }, [filtros]);
@@ -85,6 +93,14 @@ export default function Tareas() {
   const handleFiltroChange = (e) => {
     const { name, value } = e.target;
     setFiltros((f) => ({ ...f, [name]: value }));
+  };
+
+  // 👇 Navegar a la página DetalleTarea (ruta relativa al layout actual)
+  const goToDetalle = (id) => {
+    // si estás en /owner/tareas => relative "../detalleTarea/:id"
+    // si estás en /tech/tareas  => relative "../detalleTarea/:id"
+    // si en algún momento usas esta tabla en otro path, también funciona por ser relativo
+    navigate(`../detalleTarea/${id}`, { state: { from: location.pathname } });
   };
 
   return (
@@ -160,9 +176,11 @@ export default function Tareas() {
             <thead className="bg-gray-100">
               <tr>
                 <th className="px-4 py-2 text-left">ID</th>
+                <th className="px-4 py-2 text-left">Título</th> 
                 <th className="px-4 py-2 text-left">Tipo</th>
                 <th className="px-4 py-2 text-left">Lote</th>
-                <th className="px-4 py-2 text-left">Fecha</th>
+                    <th className="px-4 py-2 text-left">Programada</th>        {/* 👈 con hora */}
+    <th className="px-4 py-2 text-left">Creada</th> 
                 <th className="px-4 py-2 text-left">Estado</th>
                 <th className="px-4 py-2 text-left">Asignados</th>
                 <th className="px-4 py-2 text-left">Acciones</th>
@@ -172,11 +190,19 @@ export default function Tareas() {
               {tareas.map((t) => (
                 <tr key={t.id} className="border-t">
                   <td className="px-4 py-2">{t.id}</td>
+                  <td className="px-4 py-2">{t.titulo || t.tipo}</td>
                   <td className="px-4 py-2">{t.tipo}</td>
                   <td className="px-4 py-2">{t.lote}</td>
                   <td className="px-4 py-2">
-                    {new Date(t.fecha_programada).toLocaleDateString()}
-                  </td>
+        {t.fecha_programada
+          ? new Date(t.fecha_programada).toLocaleString()
+          : "-"}
+      </td>
+      <td className="px-4 py-2">
+        {t.creada
+          ? new Date(t.creada).toLocaleString()
+          : "-"}
+      </td>
                   <td className="px-4 py-2">
                     <span
                       className={`px-2 py-1 rounded text-xs ${
@@ -215,7 +241,7 @@ export default function Tareas() {
                   <td className="px-4 py-2 space-x-2">
   <button
     className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-    onClick={() => setDetalleId(t.id)}
+    onClick={() => goToDetalle(t.id)}
   >
     Ver
   </button>
@@ -231,10 +257,14 @@ export default function Tareas() {
     </button>
   )}
   {t.estado === "Completada" && (
-    <button className="px-2 py-1 bg-purple-200 rounded hover:bg-purple-300">
-      Verificar
-    </button>
-  )}
+  <button
+    className="px-2 py-1 bg-purple-200 rounded hover:bg-purple-300"
+    // onClick={() => setVerificarId(t.id)}
+  >
+    Verificar
+  </button>
+)}
+
   <button className="px-2 py-1 bg-red-200 rounded hover:bg-red-300">
     Eliminar
   </button>
@@ -253,12 +283,6 @@ export default function Tareas() {
         onClose={() => setShowModal(false)}
         onCreated={() => fetchTareas()}
       />
-      <DetalleTareaModal
-  open={!!detalleId}
-  onClose={() => setDetalleId(null)}
-  tareaId={detalleId}
-/>
-
     </section>
   );
 }

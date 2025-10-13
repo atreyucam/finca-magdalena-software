@@ -16,6 +16,7 @@ const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
 const metricasRoutes = require('./modules/metricas/metricas.routes');
 const cosechasRoutes = require('./modules/cosechas/cosechas.routes');
 const tiposActividadRoutes = require('./modules/tipoActividad/tiposActividad.routes');
+const unidadesRouter = require('./modules/inventario/unidades.routes');
 
 const app = express();
 app.use(cors({
@@ -40,6 +41,7 @@ app.use('/dashboard', dashboardRoutes);
 app.use('/metricas', metricasRoutes);
 app.use('/cosechas', cosechasRoutes);
 app.use('/tipos-actividad', tiposActividadRoutes);
+app.use('/unidades', unidadesRouter);
 
 // Manejo básico de errores
 app.use((err, req, res, next) => {

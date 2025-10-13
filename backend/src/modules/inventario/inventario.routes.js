@@ -32,4 +32,6 @@ router.get('/herramientas/no-devueltas', requireAuth, requireRole('Propietario',
 router.get('/alertas/stock-bajo', requireAuth, requireRole('Propietario','Tecnico'), controller.alertasStockBajo);
 
 
+router.get('/', requireAuth, controller.listar);
+
 module.exports = router;

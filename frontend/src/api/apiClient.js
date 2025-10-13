@@ -136,6 +136,10 @@ export const obtenerTarea = (id) => api.get(`/tareas/${id}`);
 export const crearTarea = (data) => api.post("/tareas", data);
 export const asignarUsuariosTarea = (id, data) =>
   api.post(`/tareas/${id}/asignaciones`, data);
+
+// frontend src/api/apiClient.ts
+export const iniciarTarea = (id, body) => api.post(`/tareas/${id}/iniciar`, body);
+
 export const completarTarea = (id, data) =>
   api.post(`/tareas/${id}/completar`, data);
 export const verificarTarea = (id, data) =>
@@ -152,5 +156,67 @@ export const listarLotes = () => api.get("/lotes");
 export const listarCosechas = () => api.get("/cosechas");
 export const listarTiposActividad = () => api.get("/tipos-actividad");
 
+// POST /tareas/:id/asignaciones
+export const asignarUsuarios = (id, body) =>
+  api.post(`/tareas/${id}/asignaciones`, body);
+
+export const actualizarAsignaciones = (id, body) =>
+  api.patch(`/tareas/${id}/ActualizarAsignaciones`, body);
+
+// ================= INVENTARIO =================
+
+// Listar ítems (insumos/herramientas)
+export const listarItemsInventario = (params = {}) =>
+  api.get("/inventario/items", { params });
+
+// Crear un ítem
+export const crearItemInventario = (data) =>
+  api.post("/inventario/items", data);
+
+// Editar ítem
+export const editarItemInventario = (id, data) =>
+  api.patch(`/inventario/items/${id}`, data);
+
+// Ajustar stock (entrada, salida, ajuste)
+export const ajustarStock = (id, data) =>
+  api.post(`/inventario/items/${id}/ajustes`, data);
+
+// Listar movimientos de inventario
+export const listarMovimientosInventario = (params = {}) =>
+  api.get("/inventario/movimientos", { params });
+
+// Alertas de stock bajo
+export const alertasStockBajo = () =>
+  api.get("/inventario/alertas/stock-bajo");
+
+// --- Unidades
+export const listarUnidades = () => api.get("/unidades");
+
+
+
+
+// ================= HERRAMIENTAS =================
+
+// Prestar herramienta
+export const prestarHerramienta = (id, data) =>
+  api.post(`/inventario/herramientas/${id}/prestar`, data);
+
+// Devolver herramienta
+export const devolverHerramienta = (id, data) =>
+  api.post(`/inventario/herramientas/${id}/devolver`, data);
+
+// Listar herramientas no devueltas
+export const listarHerramientasNoDevueltas = () =>
+  api.get("/inventario/herramientas/no-devueltas");
+
 // 👇 Export default para que uses `import api from "../api/apiClient"`
+
+export async function listarRequerimientosTarea(tareaId){
+  return api.get(`/tareas/${tareaId}/requerimientos`);
+}
+// src/api/apiClient.js
+export const configurarRequerimientos = (tareaId, payload) =>
+  api.patch(`/tareas/${tareaId}/requerimientos`, payload);
+
+
 export default api;

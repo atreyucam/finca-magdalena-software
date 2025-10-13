@@ -10,7 +10,7 @@ const { Server } = require('socket.io');
   // Sincroniza solo en dev; en prod usaremos migraciones más adelante
   if (config.env === 'development') {
     await db.sync();
-    await db.seed();
+    // await db.seed();
   }
 
   // Crear servidor HTTP con Express
@@ -27,14 +27,24 @@ const { Server } = require('socket.io');
   // Guardar en app para acceder desde controladores
   app.set("io", io);
 
-  // Manejar conexiones
-  io.on("connection", (socket) => {
-    console.log("Cliente conectado:", socket.id);
+  // server.js (tu mismo archivo)
+io.on("connection", (socket) => {
+  console.log("Cliente conectado:", socket.id);
 
-    socket.on("disconnect", () => {
-      console.log("Cliente desconectado:", socket.id);
-    });
+  // 👉 suscripción a una tarea concreta
+  socket.on("join:tarea", (tareaId) => {
+    socket.join(`tarea:${tareaId}`);
   });
+
+  socket.on("leave:tarea", (tareaId) => {
+    socket.leave(`tarea:${tareaId}`);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Cliente desconectado:", socket.id);
+  });
+});
+
 
   // Levantar servidor
   server.listen(config.port, () =>

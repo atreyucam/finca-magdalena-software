@@ -1,6 +1,6 @@
 // backend/src/modules/inventario/inventario.controller.js
 const service = require('./inventario.service');
-
+const serviceUnidades = require('./unidades.service');
 
 exports.crearItem = async (req, res, next) => { try { res.status(201).json(await service.crearItem(req.body)); } catch (e){ next(e);} };
 exports.listarItems = async (req, res, next) => { try { res.json(await service.listarItems(req.query)); } catch (e){ next(e);} };
@@ -11,3 +11,14 @@ exports.prestarHerramienta = async (req, res, next) => { try { res.status(201).j
 exports.devolverHerramienta = async (req, res, next) => { try { res.json(await service.devolverHerramienta(req.user, +req.params.id, req.body)); } catch (e){ next(e);} };
 exports.listarNoDevueltas = async (req, res, next) => { try { res.json(await service.listarNoDevueltas()); } catch (e){ next(e);} };
 exports.alertasStockBajo = async (req, res, next) => { try { res.json(await service.alertasStockBajo()); } catch (e){ next(e);} };
+
+exports.listar = async (req, res, next) => {
+  try {
+    const { q, categoria } = req.query;
+    const data = await serviceUnidades.listarUnidades({ q, categoria });
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+};
+

@@ -102,26 +102,60 @@ exports.crearItem = async (data) => {
     return item.toJSON();
 };
 
-exports.listarItems = async ({ q, categoria, activos = "true" }) => {
-    const where = {};
-    if (q) where.nombre = { [Op.iLike]: `%${q}%` };
-    if (categoria) where.categoria = categoria;
-    if (activos !== undefined) where.activo = activos === "true";
-    const list = await models.InventarioItem.findAll({
-        where,
-        include: [{ model: models.Unidad, attributes: ["codigo", "nombre"] }],
-        order: [["nombre", "ASC"]],
-    });
-    return list.map((i) => ({
-        id: i.id,
-        nombre: i.nombre,
-        categoria: i.categoria,
-        unidad: i.Unidad?.codigo,
-        stock_actual: i.stock_actual,
-        stock_minimo: i.stock_minimo,
-        activo: i.activo,
-    }));
+// backend/src/modules/inventario/inventario.service.js
+exports.listarItems = async ({ q, categoria, activos }) => {
+  const where = {};
+  if (q) where.nombre = { [Op.iLike]: `%${q}%` };
+  if (categoria) where.categoria = categoria;
+  if (activos === "true" || activos === true) where.activo = true;
+  else if (activos === "false" || activos === false) where.activo = false;
+
+  const list = await models.InventarioItem.findAll({
+    where,
+    include: [{ model: models.Unidad, attributes: ["codigo", "nombre"] }],
+    order: [["nombre", "ASC"]],
+  });
+
+  // Pre-cargar reservas y préstamos
+  const ids = list.map(i => i.id);
+  const reservas = await models.InventarioReserva.findAll({
+    attributes: ['item_id', [sequelize.fn('SUM', sequelize.col('cantidad_en_base')), 'sum']],
+    where: { item_id: { [Op.in]: ids }, estado: 'Reservada' },
+    group: ['item_id'],
+    raw: true
+  });
+  const reservasMap = Object.fromEntries(reservas.map(r => [Number(r.item_id), Number(r.sum)]));
+
+  const prestamos = await models.HerramientaPrestamo.findAll({
+    attributes: ['item_id', [sequelize.fn('COUNT', '*'), 'cnt']],
+    where: { item_id: { [Op.in]: ids }, estado: 'Prestada' },
+    group: ['item_id'],
+    raw: true
+  });
+  const prestamosMap = Object.fromEntries(prestamos.map(p => [Number(p.item_id), Number(p.cnt)]));
+
+  return list.map((i) => {
+    const reservasAct = Number(reservasMap[i.id] || 0);
+    const prestadas = (i.categoria === 'Herramienta' || i.categoria === 'Equipo') ? Number(prestamosMap[i.id] || 0) : 0;
+    const disponible = Number(i.stock_actual) - reservasAct - prestadas;
+
+    return {
+      id: i.id,
+      nombre: i.nombre,
+      categoria: i.categoria,
+      unidad: i.Unidad?.codigo,
+      stock_actual: i.stock_actual,
+      stock_minimo: i.stock_minimo,
+      activo: i.activo,
+      tipo: i.meta?.tipo || null,
+      formulacion: i.meta?.formulacion || null,
+      proveedor: i.meta?.proveedor || null,
+      disponible: disponible.toFixed(3),
+    };
+  });
 };
+
+
 
 exports.editarItem = async (id, data) => {
     const item = await models.InventarioItem.findByPk(id);

@@ -20,6 +20,7 @@ import Metricas from "../pages/Metricas";
 import Usuarios from "../pages/Usuarios";
 import MisTareas from "../pages/MisTareas";
 import DetalleUsuario from "../pages/DetalleUsuario";
+import DetalleTarea from "../pages/DetalleTarea";
 
 
 export default function AppRouter() {
@@ -44,6 +45,7 @@ export default function AppRouter() {
             <Route path="usuarios/:id" element={<DetalleUsuario />} />
             <Route path="metricas" element={<Metricas />} />
             <Route path="notificaciones" element={<Notificaciones />} />
+            <Route path="detalleTarea/:id" element={<DetalleTarea />} />
           </Route>
         </Route>
 
@@ -56,6 +58,7 @@ export default function AppRouter() {
             <Route path="inventario" element={<Inventario />} />
             <Route path="metricas" element={<Metricas />} />
             <Route path="notificaciones" element={<Notificaciones />} />
+            <Route path="detalleTarea/:id" element={<DetalleTarea />} />
           </Route>
         </Route>
 
@@ -65,6 +68,7 @@ export default function AppRouter() {
             <Route index element={<Navigate to="mis-tareas" replace />} />
             <Route path="mis-tareas" element={<MisTareas />} />
             <Route path="notificaciones" element={<Notificaciones />} />
+            <Route path="detalleTarea/:id" element={<DetalleTarea />} />
           </Route>
         </Route>
       </Route>
