@@ -1,10 +1,9 @@
 // src/pages/Inventario.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   listarItemsInventario,
   listarMovimientosInventario,
   alertasStockBajo,
-  // 🔵 importar para activar/desactivar rápidamente
   editarItemInventario,
 } from "../api/apiClient";
 import toast from "react-hot-toast";
@@ -23,7 +22,15 @@ export default function Inventario() {
   const [selectedItem, setSelectedItem] = useState(null);
   const { unidades } = useUnidades();
 
-  const [filtroActivos, setFiltroActivos] = useState("all"); // "true" | "false"
+  const [filtroActivos, setFiltroActivos] = useState("all"); // "true" | "false" | "all"
+
+  // —— estilos compartidos
+  const inputBase =
+    "w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200";
+  const btnPrimary =
+    "inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 active:bg-emerald-700";
+  const btnGhost =
+    "inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50";
 
   const cargar = async () => {
     try {
@@ -32,7 +39,6 @@ export default function Inventario() {
         setMovimientos(res.data?.data || []);
       } else {
         const params = { categoria: tab, q: busqueda };
-        // 🔽 solo enviar cuando no es "all"
         if (filtroActivos !== "all") params.activos = filtroActivos;
         const res = await listarItemsInventario(params);
         setItems(res.data || []);
@@ -46,9 +52,9 @@ export default function Inventario() {
 
   useEffect(() => {
     cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, busqueda, filtroActivos]);
 
-  // 🔵 activar/desactivar sin abrir modal
   const toggleActivo = async (it) => {
     try {
       await editarItemInventario(it.id, { activo: !it.activo });
@@ -64,224 +70,242 @@ export default function Inventario() {
     }
   };
 
+  // para mostrar total por pestaña arriba
+  const headerBadge = useMemo(() => {
+    if (tab === "Historial") return movimientos.length;
+    return items.length;
+  }, [tab, items.length, movimientos.length]);
+
   return (
-    <section>
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <h1 className="text-2xl font-bold mb-2">Inventario</h1>
-          <p className="text-gray-600 mb-4">Insumos, herramientas y equipos.</p>
+    // Fondo gris y padding consistente con “Usuarios”
+    <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
+      {/* Card contenedora */}
+      <div className="mx-auto max-w-[1400px] rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
+        {/* Header */}
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">
+              Inventario <span className="text-slate-400 text-base font-medium">({headerBadge})</span>
+            </h1>
+            <p className="text-slate-500">Insumos, herramientas y equipos.</p>
+          </div>
+
           {tab !== "Historial" && (
-            <button
-              onClick={() => setShowCrearItem(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Nuevo ítem
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowCrearItem(true)}
+                className={btnPrimary}
+              >
+                Nuevo ítem
+              </button>
+            </div>
           )}
         </div>
-      </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b mb-4">
-        {["Insumo", "Herramienta", "Equipo", "Historial"].map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 ${
-              tab === t
-                ? "border-b-2 border-blue-600 font-semibold"
-                : "text-gray-500"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {/* Header acciones */}
-      {tab !== "Historial" && (
-  <div className="flex justify-between items-center mb-4">
-    <input
-      type="text"
-      value={busqueda}
-      onChange={(e) => setBusqueda(e.target.value)}
-      placeholder="Buscar..."
-      className="border rounded p-2 w-64"
-    />
-    {/* 🔽 filtro de estado */}
-    <select
-      value={filtroActivos}
-      onChange={(e) => setFiltroActivos(e.target.value)}
-      className="border rounded p-2"
-      title="Estado"
-    >
-      <option value="all">Todos</option>
-      <option value="true">Activos</option>
-      <option value="false">Inactivos</option>
-    </select>
-  </div>
-)}
-
-
-      {/* Alertas */}
-      {tab !== "Historial" && alertas.length > 0 && (
-        <div className="mb-4">
-          <h2 className="font-semibold text-red-600">⚠️ Alertas de stock bajo</h2>
-          <ul className="list-disc pl-5 text-sm text-red-700">
-            {alertas.map((a) => (
-              <li key={a.id}>
-                {a.nombre}: {a.stock_actual} {a.unidad} (mín {a.stock_minimo})
-              </li>
-            ))}
-          </ul>
+        {/* Tabs: segmented control */}
+        <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-1 inline-flex">
+          {["Insumo", "Herramienta", "Equipo", "Historial"].map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={[
+                "px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                tab === t ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-800",
+              ].join(" ")}
+            >
+              {t}
+            </button>
+          ))}
         </div>
-      )}
 
-      {/* Tabla principal */}
-      {tab === "Historial" ? (
-        // 👉 Tabla de movimientos
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="px-4 py-2">Fecha</th>
-                <th className="px-4 py-2">Tipo</th>
-                <th className="px-4 py-2">Ítem</th>
-                <th className="px-4 py-2">Cantidad</th>
-                <th className="px-4 py-2">Unidad</th>
-                <th className="px-4 py-2">Stock resultante</th>
-                <th className="px-4 py-2">Motivo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {movimientos.map((m) => (
-                <tr key={m.id} className="border-t">
-                  <td className="px-4 py-2">
-                    {new Date(m.fecha).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-2">{m.tipo}</td>
-                  <td className="px-4 py-2">{m.item}</td>
-                  <td className="px-4 py-2">{m.cantidad}</td>
-                  <td className="px-4 py-2">{m.unidad}</td>
-                  <td className="px-4 py-2">{m.stock_resultante}</td>
-                  <td className="px-4 py-2">{m.motivo || "-"}</td>
-                </tr>
+        {/* Acciones / filtros (no en Historial) */}
+        {tab !== "Historial" && (
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                placeholder="Buscar por nombre…"
+                className={inputBase}
+              />
+              <select
+                value={filtroActivos}
+                onChange={(e) => setFiltroActivos(e.target.value)}
+                className={inputBase}
+                title="Estado"
+              >
+                <option value="all">Todos</option>
+                <option value="true">Activos</option>
+                <option value="false">Inactivos</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Alertas de stock bajo */}
+        {tab !== "Historial" && alertas.length > 0 && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="mb-2 text-amber-800 font-semibold">
+              ⚠️ Alertas de stock bajo
+            </div>
+            <ul className="grid gap-1 text-sm text-amber-800 sm:grid-cols-2 lg:grid-cols-3">
+              {alertas.map((a) => (
+                <li key={a.id} className="flex items-center justify-between">
+                  <span className="truncate">
+                    {a.nombre}
+                    <span className="text-slate-500"> — mín {a.stock_minimo}</span>
+                  </span>
+                  <span className="ml-3 inline-flex items-center rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200">
+                    {a.stock_actual} {a.unidad}
+                  </span>
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        // 👉 Tabla de items
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="px-4 py-2">Nombre</th>
-                <th className="px-4 py-2">Stock</th>
-                <th className="px-4 py-2">Unidad</th>
-                <th className="px-4 py-2">Mínimo</th>
-                <th className="px-4 py-2">Estado</th>
-                <th className="px-4 py-2">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((i) => {
-                const low = Number(i.stock_actual) < Number(i.stock_minimo); // 🔵 chip rojo
-                return (
-                  <tr key={i.id} className="border-t">
-                    <td className="px-4 py-2">{i.nombre}</td>
+            </ul>
+          </div>
+        )}
 
-                    {/* Stock + chip rojo si está bajo */}
-                    <td className="px-4 py-2">
-                      <div className="flex items-center gap-2">
-                        <span>{i.stock_actual}</span>
-                        {low && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700">
-                            Bajo stock
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-2">{i.unidad}</td>
-                    <td className="px-4 py-2">{i.stock_minimo}</td>
-
-                    {/* Estado con colores */}
-                    <td className="px-4 py-2">
-                      <span
-                        className={`px-2 py-1 rounded text-xs ${
-                          i.activo
-                            ? "bg-green-100 text-green-800"
-                            : "bg-gray-200 text-gray-700"
-                        }`}
-                      >
-                        {i.activo ? "Activo" : "Inactivo"}
-                      </span>
-                    </td>
-
-                    {/* Acciones */}
-                    <td className="px-4 py-2 space-x-2">
-                      <button
-                        onClick={() => {
-                          setSelectedItem(i);
-                          setShowAjustar(true);
-                        }}
-                        className="px-2 py-1 bg-blue-200 rounded hover:bg-blue-300"
-                      >
-                        Ajustar
-                      </button>
-
-                      {/* 🔵 Botón rápido activar/desactivar */}
-                      <button
-                        onClick={() => toggleActivo(i)}
-                        className={`px-2 py-1 rounded hover:opacity-90 ${
-                          i.activo ? "bg-gray-200" : "bg-emerald-200"
-                        }`}
-                        title={i.activo ? "Desactivar" : "Activar"}
-                      >
-                        {i.activo ? "Desactivar" : "Activar"}
-                      </button>
-
-                      {/* (Opcional) acciones de herramienta */}
-                      {tab === "Herramienta" && (
-                        <>
-                          <button
-                            onClick={() => toast("Abrir modal Prestar")}
-                            className="px-2 py-1 bg-yellow-200 rounded hover:bg-yellow-300"
-                          >
-                            Prestar
-                          </button>
-                          <button
-                            onClick={() => toast("Abrir modal Devolver")}
-                            className="px-2 py-1 bg-purple-200 rounded hover:bg-purple-300"
-                          >
-                            Devolver
-                          </button>
-                        </>
-                      )}
-                    </td>
+        {/* Tablas */}
+        {tab === "Historial" ? (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">Fecha</th>
+                  <th className="px-4 py-3 text-left font-medium">Tipo</th>
+                  <th className="px-4 py-3 text-left font-medium">Ítem</th>
+                  <th className="px-4 py-3 text-left font-medium">Cantidad</th>
+                  <th className="px-4 py-3 text-left font-medium">Unidad</th>
+                  <th className="px-4 py-3 text-left font-medium">Stock resultante</th>
+                  <th className="px-4 py-3 text-left font-medium">Motivo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {movimientos.map((m) => (
+                  <tr key={m.id} className="bg-white hover:bg-slate-50">
+                    <td className="px-4 py-3">{new Date(m.fecha).toLocaleString()}</td>
+                    <td className="px-4 py-3">{m.tipo}</td>
+                    <td className="px-4 py-3">{m.item}</td>
+                    <td className="px-4 py-3">{m.cantidad}</td>
+                    <td className="px-4 py-3">{m.unidad}</td>
+                    <td className="px-4 py-3">{m.stock_resultante}</td>
+                    <td className="px-4 py-3">{m.motivo || "-"}</td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">Nombre</th>
+                  <th className="px-4 py-3 text-left font-medium">Stock</th>
+                  <th className="px-4 py-3 text-left font-medium">Unidad</th>
+                  <th className="px-4 py-3 text-left font-medium">Mínimo</th>
+                  <th className="px-4 py-3 text-left font-medium">Estado</th>
+                  <th className="px-4 py-3 text-left font-medium">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {items.map((i) => {
+                  const low = Number(i.stock_actual) < Number(i.stock_minimo);
+                  return (
+                    <tr key={i.id} className="bg-white hover:bg-slate-50">
+                      <td className="px-4 py-3 text-slate-900">{i.nombre}</td>
 
-      {/* Modales */}
-      <CrearItemModal
-        open={showCrearItem}
-        onClose={() => setShowCrearItem(false)}
-        onCreated={cargar}
-        unidades={unidades}
-      />
-      <AjustarStockModal
-        open={showAjustar}
-        onClose={() => setShowAjustar(false)}
-        item={selectedItem}
-        unidades={unidades}
-        onAdjusted={cargar}
-      />
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-800">{i.stock_actual}</span>
+                          {low && (
+                            <span className="inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                              Bajo stock
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3 text-slate-700">{i.unidad}</td>
+                      <td className="px-4 py-3 text-slate-700">{i.stock_minimo}</td>
+
+                      <td className="px-4 py-3">
+                        <span
+                          className={[
+                            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                            i.activo ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700",
+                          ].join(" ")}
+                        >
+                          {i.activo ? "Activo" : "Inactivo"}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedItem(i);
+                              setShowAjustar(true);
+                            }}
+                            className={btnGhost}
+                          >
+                            Ajustar
+                          </button>
+
+                          <button
+                            onClick={() => toggleActivo(i)}
+                            className={[
+                              "inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium",
+                              i.activo
+                                ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                                : "bg-emerald-600 text-white hover:bg-emerald-700",
+                            ].join(" ")}
+                            title={i.activo ? "Desactivar" : "Activar"}
+                          >
+                            {i.activo ? "Desactivar" : "Activar"}
+                          </button>
+
+                          {tab === "Herramienta" && (
+                            <>
+                              <button
+                                onClick={() => toast("Abrir modal Prestar")}
+                                className="inline-flex items-center justify-center rounded-xl bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-200"
+                              >
+                                Prestar
+                              </button>
+                              <button
+                                onClick={() => toast("Abrir modal Devolver")}
+                                className="inline-flex items-center justify-center rounded-xl bg-violet-100 px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-200"
+                              >
+                                Devolver
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Modales */}
+        <CrearItemModal
+          open={showCrearItem}
+          onClose={() => setShowCrearItem(false)}
+          onCreated={cargar}
+          unidades={unidades}
+        />
+        <AjustarStockModal
+          open={showAjustar}
+          onClose={() => setShowAjustar(false)}
+          item={selectedItem}
+          unidades={unidades}
+          onAdjusted={cargar}
+        />
+      </div>
     </section>
   );
 }

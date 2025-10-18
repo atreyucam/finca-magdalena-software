@@ -1,25 +1,22 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom"; 
+import { useNavigate, useLocation } from "react-router-dom";
+import { io } from "socket.io-client";
 import {
   listarTareas,
   listarLotes,
   listarCosechas,
 } from "../api/apiClient";
 import CrearTareaModal from "../components/CrearTareaModal";
-// import DetalleTareaModal from "../components/DetalleTareaModal";
-import VerificarTareaModal from "../components/VerificarTareaModal";
-
-import { io } from "socket.io-client";
+// import VerificarTareaModal from "../components/VerificarTareaModal";
 
 export default function Tareas() {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
   const location = useLocation();
+
   const [tareas, setTareas] = useState([]);
   const [lotes, setLotes] = useState([]);
   const [cosechas, setCosechas] = useState([]);
   const [periodos, setPeriodos] = useState([]);
-  // const [detalleId, setDetalleId] = useState(null);
-  // const [verificarId, setVerificarId] = useState(null);
 
   const [filtros, setFiltros] = useState({
     lote_id: "",
@@ -31,10 +28,38 @@ export default function Tareas() {
   const [error, setError] = useState(null);
   const [showModal, setShowModal] = useState(false);
 
-// 🔹 Cargar tareas desde API
+  // ---------- helpers UI (consistentes con Usuarios) ----------
+  const badgeByEstado = (estado) => {
+    switch (estado) {
+      case "Pendiente":
+        return "bg-amber-100 text-amber-700";
+      case "Asignada":
+        return "bg-sky-100 text-sky-700";
+      case "Completada":
+        return "bg-emerald-100 text-emerald-700";
+      case "Verificada":
+        return "bg-violet-100 text-violet-700";
+      case "Cancelada":
+        return "bg-rose-100 text-rose-700";
+      default:
+        return "bg-slate-100 text-slate-700";
+    }
+  };
+
+  const inputBase =
+    "w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200";
+
+  const btnPrimary =
+    "inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 active:bg-emerald-700";
+
+  const btnGhost =
+    "rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50";
+
+  // ---------- data ----------
   const fetchTareas = async () => {
     try {
       setLoading(true);
+      // periodo_id no lo usas en el endpoint (como en tu código original)
       const q = Object.fromEntries(
         Object.entries(filtros).filter(([k, v]) => v !== "" && k !== "periodo_id")
       );
@@ -49,7 +74,6 @@ export default function Tareas() {
     }
   };
 
- // 🔹 Cargar lotes y cosechas
   const fetchFiltrosData = async () => {
     try {
       const lotesRes = await listarLotes();
@@ -66,7 +90,6 @@ export default function Tareas() {
     }
   };
 
-  // 🔹 Inicializar y escuchar sockets
   useEffect(() => {
     fetchFiltrosData();
     fetchTareas();
@@ -83,11 +106,12 @@ export default function Tareas() {
     return () => {
       socket.disconnect();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-// 🔹 Cuando cambia filtro, recargar tareas
   useEffect(() => {
     fetchTareas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtros]);
 
   const handleFiltroChange = (e) => {
@@ -95,194 +119,213 @@ export default function Tareas() {
     setFiltros((f) => ({ ...f, [name]: value }));
   };
 
-  // 👇 Navegar a la página DetalleTarea (ruta relativa al layout actual)
   const goToDetalle = (id) => {
-    // si estás en /owner/tareas => relative "../detalleTarea/:id"
-    // si estás en /tech/tareas  => relative "../detalleTarea/:id"
-    // si en algún momento usas esta tabla en otro path, también funciona por ser relativo
     navigate(`../detalleTarea/${id}`, { state: { from: location.pathname } });
   };
 
+  // ---------- métricas (igual patrón que Usuarios) ----------
+  const total = tareas.length;
+  const pendientes = tareas.filter((t) => t.estado === "Pendiente").length;
+  const completadas = tareas.filter((t) => t.estado === "Completada").length;
+
   return (
-    <section>
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <h1 className="text-2xl font-bold">Tareas</h1>
-          <p className="text-gray-600">Gestión y seguimiento de tareas.</p>
+    // Fondo y padding como en Usuarios
+    <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
+      {/* Card contenedora */}
+      <div className="mx-auto max-w-[1400px] rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
+        {/* Header */}
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Tareas</h1>
+            <p className="text-slate-500">Gestión y seguimiento de tareas.</p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setShowModal(true)} className={btnPrimary}>
+              Crear tarea
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          Crear tarea
-        </button>
-      </div>
 
-      {/* Filtros */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-        <select
-          name="lote_id"
-          value={filtros.lote_id}
-          onChange={handleFiltroChange}
-          className="border rounded-md p-2"
-        >
-          <option value="">Todos los lotes</option>
-          {lotes.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.nombre}
-            </option>
-          ))}
-        </select>
+        {/* Cards métricas (mismo look & feel) */}
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-sky-50 p-4 sm:p-5">
+            <div className="text-slate-600">Tareas registradas</div>
+            <div className="mt-1 text-3xl font-bold text-slate-900">{total}</div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-amber-50 p-4 sm:p-5">
+            <div className="text-slate-600">Pendientes</div>
+            <div className="mt-1 text-3xl font-bold text-amber-700">{pendientes}</div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-emerald-50 p-4 sm:p-5">
+            <div className="text-slate-600">Completadas</div>
+            <div className="mt-1 text-3xl font-bold text-emerald-700">{completadas}</div>
+          </div>
+        </div>
 
-        <select
-          name="periodo_id"
-          value={filtros.periodo_id}
-          onChange={handleFiltroChange}
-          className="border rounded-md p-2"
-        >
-          <option value="">Todos los periodos</option>
-          {periodos.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nombre}
-            </option>
-          ))}
-        </select>
+        {/* Filtros (misma línea visual que Usuarios) */}
+        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <select
+            name="lote_id"
+            value={filtros.lote_id}
+            onChange={handleFiltroChange}
+            className={inputBase}
+          >
+            <option value="">Todos los lotes</option>
+            {lotes.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.nombre}
+              </option>
+            ))}
+          </select>
 
-        <select
-          name="estado"
-          value={filtros.estado}
-          onChange={handleFiltroChange}
-          className="border rounded-md p-2"
-        >
-          <option value="">Todos los estados</option>
-          <option value="Pendiente">Pendiente</option>
-          <option value="Asignada">Asignada</option>
-          <option value="Completada">Completada</option>
-          <option value="Verificada">Verificada</option>
-          <option value="Cancelada">Cancelada</option>
-        </select>
-      </div>
+          <select
+            name="periodo_id"
+            value={filtros.periodo_id}
+            onChange={handleFiltroChange}
+            className={inputBase}
+          >
+            <option value="">Todos los periodos</option>
+            {periodos.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
+              </option>
+            ))}
+          </select>
 
-      {/* Lista de tareas */}
-      {loading && <p className="text-gray-500">Cargando tareas...</p>}
-      {error && <p className="text-red-500">{error}</p>}
-      {!loading && !error && tareas.length === 0 && (
-        <p className="text-gray-500">No hay tareas registradas.</p>
-      )}
+          <select
+            name="estado"
+            value={filtros.estado}
+            onChange={handleFiltroChange}
+            className={inputBase}
+          >
+            <option value="">Todos los estados</option>
+            <option value="Pendiente">Pendiente</option>
+            <option value="Asignada">Asignada</option>
+            <option value="Completada">Completada</option>
+            <option value="Verificada">Verificada</option>
+            <option value="Cancelada">Cancelada</option>
+          </select>
 
-      {!loading && tareas.length > 0 && (
-        <div className="overflow-x-auto border rounded-md">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="px-4 py-2 text-left">ID</th>
-                <th className="px-4 py-2 text-left">Título</th> 
-                <th className="px-4 py-2 text-left">Tipo</th>
-                <th className="px-4 py-2 text-left">Lote</th>
-                    <th className="px-4 py-2 text-left">Programada</th>        {/* 👈 con hora */}
-    <th className="px-4 py-2 text-left">Creada</th> 
-                <th className="px-4 py-2 text-left">Estado</th>
-                <th className="px-4 py-2 text-left">Asignados</th>
-                <th className="px-4 py-2 text-left">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tareas.map((t) => (
-                <tr key={t.id} className="border-t">
-                  <td className="px-4 py-2">{t.id}</td>
-                  <td className="px-4 py-2">{t.titulo || t.tipo}</td>
-                  <td className="px-4 py-2">{t.tipo}</td>
-                  <td className="px-4 py-2">{t.lote}</td>
-                  <td className="px-4 py-2">
-        {t.fecha_programada
-          ? new Date(t.fecha_programada).toLocaleString()
-          : "-"}
-      </td>
-      <td className="px-4 py-2">
-        {t.creada
-          ? new Date(t.creada).toLocaleString()
-          : "-"}
-      </td>
-                  <td className="px-4 py-2">
-                    <span
-                      className={`px-2 py-1 rounded text-xs ${
-                        t.estado === "Pendiente"
-                          ? "bg-yellow-100 text-yellow-800"
-                          : t.estado === "Asignada"
-                          ? "bg-blue-100 text-blue-800"
-                          : t.estado === "Completada"
-                          ? "bg-green-100 text-green-800"
-                          : t.estado === "Verificada"
-                          ? "bg-purple-100 text-purple-800"
-                          : "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {t.estado}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2">
-  {t.asignados?.length > 0 ? (
-    <div className="flex flex-col gap-1">
-      {t.asignados.map((a) => (
-        <span
-          key={a.id}
-          className="inline-block bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded"
-        >
-          {a.nombreCompleto}
-        </span>
-      ))}
-    </div>
-  ) : (
-    "-"
-  )}
-</td>
+          <button
+            onClick={() =>
+              setFiltros({ lote_id: "", periodo_id: "", estado: "" })
+            }
+            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Limpiar filtros
+          </button>
+        </div>
 
+        {/* Tabla (mismo patrón visual) */}
+        {loading && <p className="text-slate-500">Cargando tareas…</p>}
+        {error && <p className="text-rose-600">{error}</p>}
+        {!loading && tareas.length === 0 && (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-slate-500">
+            No hay tareas registradas.
+          </div>
+        )}
 
-                  <td className="px-4 py-2 space-x-2">
-  <button
-    className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-    onClick={() => goToDetalle(t.id)}
-  >
-    Ver
-  </button>
-
-  {t.estado === "Pendiente" && (
-    <button className="px-2 py-1 bg-blue-200 rounded hover:bg-blue-300">
-      Asignar
-    </button>
-  )}
-  {t.estado === "Asignada" && (
-    <button className="px-2 py-1 bg-green-200 rounded hover:bg-green-300">
-      Completar
-    </button>
-  )}
-  {t.estado === "Completada" && (
-  <button
-    className="px-2 py-1 bg-purple-200 rounded hover:bg-purple-300"
-    // onClick={() => setVerificarId(t.id)}
-  >
-    Verificar
-  </button>
-)}
-
-  <button className="px-2 py-1 bg-red-200 rounded hover:bg-red-300">
-    Eliminar
-  </button>
-</td>
-
+        {!loading && tareas.length > 0 && (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">ID</th>
+                  <th className="px-4 py-3 text-left font-medium">Título</th>
+                  <th className="px-4 py-3 text-left font-medium">Tipo</th>
+                  <th className="px-4 py-3 text-left font-medium">Lote</th>
+                  <th className="px-4 py-3 text-left font-medium">Programada</th>
+                  <th className="px-4 py-3 text-left font-medium">Creada</th>
+                  <th className="px-4 py-3 text-left font-medium">Estado</th>
+                  <th className="px-4 py-3 text-left font-medium">Asignados</th>
+                  <th className="px-4 py-3 text-left font-medium">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {tareas.map((t) => (
+                  <tr key={t.id} className="bg-white hover:bg-slate-50">
+                    <td className="px-4 py-3 text-slate-700">{t.id}</td>
+                    <td className="px-4 py-3 text-slate-900">
+                      {t.titulo || t.tipo}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">{t.tipo}</td>
+                    <td className="px-4 py-3 text-slate-700">{t.lote}</td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {t.fecha_programada
+                        ? new Date(t.fecha_programada).toLocaleString()
+                        : "-"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {t.creada ? new Date(t.creada).toLocaleString() : "-"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={[
+                          "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                          badgeByEstado(t.estado),
+                        ].join(" ")}
+                      >
+                        {t.estado}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {t.asignados?.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {t.asignados.map((a) => (
+                            <span
+                              key={a.id}
+                              className="inline-block rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-800"
+                            >
+                              {a.nombreCompleto}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => goToDetalle(t.id)} className={btnGhost}>
+                          Ver
+                        </button>
 
-      {/* Modal Crear Tarea */}
-      <CrearTareaModal
-        open={showModal}
-        onClose={() => setShowModal(false)}
-        onCreated={() => fetchTareas()}
-      />
+                        {t.estado === "Pendiente" && (
+                          <button className="rounded-xl bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700">
+                            Asignar
+                          </button>
+                        )}
+                        {t.estado === "Asignada" && (
+                          <button className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
+                            Completar
+                          </button>
+                        )}
+                        {t.estado === "Completada" && (
+                          <button className="rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700">
+                            Verificar
+                          </button>
+                        )}
+
+                        <button className="rounded-xl bg-rose-100 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-200">
+                          Eliminar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Modal Crear Tarea */}
+        <CrearTareaModal
+          open={showModal}
+          onClose={() => setShowModal(false)}
+          onCreated={() => fetchTareas()}
+        />
+      </div>
     </section>
   );
 }
