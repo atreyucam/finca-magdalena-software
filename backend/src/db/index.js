@@ -24,6 +24,11 @@ const CosechaModel              = require('./models/cosecha');
 const PeriodoCosechaModel       = require('./models/periodoCosecha');
 const InventarioReservaModel   = require('./models/inventarioReserva');
 const TareaRequerimientoModel  = require('./models/tareaRequerimiento');
+// requires (junto a los demás)
+const LoteCosechaModel              = require('./models/loteCosecha');
+const LoteCosechaClasificacionModel = require('./models/loteCosechaClasificacion');
+const LoteCosechaRechazoModel       = require('./models/loteCosechaRechazo');
+const LoteCosechaPoscosechaModel    = require('./models/loteCosechaPoscosecha');
 
 // ===== DB init =====
 const sequelize = new Sequelize(
@@ -57,6 +62,10 @@ function initModels() {
   models.PeriodoCosecha       = PeriodoCosechaModel(sequelize);
   models.InventarioReserva   = InventarioReservaModel(sequelize);
 models.TareaRequerimiento  = TareaRequerimientoModel(sequelize);
+models.LoteCosecha              = LoteCosechaModel(sequelize);
+models.LoteCosechaClasificacion = LoteCosechaClasificacionModel(sequelize);
+models.LoteCosechaRechazo       = LoteCosechaRechazoModel(sequelize);
+models.LoteCosechaPoscosecha    = LoteCosechaPoscosechaModel(sequelize);
 
   // ===== Asociaciones =====
   // Role 1:N Usuario
@@ -138,6 +147,17 @@ models.Tarea.hasMany(models.TareaRequerimiento, { foreignKey: 'tarea_id', onDele
 models.TareaRequerimiento.belongsTo(models.InventarioItem, { foreignKey: 'item_id' });
 models.InventarioItem.hasMany(models.TareaRequerimiento, { foreignKey: 'item_id' });
 models.TareaRequerimiento.belongsTo(models.Unidad, { foreignKey: 'unidad_id' });
+
+
+// asociaciones (después de las existentes)
+models.LoteCosecha.belongsTo(models.Cosecha,        { foreignKey: 'cosecha_id' });
+models.LoteCosecha.belongsTo(models.Lote,           { foreignKey: 'lote_id' });
+models.LoteCosecha.belongsTo(models.PeriodoCosecha, { foreignKey: 'periodo_id' });
+models.LoteCosecha.belongsTo(models.Tarea,          { foreignKey: 'tarea_id' });
+
+models.LoteCosecha.hasMany(models.LoteCosechaClasificacion, { foreignKey: 'lote_cosecha_id', onDelete: 'CASCADE' });
+models.LoteCosecha.hasMany(models.LoteCosechaRechazo,       { foreignKey: 'lote_cosecha_id', onDelete: 'CASCADE' });
+models.LoteCosecha.hasOne(models.LoteCosechaPoscosecha,     { foreignKey: 'lote_cosecha_id', onDelete: 'CASCADE' });
 }
 
 async function connect() {

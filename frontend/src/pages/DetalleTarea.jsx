@@ -17,21 +17,15 @@ import {
 import InsumosRequerimientosModal from "../components/InsumosRequerimientosModal";
 import AsignacionesModal from "../components/AsignacionesModal";
 
+
 // 👇 tus componentes UI
 import Avatar from "../components/Avatar";
-
+import { getUserSeed } from "../utils/avatarColor";
 import { HiOutlineUser } from "react-icons/hi";
 
 /* ----------------------- Utilidades UI ----------------------- */
 const fmtDT = (v) => (v ? new Date(v).toLocaleString() : "—");
-const initials = (name = "") =>
-  name
-    .split(" ")
-    .map((s) => s[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+
 
 function Chip({ children, color = "blue" }) {
   const map = {
@@ -62,21 +56,7 @@ const btnPrimary =
 const btnGhost =
   "inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50";
 
-// avatar helper
-const avatarColorFor = (seed = "") => {
-  const palette = [
-    ["bg-indigo-100", "text-indigo-600"],
-    ["bg-emerald-100", "text-emerald-700"],
-    ["bg-amber-100", "text-amber-700"],
-    ["bg-sky-100", "text-sky-700"],
-    ["bg-violet-100", "text-violet-700"],
-    ["bg-rose-100", "text-rose-700"],
-    ["bg-slate-100", "text-slate-700"],
-  ];
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 9973;
-  return palette[h % palette.length].join(" ");
-};
+
 
 /* ======================== PAGE ======================== */
 export default function TaskDetailPage() {
@@ -316,21 +296,20 @@ export default function TaskDetailPage() {
                       <span>👥</span> <span className="font-medium">Asignados</span>
                     </span>
                     <div className="flex -space-x-2">
-                      {(tarea?.asignaciones || []).slice(0, 3).map((a) => (
-                        <div
-                          key={a.id}
-                          title={a.usuario?.nombre}
-                          className={`h-8 w-8 rounded-full border border-white flex items-center justify-center text-[11px] font-semibold ${avatarColorFor(
-                            a?.usuario?.nombre || ""
-                          )}`}
-                        >
-                          {initials(a?.usuario?.nombre)}
-                        </div>
-                      ))}
-                      {(tarea?.asignaciones || []).length === 0 && (
-                        <span className="text-slate-500">—</span>
-                      )}
-                    </div>
+{(tarea?.asignaciones || []).slice(0, 3).map(a => (
+  <Avatar
+    key={a.id}
+    user={a.usuario}
+    name={a?.usuario?.nombre || ""}
+    size={32}
+    className="border border-white"
+/>
+))}
+  {(tarea?.asignaciones || []).length === 0 && (
+    <span className="text-slate-500">—</span>
+  )}
+</div>
+
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -430,12 +409,7 @@ export default function TaskDetailPage() {
                     {novedades.map((n) => (
                       <li key={n.id} className="rounded-2xl border border-slate-200 p-3 bg-white">
                         <div className="flex items-start gap-3">
- <Avatar
-  name={n.autor?.nombre || ""}
-  size={36}
-  className="h-9 w-9"
-/>
-
+ <Avatar user={n.autor} name={n.autor?.nombre || ""} size={36} className="h-9 w-9" />
                           <div className="flex-1">
                             <div className="text-sm text-slate-900">
                               <span className="font-medium">{n.autor?.nombre || "—"}</span>
@@ -528,13 +502,9 @@ export default function TaskDetailPage() {
                       return (
                         <li key={idx} className="relative">
                           <div className="absolute -left-4 top-0">
-                            <div className="absolute -left-4 top-0">
-  <Avatar
-    name={name}
-    size={28}
-    className="h-7 w-7"
-/>
-</div>
+                             <div className="absolute -left-4 top-0">
+<Avatar user={e.usuario} name={e.usuario?.nombre || ""} size={28} className="h-7 w-7" />
+ </div>
 
                           </div>
                           <div className="text-sm">

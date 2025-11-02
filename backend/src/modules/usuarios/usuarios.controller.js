@@ -66,3 +66,28 @@ exports.obtenerTareasUsuario = async (req, res, next) => {
     res.json(await service.obtenerTareasUsuario(+req.params.id));
   } catch (err) { next(err); }
 };
+
+
+
+exports.obtenerMiUsuario = async (req, res, next) => {
+  try {
+    const me = await service.obtenerUsuario(+req.user.sub);
+    if (!me) return res.status(404).json({ message: 'No encontrado' });
+    res.json(me);
+  } catch (err) { next(err); }
+};
+
+exports.obtenerMisPagos = async (req, res, next) => {
+  try {
+    // Reusa el servicio existente
+    const datos = await service.obtenerPagosUsuario(+req.user.sub);
+    res.json(datos);
+  } catch (err) { next(err); }
+};
+
+exports.obtenerMisTareas = async (req, res, next) => {
+  try {
+    const datos = await service.obtenerTareasUsuario(+req.user.sub);
+    res.json(datos);
+  } catch (err) { next(err); }
+};

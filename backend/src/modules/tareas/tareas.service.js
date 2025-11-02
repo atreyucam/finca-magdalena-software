@@ -2,6 +2,11 @@ const { Op } = require("sequelize");
 const { models, sequelize } = require("../../db");
 const invService = require("../inventario/inventario.service");
 const notif = require("../notificaciones/notificaciones.service");
+const {
+  validateIndicadores,
+  buildResumen,
+  resumenKey,
+} = require('./indicadores.helper');
 
 function badRequest(msg = "Solicitud inválida") {
     const e = new Error(msg);
@@ -70,19 +75,27 @@ exports.crearTarea = async (currentUser, data, io) => {
         );
     }
 
-    // Resolver tipo
-    let tipoId = tipo_id;
-    if (!tipoId && tipo_codigo) {
-        const tipo = await models.TipoActividad.findOne({
-            where: { codigo: tipo_codigo },
-        });
-        if (!tipo) throw badRequest("tipo_codigo inválido");
-        tipoId = tipo.id;
-    }
+   // ✅ definir tipoId y preparar nombre
+  let tipoId = tipo_id;
+  let tipoNombre = null;
 
-    // Validar lote
-    const lote = await models.Lote.findByPk(lote_id);
-    if (!lote) throw badRequest("lote_id inválido");
+  // Resolver por código si no viene id
+  if (!tipoId && tipo_codigo) {
+    const tipo = await models.TipoActividad.findOne({ where: { codigo: tipo_codigo } });
+    if (!tipo) throw badRequest("tipo_codigo inválido");
+    tipoId = tipo.id;
+    tipoNombre = tipo.nombre || tipo.codigo || null;
+  }
+
+  // Si vino id pero no tenemos nombre, lo buscamos para el título
+  if (tipoId && !tipoNombre) {
+    const t = await models.TipoActividad.findByPk(tipoId, { attributes: ["nombre", "codigo"] });
+    tipoNombre = t?.nombre || t?.codigo || null;
+  }
+
+
+
+
 
     // Validar cosecha
     const cosecha = await models.Cosecha.findByPk(cosecha_id);
@@ -98,6 +111,8 @@ exports.crearTarea = async (currentUser, data, io) => {
         if (!periodo)
             throw badRequest("periodo_id inválido o no pertenece a la cosecha");
     }
+
+
 
     // Normalizar fecha programada a Date (acepta string ISO local/UTC)
   const fechaProg = new Date(fecha_programada);
@@ -325,79 +340,113 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
 
 
 
+// backend/src/modules/tareas/tareas.service.js (fragmento dentro de completarTarea)
+
+
 exports.completarTarea = async (currentUser, tareaId, comentario, io) => {
-    const tarea = await models.Tarea.findByPk(tareaId);
-    if (!tarea) throw notFound("Tarea no existe");
-    if (["Verificada", "Cancelada"].includes(tarea.estado))
-        throw badRequest("La tarea ya fue cerrada");
-    // Permisos: Trabajador debe estar asignado; Técnico puede completar; Propietario no completa
-    if (currentUser.role === "Trabajador") {
-        const asign = await models.TareaAsignacion.findOne({
-            where: { tarea_id: tareaId, usuario_id: currentUser.sub },
-        });
-        if (!asign)
-            throw forbidden("Solo los asignados pueden completar la tarea");
-    } else if (currentUser.role === "Propietario") {
-        throw forbidden("El propietario no completa tareas");
-    }
+  const tarea = await models.Tarea.findByPk(tareaId, {
+    include: [{ model: models.TipoActividad, attributes: ['codigo'] }],
+  });
+  if (!tarea) throw notFound("Tarea no existe");
+  if (["Verificada","Cancelada"].includes(tarea.estado)) throw badRequest("La tarea ya fue cerrada");
 
-    if (tarea.estado === "Completada")
-        return await exports.obtenerTarea(currentUser, tareaId);
-
-    await sequelize.transaction(async (t) => {
-        tarea.estado = "Completada";
-        await tarea.save({ transaction: t });
-        await models.TareaEstado.create(
-            {
-                tarea_id: tarea.id,
-                estado: "Completada",
-                usuario_id: currentUser.sub,
-                comentario: comentario || null,
-            },
-            { transaction: t }
-        );
+  // Permisos (como ya lo tienes)...
+  if (currentUser.role === "Trabajador") {
+    const asign = await models.TareaAsignacion.findOne({
+      where: { tarea_id: tareaId, usuario_id: currentUser.sub },
     });
+    if (!asign) throw forbidden("Solo los asignados pueden completar la tarea");
+  } else if (currentUser.role === "Propietario") {
+    throw forbidden("El propietario no completa tareas");
+  }
 
-    await notif.crearParaRoles(["Tecnico"], {
-        tipo: "Tarea",
-        titulo: "Tarea completada",
-        mensaje: `La tarea #${tareaId} fue marcada como Completada`,
-        referencia: { tarea_id: tareaId },
-        prioridad: "Info",
-    });
-    if (io) io.emit("tareas:update");
-    return await exports.obtenerTarea(currentUser, tareaId);
+  // === Indicadores: si el tipo aplica (no cosecha) valida y guarda en JSONB
+  const tipoCodigo = tarea.TipoActividad?.codigo;
+try {
+  const rawIndicadores = typeof comentario === "object" ? comentario?.indicadores : undefined;
+  const parsed = validateIndicadores(tipoCodigo, rawIndicadores);
+
+  if (parsed) {
+    // ✅ Agrega resumen y clave según tipo (poda, malezas, nutrición, etc.)
+    const resumen = buildResumen(tipoCodigo, parsed);
+    const key = resumenKey(tipoCodigo); // ej: 'resumen_poda'
+
+    const nuevosDetalles = { ...(tarea.detalles || {}), indicadores: parsed };
+    if (key && resumen) nuevosDetalles[key] = resumen;
+
+    tarea.detalles = nuevosDetalles;
+    await tarea.save();
+  }
+} catch (zerr) {
+  const e = badRequest(`Indicadores inválidos para ${tipoCodigo}: ${zerr.message}`);
+  e.code = "BAD_INDICADORES";
+  throw e;
+}
+
+  // === tu lógica existente para cambiar estado a 'Completada' y log TareaEstado:
+  if (tarea.estado === "Completada") return await exports.obtenerTarea(currentUser, tareaId);
+
+  await sequelize.transaction(async (t) => {
+    tarea.estado = "Completada";
+    await tarea.save({ transaction: t });
+
+    await models.TareaEstado.create({
+      tarea_id: tarea.id,
+      estado: "Completada",
+      usuario_id: currentUser.sub,
+      comentario: (typeof comentario === 'string') ? comentario : (comentario?.comentario || null),
+    }, { transaction: t });
+  });
+
+  // Notificaciones, sockets, etc...
+  await notif.crearParaRoles(["Tecnico"], {
+    tipo: "Tarea",
+    titulo: "Tarea completada",
+    mensaje: `La tarea #${tareaId} fue marcada como Completada`,
+    referencia: { tarea_id: tareaId },
+    prioridad: "Info",
+  });
+  if (io) io.emit("tareas:update");
+  return await exports.obtenerTarea(currentUser, tareaId);
 };
 
+
 // ======================================================================
-// Verificar tarea (solo Técnico) + consumo de insumos (idempotente)
+// Verificar tarea (solo Técnico) + consumo de insumos (idempotente) + indicadores
 // ======================================================================
 exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
-  // permitir { comentario, force } o string
+  // permitir { comentario, force, indicadores } o string
   const comentario =
-    typeof comentarioOrBody === 'string'
+    typeof comentarioOrBody === "string"
       ? comentarioOrBody
-      : (comentarioOrBody?.comentario || null);
+      : comentarioOrBody?.comentario || null;
+
   const force =
-    typeof comentarioOrBody === 'object' ? !!comentarioOrBody.force : false;
+    typeof comentarioOrBody === "object" ? !!comentarioOrBody.force : false;
 
-  if (currentUser.role !== 'Tecnico') {
-    throw forbidden('Solo el técnico puede verificar');
+  // -------- permisos básicos --------
+  if (currentUser.role !== "Tecnico") {
+    throw forbidden("Solo el técnico puede verificar");
   }
 
-  const tarea = await models.Tarea.findByPk(tareaId);
-  if (!tarea) throw notFound('Tarea no existe');
-  if (tarea.estado !== 'Completada') {
-    throw badRequest('Para verificar, la tarea debe estar Completada');
+  // traemos también el TipoActividad para no queryear dos veces
+  const tarea = await models.Tarea.findByPk(tareaId, {
+    include: [{ model: models.TipoActividad, attributes: ["codigo"] }],
+  });
+  if (!tarea) throw notFound("Tarea no existe");
+  if (tarea.estado !== "Completada") {
+    throw badRequest("Para verificar, la tarea debe estar Completada");
   }
 
-  // Ya hay consumo asociado a esta tarea?
+  // idempotencia: ¿ya hay consumo?
   const yaHayConsumo = await models.InventarioMovimiento.findOne({
     where: { referencia: { [Op.contains]: { tarea_id: tareaId } } },
   });
 
   await sequelize.transaction(async (t) => {
-    // 1) Consumo de insumos (si aún no se hizo)
+    // ============================
+    // (1) Consumo de insumos (si aún no se hizo)
+    // ============================
     if (!yaHayConsumo) {
       const insumos = await models.TareaInsumo.findAll({
         where: { tarea_id: tareaId },
@@ -412,14 +461,13 @@ exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
         });
 
         try {
-          // moverStock con validaciones
           await invService._moverStock({
             t,
             item,
-            tipo: 'SALIDA',
+            tipo: "SALIDA",
             cantidad: x.cantidad,
             unidad_id: x.unidad_id,
-            motivo: 'Consumo por verificación de tarea',
+            motivo: "Consumo por verificación de tarea",
             referencia: {
               tarea_id: tareaId,
               lote_id: tarea.lote_id,
@@ -427,14 +475,17 @@ exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
             },
           });
         } catch (err) {
-          if (err.code === 'LOW_STOCK' && !force) {
+          if (err.code === "LOW_STOCK" && !force) {
             throw badRequest(
               `Stock insuficiente para ${item.nombre}. Usa force=true para confirmar.`
             );
           }
-          if (err.code === 'LOW_STOCK' && force) {
+          if (err.code === "LOW_STOCK" && force) {
             // Forzar salida (delta directo en base)
-            const factor = await invService._getFactor(x.unidad_id, item.unidad_id);
+            const factor = await invService._getFactor(
+              x.unidad_id,
+              item.unidad_id
+            );
             const cantBase = Number(x.cantidad) * factor;
 
             const itemLocked = await models.InventarioItem.findByPk(item.id, {
@@ -448,13 +499,13 @@ exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
             await models.InventarioMovimiento.create(
               {
                 item_id: item.id,
-                tipo: 'SALIDA',
+                tipo: "SALIDA",
                 cantidad: x.cantidad,
                 unidad_id: x.unidad_id,
                 factor_a_unidad_base: factor,
                 cantidad_en_base: cantBase.toFixed(3),
                 stock_resultante: itemLocked.stock_actual,
-                motivo: 'Consumo (forzado) por verificación de tarea',
+                motivo: "Consumo (forzado) por verificación de tarea",
                 referencia: {
                   tarea_id: tareaId,
                   lote_id: tarea.lote_id,
@@ -471,20 +522,272 @@ exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
       }
     }
 
-    // 2) Marcar reservas como consumidas (DENTRO del mismo transaction)
+    // ============================
+    // (2) Marcar reservas como consumidas
+    // ============================
     await models.InventarioReserva.update(
-      { estado: 'Consumida' },
-      { where: { tarea_id: tareaId, estado: 'Reservada' }, transaction: t }
+      { estado: "Consumida" },
+      { where: { tarea_id: tareaId, estado: "Reservada" }, transaction: t }
     );
 
-    // 3) Cambiar estado y dejar traza
-    tarea.estado = 'Verificada';
+    // ============================
+    // (2.3) Indicadores (NO COSECHA): revalidar y dejar resumen
+    // ============================
+    const tipoCodigo = tarea.TipoActividad?.codigo; // p.ej. PODA, MALEZAS, NUTRICION, FITOSANITARIA, ENFUNDADO, COSECHA
+
+    if (tipoCodigo && tipoCodigo !== "COSECHA") {
+      try {
+        // indicadores pueden venir en el body o estar ya guardados en detalles
+        const incoming =
+          typeof comentarioOrBody === "object"
+            ? comentarioOrBody?.indicadores
+            : undefined;
+        const raw = incoming || tarea.detalles?.indicadores;
+        const parsed = validateIndicadores(tipoCodigo, raw); // si no aplica schema, devuelve null
+
+        if (parsed) {
+          const resumen = buildResumen(tipoCodigo, parsed);
+          const key = resumenKey(tipoCodigo);
+
+          const nuevosDetalles = { ...(tarea.detalles || {}), indicadores: parsed };
+          if (key && resumen) nuevosDetalles[key] = resumen;
+
+          tarea.detalles = nuevosDetalles;
+          await tarea.save({ transaction: t });
+        }
+      } catch (zerr) {
+        const e = badRequest(
+          `Indicadores inválidos para ${tipoCodigo}: ${zerr.message}`
+        );
+        e.code = "BAD_INDICADORES";
+        throw e;
+      }
+    }
+
+    // ============================
+    // (2.5) COSECHA: normalización a tablas (si aplica)
+    // ============================
+    if (tipoCodigo === "COSECHA") {
+      // indicadores desde body o JSONB
+      const inBody =
+        typeof comentarioOrBody === "object"
+          ? comentarioOrBody?.indicadores
+          : undefined;
+      const ind = inBody || tarea.detalles?.indicadores;
+      if (!ind || !ind.operacion || typeof ind.operacion.kgCosechados !== "number") {
+        throw badRequest(
+          "COSECHA: indicadores inválidos. Falta operacion.kgCosechados (number)."
+        );
+      }
+
+      // Helpers
+      const N = (v) => Number(v ?? 0);
+      const round3 = (x) => Math.round(N(x) * 1000) / 1000;
+      const safeStr = (s) =>
+        String(s ?? "")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+
+      const kgCosechados = N(ind.operacion.kgCosechados);
+      if (!(kgCosechados > 0)) {
+        throw badRequest("COSECHA: kgCosechados debe ser > 0");
+      }
+
+      // Clasificación → Exportación / Nacional
+      const exp = ind.clasificacion?.exportacion || {};
+      const nac = ind.clasificacion?.nacional || {};
+
+      const kgExp =
+        typeof exp.kgEstimados === "number"
+          ? N(exp.kgEstimados)
+          : typeof exp.gabetas === "number" &&
+            typeof exp.pesoPromGabetaKg === "number"
+          ? N(exp.gabetas) * N(exp.pesoPromGabetaKg)
+          : 0;
+
+      const kgNac =
+        typeof nac.kgEstimados === "number"
+          ? N(nac.kgEstimados)
+          : typeof nac.gabetas === "number" &&
+            typeof nac.pesoPromGabetaKg === "number"
+          ? N(nac.gabetas) * N(nac.pesoPromGabetaKg)
+          : 0;
+
+      if (kgExp < 0 || kgNac < 0)
+        throw badRequest("COSECHA: kg por destino no puede ser negativo");
+
+      // Rechazos
+      const rechList = Array.isArray(ind.rechazo?.detalle)
+        ? ind.rechazo.detalle
+        : [];
+      const kgRech = rechList.reduce((acc, r) => acc + N(r.kg), 0);
+      if (kgRech < 0) throw badRequest("COSECHA: rechazo (kg) no puede ser negativo");
+
+      // Cierre de masa
+      if (round3(kgExp + kgNac + kgRech) !== round3(kgCosechados)) {
+        throw badRequest(
+          `COSECHA: no cierra la masa. exp(${kgExp}) + nac(${kgNac}) + rech(${kgRech}) != kgCosechados(${kgCosechados})`
+        );
+      }
+
+      // Fecha DATEONLY segura
+      const f = ind.operacion.fechaCosecha ?? tarea.fecha_programada;
+      const yyyy_mm_dd =
+        typeof f === "string" ? f : new Date(f).toISOString().slice(0, 10);
+
+      // Código único por lote y fecha
+      const codigo = `CO-${yyyy_mm_dd}-L${tarea.lote_id}`;
+
+      // Upsert LoteCosecha
+      const notas =
+        (typeof comentarioOrBody === "object"
+          ? comentarioOrBody?.comentario
+          : comentario) || tarea.descripcion || null;
+
+      const lc = await models.LoteCosecha.findOne({
+        where: { codigo },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+
+      let loteCosechaId;
+      if (lc) {
+        Object.assign(lc, {
+          cosecha_id: tarea.cosecha_id,
+          lote_id: tarea.lote_id,
+          periodo_id: tarea.periodo_id || null,
+          tarea_id: tarea.id,
+          fecha_cosecha: yyyy_mm_dd,
+          kg_cosechados: round3(kgCosechados),
+          notas,
+        });
+        await lc.save({ transaction: t });
+        loteCosechaId = lc.id;
+      } else {
+        const nlc = await models.LoteCosecha.create(
+          {
+            codigo,
+            cosecha_id: tarea.cosecha_id,
+            lote_id: tarea.lote_id,
+            periodo_id: tarea.periodo_id || null,
+            tarea_id: tarea.id,
+            fecha_cosecha: yyyy_mm_dd,
+            kg_cosechados: round3(kgCosechados),
+            notas,
+          },
+          { transaction: t }
+        );
+        loteCosechaId = nlc.id;
+      }
+
+      // Clasificaciones (Exportación y Nacional)
+      await models.LoteCosechaClasificacion.destroy(
+        { where: { lote_cosecha_id: loteCosechaId } },
+        { transaction: t }
+      );
+      await models.LoteCosechaClasificacion.bulkCreate(
+        [
+          {
+            lote_cosecha_id: loteCosechaId,
+            destino: "Exportacion",
+            gabetas: Math.max(0, parseInt(exp.gabetas ?? 0, 10)),
+            peso_promedio_gabeta_kg:
+              exp.pesoPromGabetaKg != null ? N(exp.pesoPromGabetaKg) : null,
+            kg_estimados: round3(kgExp),
+          },
+          {
+            lote_cosecha_id: loteCosechaId,
+            destino: "Nacional",
+            gabetas: Math.max(0, parseInt(nac.gabetas ?? 0, 10)),
+            peso_promedio_gabeta_kg:
+              nac.pesoPromGabetaKg != null ? N(nac.pesoPromGabetaKg) : null,
+            kg_estimados: round3(kgNac),
+          },
+        ],
+        { transaction: t }
+      );
+
+      // Rechazos (detalle)
+      await models.LoteCosechaRechazo.destroy(
+        { where: { lote_cosecha_id: loteCosechaId } },
+        { transaction: t }
+      );
+      if (rechList.length) {
+        const mapCausa = (s) => {
+          const x = safeStr(s);
+          if (x.includes("mecan")) return "DanoMecanico";
+          if (x.includes("plag") || x.includes("antr")) return "Plaga";
+          if (x.includes("calib")) return "Calibre";
+          if (x.includes("manip")) return "Manipulacion";
+          return "Otro";
+        };
+        const rows = rechList.map((r) => ({
+          lote_cosecha_id: loteCosechaId,
+          causa: mapCausa(r.causa),
+          kg: round3(N(r.kg)),
+          observacion: r.observacion || null,
+        }));
+        await models.LoteCosechaRechazo.bulkCreate(rows, { transaction: t });
+      }
+
+      // Poscosecha (opcional 1:1)
+      const pos = ind.poscosecha || {};
+      if (Object.keys(pos).length) {
+        const payload = {
+          lote_cosecha_id: loteCosechaId,
+          cepillado: !!pos.cepillado,
+          clasificacion: !!pos.clasificacion,
+          tipo_contenedor: pos.tipoContenedor || "Gabeta plástica",
+          capacidad_gabeta_kg:
+            pos.capacidadGabetaKg != null ? N(pos.capacidadGabetaKg) : null,
+          gabetas_llenas:
+            pos.gabetasLlenas != null
+              ? Math.max(0, parseInt(pos.gabetasLlenas, 10))
+              : null,
+        };
+        const exists = await models.LoteCosechaPoscosecha.findOne({
+          where: { lote_cosecha_id: loteCosechaId },
+          transaction: t,
+        });
+        if (exists) {
+          await models.LoteCosechaPoscosecha.update(payload, {
+            where: { lote_cosecha_id: loteCosechaId },
+            transaction: t,
+          });
+        } else {
+          await models.LoteCosechaPoscosecha.create(payload, { transaction: t });
+        }
+      }
+
+      // Resumen en tarea.detalles (fuente de verdad: tablas)
+      const resumen = {
+        lote_cosecha_id: loteCosechaId,
+        kg_cosechados: round3(kgCosechados),
+        exportacion: {
+          gabetas: Math.max(0, parseInt(exp.gabetas ?? 0, 10)),
+          kg: round3(kgExp),
+        },
+        nacional: {
+          gabetas: Math.max(0, parseInt(nac.gabetas ?? 0, 10)),
+          kg: round3(kgNac),
+        },
+        rechazo_kg: round3(kgRech),
+      };
+      tarea.detalles = { ...(tarea.detalles || {}), resumen_cosecha: resumen };
+      await tarea.save({ transaction: t });
+    }
+
+    // ============================
+    // (3) Cambiar estado y dejar traza (UN SOLO LUGAR)
+    // ============================
+    tarea.estado = "Verificada";
     await tarea.save({ transaction: t });
 
     await models.TareaEstado.create(
       {
         tarea_id: tarea.id,
-        estado: 'Verificada',
+        estado: "Verificada",
         usuario_id: currentUser.sub,
         comentario: comentario || null,
         fecha: new Date(),
@@ -493,25 +796,42 @@ exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
     );
   });
 
-  // Notificar asignados
+  // -------- notificar asignados --------
   const asigns = await models.TareaAsignacion.findAll({
     where: { tarea_id: tareaId },
   });
   for (const a of asigns) {
     await notif.crear(a.usuario_id, {
-      tipo: 'Tarea',
-      titulo: 'Tarea verificada',
+      tipo: "Tarea",
+      titulo: "Tarea verificada",
       mensaje: `La tarea #${tareaId} fue verificada por el técnico`,
       referencia: { tarea_id: tareaId },
-      prioridad: 'Info',
+      prioridad: "Info",
     });
   }
 
-  if (io) io.emit('tareas:update');
+  if (io) io.emit("tareas:update");
   return await exports.obtenerTarea(currentUser, tareaId);
 };
 
-//** 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 exports.crearNovedad = async (currentUser, tareaId, body, io) => {
   const { texto } = body || {};

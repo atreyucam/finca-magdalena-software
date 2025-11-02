@@ -219,4 +219,11 @@ export const configurarRequerimientos = (tareaId, payload) =>
   api.patch(`/tareas/${tareaId}/requerimientos`, payload);
 
 
+// === NUEVO ===
+export const obtenerMiUsuario = () => api.get('/usuarios/me');
+export const obtenerMisPagos    = () => api.get('/usuarios/me/pagos');   // o usa /pagos/mios si prefieres
+export const obtenerMisTareas   = () => api.get('/usuarios/me/tareas');
+
+
+
 export default api;

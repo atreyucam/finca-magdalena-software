@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listarUsuarios } from "../api/apiClient";
+import { listarUsuarios, desactivarUsuario, editarUsuario } from "../api/apiClient";
 import CrearUsuarioModal from "../components/CrearUsuarioModal";
 import { useNavigate } from "react-router-dom";
 
@@ -7,11 +7,36 @@ export default function Usuarios() {
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
+  const [busyId, setBusyId] = useState(null);
   const [filtros, setFiltros] = useState({ q: "", estado: "", role: "" });
   const [showModal, setShowModal] = useState(false);
 
   const navigate = useNavigate();
+
+
+   const toggleEstado = async (u) => {
+   if (busyId) return;
+   const activar = u.estado !== "Activo";
+   const ok = window.confirm(
+     activar
+       ? `¿Activar a ${u.nombres} ${u.apellidos}?`
+       : `¿Desactivar a ${u.nombres} ${u.apellidos}?`
+   );
+   if (!ok) return;
+   try {
+     setBusyId(u.id);
+     if (activar) {
+       await editarUsuario(u.id, { estado: "Activo" }); // activar
+     } else {
+       await desactivarUsuario(u.id); // desactivar (endpoint dedicado)
+     }
+     await fetchUsuarios();
+   } catch (e) {
+     alert(e?.response?.data?.message || "No se pudo actualizar el estado");
+   } finally {
+     setBusyId(null);
+   }
+ };
 
   // Cargar usuarios desde API
   const fetchUsuarios = async () => {
@@ -185,14 +210,18 @@ export default function Usuarios() {
                           Ver
                         </button>
                         <button
+                        onClick={() => toggleEstado(u)}
                           className={[
                             "rounded-xl px-3 py-1.5 text-xs font-semibold",
                             u.estado === "Activo"
                               ? "bg-rose-100 text-rose-700 hover:bg-rose-200"
                               : "bg-emerald-600 text-white hover:bg-emerald-700",
                           ].join(" ")}
+                          disabled={busyId === u.id}
                         >
-                          {u.estado === "Activo" ? "Desactivar" : "Activar"}
+                          {busyId === u.id
+                           ? "Guardando…"
+                           : u.estado === "Activo" ? "Desactivar" : "Activar"}
                         </button>
                       </div>
                     </td>

@@ -33,21 +33,26 @@ exports.iniciarTarea = async (req, res, next) => {
   }
 };
 
+// backend/src/modules/tareas/tareas.controller.js (completar)
 exports.completarTarea = async (req, res, next) => {
   try {
     const io = req.app.get("io");
-    const out = await service.completarTarea(req.user, +req.params.id, req.body?.comentario, io);
+    // Pasa el body completo para permitir { comentario, indicadores }
+    const out = await service.completarTarea(req.user, +req.params.id, req.body, io);
     res.json(out);
   } catch (err) { next(err); }
 };
 
+// ... y verificar igual, ya lo tienes así:
 exports.verificarTarea = async (req, res, next) => {
   try {
     const io = req.app.get("io");
+    // ya pasas req.body como 3er argumento (comentarioOrBody)
     const out = await service.verificarTarea(req.user, +req.params.id, req.body, io);
     res.json(out);
   } catch (err) { next(err); }
 };
+
 
 exports.crearNovedad = async (req, res, next) => {
   try {

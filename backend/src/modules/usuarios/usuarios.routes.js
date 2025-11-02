@@ -6,6 +6,12 @@ const { requireRole } = require('../../middlewares/rbac.middleware');
 
 const router = Router();
 
+/* ========= NUEVO: endpoints “me” ========= */
+router.get('/me', requireAuth, controller.obtenerMiUsuario);
+router.get('/me/pagos', requireAuth, controller.obtenerMisPagos);
+router.get('/me/tareas', requireAuth, controller.obtenerMisTareas);
+/* ======================================== */
+
 
 // Solo Propietario y Tecnico pueden gestionar usuarios
 router.post('/', requireAuth, requireRole('Propietario','Tecnico'), controller.crearUsuario);

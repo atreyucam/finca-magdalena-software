@@ -21,6 +21,7 @@ import Usuarios from "../pages/Usuarios";
 import MisTareas from "../pages/MisTareas";
 import DetalleUsuario from "../pages/DetalleUsuario";
 import DetalleTarea from "../pages/DetalleTarea";
+import MiPerfil from "../pages/MiPerfil"; // ⬅️ importar
 
 
 export default function AppRouter() {
@@ -67,6 +68,7 @@ export default function AppRouter() {
           <Route path="/worker" element={<WorkerLayout />}>
             <Route index element={<Navigate to="mis-tareas" replace />} />
             <Route path="mis-tareas" element={<MisTareas />} />
+            <Route path="mi-perfil" element={<MiPerfil />} />  
             <Route path="notificaciones" element={<Notificaciones />} />
             <Route path="detalleTarea/:id" element={<DetalleTarea />} />
           </Route>
@@ -79,3 +81,13 @@ export default function AppRouter() {
     </Routes>
   );
 }
+
+
+
+// fincalamagdalenaec.com
+
+// softpitahaya.fincalamagdalenaec.com
+
+// softpitahaya.fincalamagdalenaec.com/ownner/tareas
+
+// softpitahaya.fincalamagdalenaec.com/worker/mis-tareas

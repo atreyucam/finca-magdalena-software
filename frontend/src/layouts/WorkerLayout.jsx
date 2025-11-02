@@ -8,6 +8,7 @@ import { clsx } from "clsx";
 const base = "/worker";
 const items = [
   { to: `${base}/mis-tareas`, label: "Mis tareas" },
+  { to: `${base}/mi-perfil`, label: "Mi perfil" },   // ⬅️ nuevo
   { to: `${base}/notificaciones`, label: "Notificaciones" },
 ];
 

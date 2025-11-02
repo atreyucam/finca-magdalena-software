@@ -5,18 +5,28 @@ import {
   obtenerUsuario,
   listarTareas,
   obtenerSemanaPorUsuario,
+  editarUsuario as apiEditarUsuario,
+  desactivarUsuario as apiDesactivarUsuario,
 } from "../api/apiClient";
 import { Tab } from "@headlessui/react";
-import { ArrowLeft, Edit, CheckCircle, XCircle, Facebook, Linkedin, Twitter } from "lucide-react";
+import { ArrowLeft, Edit, CheckCircle, XCircle} from "lucide-react";
+import useAuthStore from "../store/authStore";
+import Avatar from "../components/Avatar";
 
 export default function DetalleUsuario() {
   const { id } = useParams();
   const navigate = useNavigate();
-
   const [usuario, setUsuario] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pagos, setPagos] = useState([]);
   const [tareas, setTareas] = useState([]);
+  const [editing, setEditing] = useState(false);
+ const [saving, setSaving] = useState(false);
+ const [form, setForm] = useState({
+   cedula: "", nombres: "", apellidos: "", email: "",
+   telefono: "", direccion: "", fecha_ingreso: "", role: "", estado: ""
+ });
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -24,6 +34,17 @@ export default function DetalleUsuario() {
         setLoading(true);
         const uRes = await obtenerUsuario(id);
         setUsuario(uRes.data);
+       setForm({
+         cedula: uRes.data.cedula || "",
+         nombres: uRes.data.nombres || "",
+         apellidos: uRes.data.apellidos || "",
+         email: uRes.data.email || "",
+         telefono: uRes.data.telefono || "",
+         direccion: uRes.data.direccion || "",
+         fecha_ingreso: uRes.data.fecha_ingreso || "",
+         role: uRes.data.role || "",
+         estado: uRes.data.estado || ""
+       });
 
         const pagosRes = await obtenerSemanaPorUsuario(id);
         setPagos(pagosRes?.data || []);
@@ -39,10 +60,66 @@ export default function DetalleUsuario() {
     fetchData();
   }, [id]);
 
+ const onChange = (e) => {
+   const { name, value } = e.target;
+   setForm((f) => ({ ...f, [name]: value }));
+ };
+ const guardarCambios = async () => {
+   try {
+     setSaving(true);
+     const payload = {
+       cedula: form.cedula,
+       nombres: form.nombres,
+       apellidos: form.apellidos,
+       email: form.email,
+       telefono: form.telefono || null,
+       direccion: form.direccion || null,
+       fecha_ingreso: form.fecha_ingreso || null,
+       role: form.role,         // opcional (el servicio valida rol)
+       estado: form.estado,     // por si quieres activar desde acá
+     };
+     const res = await apiEditarUsuario(id, payload);
+     setUsuario(res.data || res); // según tu api
+     setEditing(false);
+   } catch (e) {
+     alert(e?.response?.data?.message || "No se pudo guardar");
+   } finally {
+     setSaving(false);
+   }
+ };
+ const toggleEstado = async () => {
+   const activar = usuario.estado !== "Activo";
+   const ok = window.confirm(
+     activar ? "¿Activar usuario?" : "¿Desactivar usuario?"
+   );
+   if (!ok) return;
+   try {
+     setSaving(true);
+     if (activar) {
+       const res = await apiEditarUsuario(id, { estado: "Activo" });
+       setUsuario(res.data || res);
+       setForm((f) => ({ ...f, estado: "Activo" }));
+     } else {
+       const res = await apiDesactivarUsuario(id);
+       setUsuario((u) => ({ ...u, estado: res.data?.estado || "Inactivo" }));
+       setForm((f) => ({ ...f, estado: "Inactivo" }));
+     }
+   } catch (e) {
+     alert(e?.response?.data?.message || "No se pudo actualizar el estado");
+   } finally {
+     setSaving(false);
+   }
+ };
+
   if (loading) return <p className="text-slate-500 p-6">Cargando detalle...</p>;
   if (!usuario) return <p className="text-rose-600 p-6">Usuario no encontrado</p>;
 
   const inicial = (usuario.nombres || "?").charAt(0).toUpperCase();
+   const currentUserRole = (useAuthStore.getState()?.user?.role || "").toLowerCase();
+ const allowedRoles = currentUserRole === "propietario"
+   ? ["Propietario", "Tecnico", "Trabajador"]
+   : ["Trabajador"]; // si es Técnico u otro
+
 
   return (
     <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
@@ -60,14 +137,51 @@ export default function DetalleUsuario() {
         {/* === PERFIL (centrado) === */}
         <aside className="rounded-2xl bg-white border border-slate-200 shadow-sm p-6">
           <div className="flex flex-col items-center text-center">
-            <div className="w-24 h-24 rounded-full bg-sky-100 flex items-center justify-center text-4xl font-bold text-sky-700">
-              {inicial}
-            </div>
+          <Avatar
+  user={usuario}
+  name={`${usuario.nombres} ${usuario.apellidos}`}
+  size={96}
+  className="shadow-sm text-4xl"
+/>
 
-            <h2 className="mt-4 text-xl font-semibold text-slate-900">
-              {usuario.nombres} {usuario.apellidos}
-            </h2>
-            <p className="text-slate-500">{usuario.role}</p>
+
+            {editing ? (
+              <div className="mt-4 w-full space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    name="nombres"
+                    placeholder="Nombres"
+                    value={form.nombres}
+                    onChange={onChange}
+                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <input
+                    name="apellidos"
+                    placeholder="Apellidos"
+                    value={form.apellidos}
+                    onChange={onChange}
+                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <select
+                  name="role"
+                  value={allowedRoles.includes(form.role) ? form.role : allowedRoles[0]}
+                  onChange={onChange}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                >
+                  {allowedRoles.map(r => (
+                    <option key={r} value={r}>{r === "Tecnico" ? "Técnico" : r}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <>
+                <h2 className="mt-4 text-xl font-semibold text-slate-900">
+                  {usuario.nombres} {usuario.apellidos}
+                </h2>
+                <p className="text-slate-500">{usuario.role}</p>
+              </>
+            )}
 
             <span
               className={[
@@ -93,20 +207,59 @@ export default function DetalleUsuario() {
           <dl className="mt-6 space-y-4 text-sm">
             <div>
               <dt className="text-slate-500">Email</dt>
-              <dd className="font-medium text-slate-900 break-all">{usuario.email}</dd>
-            </div>
+              
+              <dd className="font-medium text-slate-900 break-all">
+               {editing ? (
+                 <input
+                   name="email"
+                   value={form.email}
+                   onChange={onChange}
+                   className="w-full rounded-xl border border-slate-300 px-3 py-1 text-sm"
+                 />
+               ) : (
+                 usuario.email
+               )}
+             </dd>
+           </div>
             <div>
               <dt className="text-slate-500">Teléfono</dt>
-              <dd className="font-medium text-slate-900">{usuario.telefono || "-"}</dd>
+              <dd className="font-medium text-slate-900">
+               {editing ? (
+                 <input
+                   name="telefono"
+                   value={form.telefono}
+                   onChange={onChange}
+                   className="w-full rounded-xl border border-slate-300 px-3 py-1 text-sm"
+                 />
+               ) : (usuario.telefono || "-")}
+             </dd>
             </div>
             <div>
               <dt className="text-slate-500">Dirección</dt>
-              <dd className="font-medium text-slate-900">{usuario.direccion || "-"}</dd>
+              <dd className="font-medium text-slate-900">
+               {editing ? (
+                 <input
+                   name="direccion"
+                   value={form.direccion}
+                   onChange={onChange}
+                   className="w-full rounded-xl border border-slate-300 px-3 py-1 text-sm"
+                 />
+               ) : (usuario.direccion || "-")}
+             </dd>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <dt className="text-slate-500">Cédula</dt>
-                <dd className="font-medium text-slate-900">{usuario.cedula}</dd>
+                <dd className="font-medium text-slate-900">
+                 {editing ? (
+                   <input
+                     name="cedula"
+                     value={form.cedula}
+                     onChange={onChange}
+                     className="w-full rounded-xl border border-slate-300 px-3 py-1 text-sm"
+                   />
+                 ) : usuario.cedula}
+               </dd>
               </div>
               <div>
                 <dt className="text-slate-500">Fecha ingreso</dt>
@@ -116,20 +269,57 @@ export default function DetalleUsuario() {
           </dl>
 
        {/* Acciones */}
-<div className="mt-6 border-t border-slate-200 pt-5">
-  <button className="mb-3 w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-sky-600 hover:bg-sky-700">
-    <Edit size={16} /> Editar
-  </button>
+<div className="mt-6 border-t border-slate-200 pt-5 space-y-3">
+  {!editing ? (
+                <button
+      onClick={() => {
+        // Si el rol actual no es elegible para quien edita, preselecciona el primero permitido
+        if (!allowedRoles.includes(form.role)) {
+          setForm(f => ({ ...f, role: allowedRoles[0] }));
+        }
+        setEditing(true);
+      }}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-sky-600 hover:bg-sky-700"
+              >
+                <Edit size={16} /> Editar
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={guardarCambios}
+                  disabled={saving}
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {saving ? "Guardando…" : "Guardar"}
+                </button>
+                <button
+                  onClick={() => { setEditing(false); setForm((f)=>({ ...f, ...usuario })); }}
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
 
-  {usuario.estado === "Activo" ? (
-    <button className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700">
-      <XCircle size={18} /> Desactivar
-    </button>
-  ) : (
-    <button className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700">
-      <CheckCircle size={18} /> Activar
-    </button>
-  )}
+  <button
+             onClick={toggleEstado}
+             disabled={saving}
+             className={`w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${
+               usuario.estado === "Activo"
+                 ? "bg-rose-600 hover:bg-rose-700"
+                 : "bg-emerald-600 hover:bg-emerald-700"
+             } disabled:opacity-60`}
+           >
+             {usuario.estado === "Activo" ? (
+               <>
+                 <XCircle size={18} /> {saving ? "Desactivando…" : "Desactivar"}
+               </>
+             ) : (
+               <>
+                 <CheckCircle size={18} /> {saving ? "Activando…" : "Activar"}
+               </>
+             )}
+           </button>
 </div>
 
         </aside>
@@ -171,9 +361,9 @@ export default function DetalleUsuario() {
                               <span
                                 className={[
                                   "inline-flex items-center gap-2 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1",
-                                  p.estado === "Pagado"
+                                  p.estado_pago === "Pagado"
                                     ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                                    : p.estado === "Pendiente"
+                                    : p.estado_pago === "Pendiente"
                                     ? "bg-amber-50 text-amber-700 ring-amber-200"
                                     : "bg-slate-50 text-slate-700 ring-slate-200",
                                 ].join(" ")}
@@ -181,14 +371,14 @@ export default function DetalleUsuario() {
                                 <span
                                   className={[
                                     "h-1.5 w-1.5 rounded-full",
-                                    p.estado === "Pagado"
+                                    p.estado_pago === "Pagado"
                                       ? "bg-emerald-500"
-                                      : p.estado === "Pendiente"
+                                      : p.estado_pago === "Pendiente"
                                       ? "bg-amber-500"
                                       : "bg-slate-400",
                                   ].join(" ")}
                                 />
-                                {p.estado}
+                                {p.estado_pago}
                               </span>
                             </td>
                             <td className="px-4 py-2">{p.fecha_inicio}</td>

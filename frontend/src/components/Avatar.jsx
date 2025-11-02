@@ -1,59 +1,54 @@
-import React from "react";
+// src/components/Avatar.jsx
+import React, { useMemo } from "react";
+import { getAvatarColor, getContrastColor, getUserSeed } from "../utils/avatarColor";
 
-// Función para obtener iniciales del nombre
-const getInitials = (name = "") =>
-  name
-    .split(" ")
-    .map((n) => n[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
-// Función para asignar color aleatorio estable
-const stringToColor = (str) => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = hash % 360;
-  return `hsl(${hue}, 70%, 80%)`;
-};
-
-// Componente Avatar
+/**
+ * Avatar con color determinístico.
+ *
+ * Props:
+ * - user: objeto usuario (opcional) -> se usará para generar la semilla estable
+ * - name: nombre para iniciales / title
+ * - email, seed: opcionales; seed tiene prioridad
+ * - size, className, rounded
+ */
 export default function Avatar({
-  src,
+  user = null,
   name = "",
+  email = "",
+  seed = "",
   size = 36,
-  icon = null,
   className = "",
-  style = {},
+  rounded = "full",
 }) {
-  const initials = getInitials(name);
-  const bgColor = stringToColor(name || "User");
+  // 👇 Semilla unificada y normalizada
+  const baseSeed = useMemo(() => {
+    return seed || getUserSeed(user) || email || name || "";
+  }, [seed, user, email, name]);
+
+  const bg = useMemo(() => getAvatarColor(baseSeed), [baseSeed]);
+  const fg = useMemo(() => getContrastColor(bg), [bg]);
+
+  const initials = useMemo(() => {
+    const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+    return parts.slice(0, 2).map(p => p[0]?.toUpperCase()).join("") || "U";
+  }, [name]);
+
+  const radiusClass = rounded === "xl" ? "rounded-xl" : "rounded-full";
 
   return (
     <div
-      className={`flex items-center justify-center rounded-full border border-white shadow-sm overflow-hidden ${className}`}
+      title={name || undefined}
+      className={`inline-flex items-center justify-center font-semibold select-none ${radiusClass} ${className}`}
       style={{
         width: size,
         height: size,
-        fontSize: size * 0.4,
-        backgroundColor: src ? "transparent" : bgColor,
-        ...style,
+        backgroundColor: bg,
+        color: fg,
+        fontSize: Math.max(10, Math.floor(size * 0.38)),
+        lineHeight: 1,
       }}
     >
-      {src ? (
-        <img
-          src={src}
-          alt={name}
-          className="w-full h-full object-cover rounded-full"
-        />
-      ) : icon ? (
-        icon
-      ) : (
-        <span className="font-semibold text-slate-700">{initials}</span>
-      )}
+      {initials}
     </div>
   );
 }

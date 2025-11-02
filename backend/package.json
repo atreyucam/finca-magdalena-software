@@ -8,7 +8,9 @@
         "dev": "nodemon -L --watch src --ext js,json src/server.js",
         "start": "NODE_ENV=production node src/server.js",
         "db:sync": "NODE_ENV=development node -e \"require('./src/db').sync()\"",
-        "db:seed": "NODE_ENV=development node -e \"require('./src/db').seed()\""
+        "db:seed": "NODE_ENV=development node -e \"require('./src/db').seed()\"",
+        "test": "jest --runInBand",
+  "test:watch": "jest --watch"
     },
     "dependencies": {
         "bcryptjs": "^2.4.3",
@@ -20,9 +22,12 @@
         "pg": "^8.12.0",
         "pg-hstore": "^2.3.4",
         "sequelize": "^6.37.3",
-        "socket.io": "^4.8.1"
+        "socket.io": "^4.8.1",
+        "zod": "^4.1.12"
     },
     "devDependencies": {
-        "nodemon": "^3.1.0"
+        "jest": "^30.2.0",
+        "nodemon": "^3.1.0",
+        "supertest": "^7.1.4"
     }
 }
