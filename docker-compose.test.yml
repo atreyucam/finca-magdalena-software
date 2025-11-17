@@ -1,0 +1,10 @@
+services:
+  db:
+    environment:
+      DB_NAME: finca_test
+
+  api:
+    env_file:
+      - ./backend/.env.test
+    environment:
+      NODE_ENV: test

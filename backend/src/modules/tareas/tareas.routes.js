@@ -8,36 +8,36 @@ const { requireRole } = require('../../middlewares/rbac.middleware');
 const router = Router();
 
 
-// Crear tarea (Propietario/Tecnico)
-router.post('/', requireAuth, requireRole('Propietario','Tecnico'), controller.crearTarea);
-// Asignar responsables (Propietario/Tecnico)
-router.post('/:id/asignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.asignarUsuarios);
-// Completar (Trabajador asignado o Técnico)
+// resumen de tareas (para cards y dashboard)
+router.get('/resumen', requireAuth, controller.resumenTareas);
 
-router.post("/:id/iniciar", requireAuth, controller.iniciarTarea);
-router.post('/:id/completar', requireAuth, controller.completarTarea);
-// Verificar (solo Técnico)
-router.post('/:id/verificar', requireAuth, requireRole('Propietario','Tecnico'), controller.verificarTarea);
-// Novedades (asignado, técnico o propietario)
-router.post('/:id/novedades', requireAuth, controller.crearNovedad);
-router.get('/:id/novedades', requireAuth, controller.listarNovedades);
-
-
-// Listado y detalle
+// listado y detalle de tareas
 router.get('/', requireAuth, controller.listarTareas);
 router.get('/:id', requireAuth, controller.obtenerTarea);
 
-router.post('/:id/insumos', requireAuth, requireRole('Propietario','Tecnico'), controller.configurarInsumos);
-router.get('/:id/insumos', requireAuth, controller.listarInsumos);
 
-// rutas
-router.patch('/:id/ActualizarAsignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarAsignaciones);
+// Crear tarea (Propietario/Tecnico)
+router.post('/', requireAuth, requireRole('Propietario','Tecnico'), controller.crearTarea);
 
-// backend/src/modules/tareas/tareas.routes.js
-router.get('/:id/requerimientos', requireAuth, controller.listarRequerimientosTarea);
+// Asignar responsables (Propietario/Tecnico)
+router.post('/:id/asignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.asignarUsuarios);
+router.patch('/:id/asignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarAsignaciones);
 
-router.patch('/:id/requerimientos', requireAuth, requireRole('Propietario','Tecnico'), controller.configurarRequerimientos);
+// Items de tarea (unificado: Insumo / herramienta / equipo)
+router.post('/:id/items', requireAuth, requireRole('Propietario','Tecnico'), controller.configurarItems);
+router.get('/:id/items', requireAuth, controller.listarItems);
 
+// Iniciar / completar / verificar tarea
+router.post("/:id/iniciar", requireAuth, controller.iniciarTarea);
+router.post('/:id/completar', requireAuth, controller.completarTarea);
+router.post('/:id/verificar', requireAuth, requireRole('Propietario','Tecnico'), controller.verificarTarea);
+router.post("/:id/cancelar", requireAuth, requireRole('Propietario','Tecnico'), controller.cancelarTarea)
 
+// Novedades
+router.post('/:id/novedades', requireAuth, controller.crearNovedad);
+router.get('/:id/novedades', requireAuth, controller.listarNovedades);
 
 module.exports = router;
+
+
+

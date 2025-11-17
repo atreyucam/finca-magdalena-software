@@ -20,11 +20,10 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: finca_api
-    env_file:
-      - ./backend/.env.dev
     environment:
       DB_HOST: db
       DB_PORT: 5432
+      NODE_ENV: ${NODE_ENV}
     ports:
       - "3001:3000"         # o 3001:3000 si 3000 está ocupado
     depends_on:
@@ -39,7 +38,7 @@ services:
     image: dpage/pgadmin4:8
     container_name: finca_pgadmin
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@local.test
+      PGADMIN_DEFAULT_EMAIL: admin@local.com
       PGADMIN_DEFAULT_PASSWORD: admin123
     ports:
       - "5050:80"

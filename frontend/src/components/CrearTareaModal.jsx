@@ -6,9 +6,10 @@ import {
   listarUsuarios,
   listarTiposActividad,
   listarItemsInventario,
-  configurarInsumosTarea,
+  configurarTareaItems,
 } from "../api/apiClient";
 import toast from "react-hot-toast";
+import DetalleActividad from "../components/DetalleActividad";
 
 export default function CrearTareaModal({ open, onClose, onCreated }) {
   const panelRef = useRef(null);
@@ -18,6 +19,7 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
   const [periodos, setPeriodos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [tiposActividad, setTiposActividad] = useState([]);
+  const [detalle, setDetalle] = useState({});
 
   const [busqueda, setBusqueda] = useState("");
   const [tab, setTab] = useState("Insumos"); // Insumos | Herramientas | Equipo
@@ -140,6 +142,10 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
     setPeriodos(c?.PeriodoCosechas || []);
     setForm((f) => ({ ...f, periodo_id: "" }));
   }, [form.cosecha_id, cosechas]);
+  useEffect(() => {
+  setDetalle({});
+}, [form.tipo_codigo]);
+
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -182,43 +188,86 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
     if (tipo === "herr") setHerrSel((p) => p.filter((x) => x.item_id !== id));
     if (tipo === "eq") setEqSel((p) => p.filter((x) => x.item_id !== id));
   };
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const payload = {
+      cosecha_id: Number(form.cosecha_id),
+      periodo_id: form.periodo_id ? Number(form.periodo_id) : null,
+      lote_id: Number(form.lote_id),
+      tipo_codigo: form.tipo_codigo,
+      fecha_programada: new Date(form.fecha_programada).toISOString(),
+      descripcion: form.descripcion || null,
+      asignados: form.asignados.map((x) => Number(x)),
+      // "detalles" ya no es necesario para recursos, pero si quieres dejarlo para info visual no molesta
+      detalles: {
+        herramientas: herrSel,
+        equipos: eqSel,
+      },
+      detalle,
+    };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const payload = {
-        cosecha_id: Number(form.cosecha_id),
-        periodo_id: form.periodo_id ? Number(form.periodo_id) : null,
-        lote_id: Number(form.lote_id),
-        tipo_codigo: form.tipo_codigo,
-        fecha_programada: new Date(form.fecha_programada).toISOString(),
-        descripcion: form.descripcion || null,
-        asignados: form.asignados.map((x) => Number(x)),
-        detalles: { herramientas: herrSel, equipos: eqSel },
-      };
-      if (form.titulo && form.titulo.trim()) payload.titulo = form.titulo.trim();
-
-      const res = await crearTarea(payload);
-      const tarea = res.data;
-
-      if (insumosSel.length > 0) {
-        await configurarInsumosTarea(tarea.id, {
-          insumos: insumosSel.map((i) => ({
-            item_id: i.item_id,
-            cantidad: Number(i.cantidad || 0),
-            unidad_codigo: i.unidad,
-          })),
-        });
-      }
-
-      toast.success("Tarea creada ✅");
-      onCreated?.(tarea);
-      onClose?.();
-    } catch (err) {
-      console.error("Error creando tarea:", err);
-      toast.error(err?.response?.data?.message || "No se pudo crear la tarea");
+    if (form.titulo && form.titulo.trim()) {
+      payload.titulo = form.titulo.trim();
     }
-  };
+
+    // 1) Crear tarea
+    const res = await crearTarea(payload);
+    const tarea = res.data;
+
+    // 2) Construir items unificados para TareaItem
+    const items = [];
+
+    // Insumos seleccionados -> categoria Insumo
+    insumosSel
+      .filter((i) => Number(i.cantidad) > 0)
+      .forEach((i, idx) => {
+        items.push({
+          item_id: i.item_id,
+          categoria: "Insumo",
+          unidad_codigo: i.unidad, // viene del inventario
+          cantidad_planificada: Number(i.cantidad),
+          idx: items.length,
+        });
+      });
+
+    // Herramientas -> categoria Herramienta (cantidad 1 por defecto)
+    herrSel.forEach((h) => {
+      items.push({
+        item_id: h.item_id,
+        categoria: "Herramienta",
+        unidad_codigo: "unidad", // debe existir en catálogo de unidades
+        cantidad_planificada: 1,
+        idx: items.length,
+      });
+    });
+
+    // Equipos -> categoria Equipo (cantidad 1 por defecto)
+    eqSel.forEach((e) => {
+      items.push({
+        item_id: e.item_id,
+        categoria: "Equipo",
+        unidad_codigo: "unidad",
+        cantidad_planificada: 1,
+        idx: items.length,
+      });
+    });
+
+    // 3) Enviar items si hay algo
+    if (items.length > 0) {
+      await configurarTareaItems(tarea.id, { items });
+    }
+    
+    toast.success("Tarea creada ✅");
+    onCreated?.(tarea);
+    onClose?.();
+  } catch (err) {
+    console.error("Error creando tarea:", err);
+    toast.error(
+      err?.response?.data?.message || "No se pudo crear la tarea"
+    );
+  }
+};
 
   if (!open) return null;
 
@@ -336,7 +385,10 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
                 </select>
                 <p className="mt-1 text-xs text-slate-500">Mantén presionado Ctrl (Windows) o Cmd (Mac) para seleccionar varios.</p>
               </div>
+
+
             </div>
+              
 
             {/* Columna derecha: Tabs selección */}
             <div className="space-y-3">
@@ -458,8 +510,21 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
                   <p className="text-sm text-slate-500">Ninguno seleccionado</p>
                 )}
               </div>
+              {/* === DETALLE DE ACTIVIDAD (AQUÍ, FUERA DE LAS COLUMNAS) === */}
+            {form.tipo_codigo && (
+              <div className="md:col-span-2">
+                <DetalleActividad
+                  tipo={form.tipo_codigo}
+                  detalle={detalle}
+                  setDetalle={setDetalle}
+                />
+              </div>
+            )}
             </div>
+            
+          
           </form>
+          
         </div>
 
         {/* Footer fijo (siempre visible) */}

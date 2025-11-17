@@ -5,49 +5,63 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 (async () => {
+
+  console.log("--------------------------------------------------");
+  console.log(`🚀 Iniciando servidor en entorno: ${config.env.toUpperCase()}`);
+  
+  // Mensajes de advertencia / info dependiendo del entorno
+  if (config.env === "development") {
+    console.log("🌱 MODO DESARROLLO: Base de datos de desarrollo, tablas pueden alterarse.");
+  } 
+  else if (config.env === "test") {
+    console.log("🧪 MODO TEST: Usando base de datos de pruebas (se borra y recrea con cada test).");
+  }
+  else if (config.env === "production") {
+    console.log("🔥 MODO PRODUCCIÓN: Modo seguro, sin sync automático.");
+  }
+  console.log("--------------------------------------------------");
+
   await db.connect();
 
-  // Sincroniza solo en dev; en prod usaremos migraciones más adelante
+  // Sincroniza solo en dev
   if (config.env === 'development') {
     await db.sync();
     // await db.seed();
   }
 
-  // Crear servidor HTTP con Express
+  // ⚙️ Crear servidor HTTP
   const server = http.createServer(app);
 
-  // Inicializar socket.io
+  // 🔌 socket.io
   const io = new Server(server, {
     cors: {
-      origin: "http://localhost:5173", // tu frontend
+      origin: "http://localhost:5173",
       credentials: true,
     },
   });
 
-  // Guardar en app para acceder desde controladores
   app.set("io", io);
 
-  // server.js (tu mismo archivo)
-io.on("connection", (socket) => {
-  console.log("Cliente conectado:", socket.id);
+  io.on("connection", (socket) => {
+    console.log("Cliente conectado:", socket.id);
 
-  // 👉 suscripción a una tarea concreta
-  socket.on("join:tarea", (tareaId) => {
-    socket.join(`tarea:${tareaId}`);
+    socket.on("join:tarea", (tareaId) => {
+      socket.join(`tarea:${tareaId}`);
+    });
+
+    socket.on("leave:tarea", (tareaId) => {
+      socket.leave(`tarea:${tareaId}`);
+    });
+
+    socket.on("disconnect", () => {
+      console.log("Cliente desconectado:", socket.id);
+    });
   });
 
-  socket.on("leave:tarea", (tareaId) => {
-    socket.leave(`tarea:${tareaId}`);
+  // 🚀 Levantar servidor
+  server.listen(config.port, () => {
+    console.log(`API + Socket escuchando en :${config.port}`);
+    console.log(`🌐 Entorno activo: ${config.env.toUpperCase()}`);
   });
 
-  socket.on("disconnect", () => {
-    console.log("Cliente desconectado:", socket.id);
-  });
-});
-
-
-  // Levantar servidor
-  server.listen(config.port, () =>
-    console.log(`API + Socket escuchando en :${config.port}`)
-  );
 })();

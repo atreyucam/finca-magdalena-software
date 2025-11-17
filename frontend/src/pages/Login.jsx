@@ -8,6 +8,7 @@ import { useState } from "react";
 import useAuthStore from "../store/authStore";
 import heroImg from "../assets/pitahaya.png";
 import logoFM from "../assets/Logo-FM.png";
+import { clsx } from "clsx";
 
 const schema = z.object({
   email: z.string().email("Correo inválido"),
@@ -134,7 +135,7 @@ export default function Login() {
                 )}
               </div>
 
-              {/* Recuperar */}
+              {/* Recuperar
               <div className="pt-1 text-center lg:text-left">
                 <Link
                   to="/recuperar"
@@ -142,7 +143,7 @@ export default function Login() {
                 >
                   ¿Olvidaste tu contraseña?
                 </Link>
-              </div>
+              </div> */}
 
               {/* Botón */}
               <button
@@ -154,15 +155,16 @@ export default function Login() {
               </button>
 
               {/* Línea divisoria */}
-              <div className="my-6 h-px w-full bg-slate-200" />
-
-              {/* Registro */}
-              <p className="text-center text-sm text-slate-500">
-                ¿No tienes una cuenta?{" "}
-                <Link to="/registro" className="font-medium text-slate-700 hover:underline">
-                  Regístrate
-                </Link>
-              </p>
+              <div className="my-4 h-px w-full bg-slate-200" />
+             <div
+                         className={clsx(
+                           "pt-3 text-xs text-slate-500 px-1 text-center",
+                           "transition-[opacity,transform,max-height] duration-200 ease-in-out overflow-hidden",
+                           open ? "opacity-100 translate-y-0 max-h-10" : "opacity-0 -translate-y-1 max-h-0"
+                          )}
+                          >
+                         © {new Date().getFullYear()} Finca La Magdalena
+                       </div>
             </form>
           </div>
         </div>

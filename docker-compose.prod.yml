@@ -1,0 +1,15 @@
+services:
+  db:
+    environment:
+      DB_NAME: finca_prod
+
+  api:
+    env_file:
+      - ./backend/.env.prod
+    environment:
+      NODE_ENV: production
+    # En prod normalmente NO montas el código, usas solo la imagen
+    volumes: []
+    # Y podrías cambiar el puerto mapeado si quieres:
+    ports:
+      - "8080:3000"

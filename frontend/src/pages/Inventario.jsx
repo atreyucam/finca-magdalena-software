@@ -12,7 +12,11 @@ import AjustarStockModal from "../components/AjustarStockModal";
 import useUnidades from "../hooks/useUnidades";
 
 export default function Inventario() {
-  const [tab, setTab] = useState("Insumo"); // Insumo | Herramienta | Equipo | Historial
+  const [tab, setTab] = useState(() => {
+  if (typeof window === "undefined") return "Insumo";
+  return localStorage.getItem("inventarioTab") || "Insumo";
+}); // Insumo | Herramienta | Equipo | Historial
+
   const [items, setItems] = useState([]);
   const [movimientos, setMovimientos] = useState([]);
   const [alertas, setAlertas] = useState([]);
@@ -54,6 +58,11 @@ export default function Inventario() {
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, busqueda, filtroActivos]);
+  useEffect(() => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("inventarioTab", tab);
+}, [tab]);
+
 
   const toggleActivo = async (it) => {
     try {
@@ -101,22 +110,30 @@ export default function Inventario() {
             </div>
           )}
         </div>
+{/* Tabs: segmented control */}
+<div className="mb-2">
+  <h2 className="text-md font-semibold text-slate-600">Categorías</h2>
+</div>
 
-        {/* Tabs: segmented control */}
-        <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-1 inline-flex">
-          {["Insumo", "Herramienta", "Equipo", "Historial"].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={[
-                "px-4 py-2 text-sm font-medium rounded-lg transition-colors",
-                tab === t ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-800",
-              ].join(" ")}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+<div className="mb-6 flex items-center gap-3">
+  <div className="rounded-xl border border-slate-200 bg-slate-50 p-1 inline-flex">
+    {["Insumo", "Herramienta", "Equipo", "Historial"].map((t) => (
+      <button
+        key={t}
+        onClick={() => setTab(t)}
+        className={[
+          "px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+          tab === t
+            ? "bg-white text-slate-900 shadow-sm"
+            : "text-slate-600 hover:text-slate-800",
+        ].join(" ")}
+      >
+        {t}
+      </button>
+    ))}
+  </div>
+</div>
+
 
         {/* Acciones / filtros (no en Historial) */}
         {tab !== "Historial" && (

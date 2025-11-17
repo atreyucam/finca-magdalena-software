@@ -1,40 +1,48 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import Topbar from "../components/Topbar";
 import Sidebar from "../components/Sidebar";
-import { clsx } from "clsx";
 
+/* --- Items de navegación OWNER --- */
 const base = "/owner";
 const items = [
   { to: `${base}/dashboard`, label: "Dashboard" },
   { to: `${base}/tareas`, label: "Tareas" },
   { to: `${base}/inventario`, label: "Inventario" },
+  { to: `${base}/produccion`, label: "Producción" },
   { to: `${base}/usuarios`, label: "Usuarios" },
+  { to: `${base}/pagos`, label: "Pagos"},
   { to: `${base}/metricas`, label: "Métricas" },
   { to: `${base}/notificaciones`, label: "Notificaciones" },
 ];
 
 export default function OwnerLayout() {
-  const [open, setOpen] = useState(true); // expandido por defecto
+  // sidebar abierto solo en >= xl al cargar
+  const [open, setOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth >= 1280;
+  });
 
-  const handleToggle = () => setOpen((s) => !s); // ahora también controla lg
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1280px)");
+    const handler = (e) => setOpen(e.matches);
+    handler(mq);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  const handleToggle = () => setOpen((s) => !s);
 
   return (
-    <div className="min-h-dvh bg-white overflow-x-hidden">
-      <Topbar onToggleSidebar={handleToggle} isSidebarOpen={open} />
+    <div className="flex h-screen bg-white overflow-hidden">
+      {/* Columna izquierda: sidebar fijo */}
+      <Sidebar items={items} open={open} onClose={() => setOpen(false)} />
 
-      <div
-  className={clsx(
-    "relative grid",
-    "grid-cols-1",
-    "lg:grid-cols-[4.5rem_1fr]",
-    open ? "xl:grid-cols-[16rem_1fr]" : "xl:grid-cols-[4.5rem_1fr]",
-    "transition-[grid-template-columns] duration-300 ease-in-out" // animación suave
-  )}
->
+      {/* Columna derecha: topbar fijo + contenido scrollable */}
+      <div className="flex flex-1 min-w-0 flex-col min-h-0">
+        <Topbar onToggleSidebar={handleToggle} isSidebarOpen={open} />
 
-        <Sidebar items={items} open={open} onClose={() => setOpen(false)} />
-        <main className="min-h-[calc(100dvh-3.5rem)] p-4 sm:p-6 lg:p-8 overflow-x-hidden">
+        <main className=" app-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8">
           <Outlet />
         </main>
       </div>

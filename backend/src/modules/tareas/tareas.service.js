@@ -2,11 +2,6 @@ const { Op } = require("sequelize");
 const { models, sequelize } = require("../../db");
 const invService = require("../inventario/inventario.service");
 const notif = require("../notificaciones/notificaciones.service");
-const {
-  validateIndicadores,
-  buildResumen,
-  resumenKey,
-} = require('./indicadores.helper');
 
 function badRequest(msg = "Solicitud inválida") {
     const e = new Error(msg);
@@ -26,13 +21,11 @@ function notFound(msg = "No encontrado") {
     e.code = "NOT_FOUND";
     return e;
 }
-
 function emitTarea(io, tareaId, type, payload = {}) {
   if (!io) return;
   io.emit("tareas:update"); // refresca listados
   io.to(`tarea:${tareaId}`).emit(`tarea:${type}`, { tareaId, ...payload });
 }
-
 async function logTareaEvento({ tarea, estado = tarea.estado, usuarioId, comentario }) {
   return models.TareaEstado.create({
     tarea_id: tarea.id,
@@ -48,161 +41,300 @@ async function logTareaEvento({ tarea, estado = tarea.estado, usuarioId, comenta
 // Servicios de Tareas
 // ==================
 exports.crearTarea = async (currentUser, data, io) => {
-    if (!["Propietario", "Tecnico"].includes(currentUser.role))
-        throw forbidden();
+  if (!["Propietario", "Tecnico"].includes(currentUser.role)) throw forbidden();
 
-    const {
-        titulo,
-        tipo_codigo,
-        tipo_id,
-        lote_id,
-        fecha_programada,
-        descripcion,
-        detalles,
-        cosecha_id,
-        periodo_id,
-        asignados = [],  // 👈 agregado
-    } = data;
+  const {
+    titulo,
 
-    if (
-        !lote_id ||
-        !fecha_programada ||
-        (!tipo_id && !tipo_codigo) ||
-        !cosecha_id
-    ) {
-        throw badRequest(
-            "tipo, lote, fecha_programada y cosecha_id son obligatorios"
-        );
-    }
+    fecha_programada,
+    lote_id,
+    cosecha_id,
+    periodo_id,
+    tipo_codigo,
+    tipo_id,
+    descripcion,
+    asignados = [],
+    detalle = {},
+  } = data;
 
-   // ✅ definir tipoId y preparar nombre
+  if (!lote_id || !fecha_programada || (!tipo_id && !tipo_codigo) || !cosecha_id) {
+    throw badRequest("tipo, lote, fecha_programada y cosecha_id son obligatorios");
+  }
+
+  // ---------- Resolver tipo (por id o por código) ----------
   let tipoId = tipo_id;
   let tipoNombre = null;
 
-  // Resolver por código si no viene id
-  if (!tipoId && tipo_codigo) {
-    const tipo = await models.TipoActividad.findOne({ where: { codigo: tipo_codigo } });
+  // Siempre normalizamos el código a minúsculas y sin espacios
+  let tipoCodigo = (tipo_codigo || "").trim().toLowerCase();
+
+  // Si NO viene tipo_id pero sí tipo_codigo → buscar por código (en minúsculas)
+  if (!tipoId && tipoCodigo) {
+    const tipo = await models.TipoActividad.findOne({
+      where: { codigo: tipoCodigo }, // 👈 en la BD están en minúsculas
+    });
     if (!tipo) throw badRequest("tipo_codigo inválido");
+
     tipoId = tipo.id;
     tipoNombre = tipo.nombre || tipo.codigo || null;
+    tipoCodigo = (tipo.codigo || tipoCodigo).toLowerCase(); // reforzamos
   }
 
-  // Si vino id pero no tenemos nombre, lo buscamos para el título
+  // Si viene tipo_id, completar nombre/código desde la BD
   if (tipoId && !tipoNombre) {
-    const t = await models.TipoActividad.findByPk(tipoId, { attributes: ["nombre", "codigo"] });
-    tipoNombre = t?.nombre || t?.codigo || null;
+    const t = await models.TipoActividad.findByPk(tipoId, {
+      attributes: ["nombre", "codigo"],
+    });
+    if (!t) throw badRequest("tipo_id inválido");
+
+    tipoNombre = t.nombre || t.codigo || null;
+    if (!tipoCodigo) {
+      tipoCodigo = (t.codigo || "").toLowerCase();
+    }
   }
 
+  // Seguridad extra: si aún así no tenemos código, algo está mal
+  if (!tipoCodigo) {
+    throw badRequest("No se pudo resolver tipo_codigo de la actividad");
+  }
 
+  // ---------- Validar cosecha y periodo ----------
+  const cosecha = await models.Cosecha.findByPk(cosecha_id);
+  if (!cosecha || cosecha.estado !== "Activa") {
+    throw badRequest("cosecha_id inválido o no activa");
+  }
 
-
-
-    // Validar cosecha
-    const cosecha = await models.Cosecha.findByPk(cosecha_id);
-    if (!cosecha || cosecha.estado !== "Activa")
-        throw badRequest("cosecha_id inválido o no activa");
-
-    // Validar periodo (opcional)
-    let periodoId = periodo_id;
-    if (periodoId) {
-        const periodo = await models.PeriodoCosecha.findOne({
-            where: { id: periodoId, cosecha_id },
-        });
-        if (!periodo)
-            throw badRequest("periodo_id inválido o no pertenece a la cosecha");
+  let periodoId = periodo_id || null;
+  if (periodoId) {
+    const periodo = await models.PeriodoCosecha.findOne({
+      where: { id: periodoId, cosecha_id },
+    });
+    if (!periodo) {
+      throw badRequest("periodo_id inválido o no pertenece a la cosecha");
     }
+  }
 
-
-
-    // Normalizar fecha programada a Date (acepta string ISO local/UTC)
   const fechaProg = new Date(fecha_programada);
-  if (isNaN(fechaProg.getTime())) throw badRequest("fecha_programada inválida");
+  if (isNaN(fechaProg.getTime())) {
+    throw badRequest("fecha_programada inválida");
+  }
 
-  // 👇 fallback del título
   const tituloFinal = (titulo && String(titulo).trim()) || tipoNombre || "Tarea";
 
-    // Crear tarea
-    const tarea = await models.Tarea.create({
-        titulo: tituloFinal,
-        tipo_id: tipoId,
-        lote_id,
-        fecha_programada: fechaProg,
-        descripcion: descripcion || null,
-        creador_id: currentUser.sub,
-        detalles: detalles || {},
-        cosecha_id,
-        periodo_id: periodoId || null,
-        estado: "Pendiente",
+  // ---------- Crear tarea base (pendiente por defecto) ----------
+  const tarea = await models.Tarea.create({
+    titulo: tituloFinal,
+    tipo_id: tipoId,
+    lote_id,
+    fecha_programada: fechaProg,
+    descripcion: descripcion || null,
+    creador_id: currentUser.sub,
+    cosecha_id,
+    periodo_id: periodoId,
+    estado: "Pendiente",
+  });
+
+  // ---------- Detalle 1:1 según tipo de actividad ----------
+  switch (tipoCodigo) {
+    case "poda": {
+  const {
+    tipo,
+    // legacy:
+    plantas_intervenidas,
+    // nuevo:
+    porcentaje_plantas_plan_pct,
+    herramientas_desinfectadas,
+  } = detalle || {};
+
+  if (!tipo) {
+    throw badRequest("PODA: 'tipo' es obligatorio (Formacion/Produccion/Sanitaria)");
+  }
+
+  await models.TareaPoda.create({
+    tarea_id: tarea.id,
+    tipo,
+    plantas_intervenidas: plantas_intervenidas ?? null,
+    porcentaje_plantas_plan_pct: porcentaje_plantas_plan_pct ?? null,
+    porcentaje_plantas_real_pct: null,
+    herramientas_desinfectadas:
+      typeof herramientas_desinfectadas === "boolean"
+        ? herramientas_desinfectadas
+        : true,
+  });
+  break;
+}
+
+case "maleza": {
+  const {
+    metodo,
+    // legacy:
+    cobertura_estimada_pct,
+    // nuevo nombre:
+    cobertura_planificada_pct,
+  } = detalle || {};
+
+  if (!metodo) {
+    throw badRequest(
+      "MALEZA: 'metodo' es obligatorio (Manual/Mecanico/Quimico)"
+    );
+  }
+
+  const planPct =
+    cobertura_planificada_pct ?? cobertura_estimada_pct ?? null;
+
+  await models.TareaManejoMaleza.create({
+    tarea_id: tarea.id,
+    metodo,
+    cobertura_planificada_pct: planPct,
+    cobertura_real_pct: null,
+  });
+  break;
+}
+
+    case "nutricion": {
+  const { metodo_aplicacion, porcentaje_plantas_plan_pct } = detalle || {};
+  if (!metodo_aplicacion) {
+    throw badRequest("NUTRICION: 'metodo_aplicacion' es obligatorio");
+  }
+
+  await models.TareaNutricion.create({
+    tarea_id: tarea.id,
+    metodo_aplicacion,
+    porcentaje_plantas_plan_pct: porcentaje_plantas_plan_pct ?? null,
+    porcentaje_plantas_real_pct: null,
+  });
+  break;
+}
+
+
+    case "fitosanitario": {
+  const {
+    plaga_enfermedad,
+    conteo_umbral,
+    periodo_carencia_dias,
+    fecha_hora_inicio,
+    fecha_hora_fin,
+    volumen_aplicacion_lt,
+    equipo_aplicacion,
+    temp_celsius,
+    viento_kmh,
+    humedad_pct,
+    porcentaje_plantas_plan_pct,   // nuevo
+  } = detalle || {};
+
+  if (!plaga_enfermedad) {
+    throw badRequest("FITOSANITARIO: 'plaga_enfermedad' es obligatorio");
+  }
+  if (periodo_carencia_dias == null) {
+    throw badRequest("FITOSANITARIO: 'periodo_carencia_dias' es obligatorio");
+  }
+
+  await models.TareaFitosanitaria.create({
+    tarea_id: tarea.id,
+    plaga_enfermedad,
+    conteo_umbral: conteo_umbral || null,
+    periodo_carencia_dias,
+    fecha_hora_inicio: fecha_hora_inicio || fechaProg,
+    fecha_hora_fin: fecha_hora_fin || fechaProg,
+    volumen_aplicacion_lt: volumen_aplicacion_lt ?? null,
+    equipo_aplicacion: equipo_aplicacion || null,
+    temp_celsius: temp_celsius ?? null,
+    viento_kmh: viento_kmh ?? null,
+    humedad_pct: humedad_pct ?? null,
+    porcentaje_plantas_plan_pct: porcentaje_plantas_plan_pct ?? null,
+    porcentaje_plantas_real_pct: null,
+  });
+  break;
+}
+
+
+case "enfundado": {
+  const {
+    frutos_enfundados,
+    porcentaje_frutos_plan_pct,
+  } = detalle || {};
+
+  await models.TareaEnfundado.create({
+    tarea_id: tarea.id,
+    frutos_enfundados: frutos_enfundados ?? 0,
+    porcentaje_frutos_plan_pct: porcentaje_frutos_plan_pct ?? null,
+    porcentaje_frutos_real_pct: null,
+  });
+  break;
+}
+
+    // 'cosecha' no requiere detalle al crear
+    case "cosecha":
+    default:
+      // si en el futuro agregas otro tipo no detallado, no rompe
+      break;
+  }
+
+  // ---------- Estado inicial: siempre registramos "Pendiente" al crear ----------
+  await models.TareaEstado.create({
+    tarea_id: tarea.id,
+    estado: "Pendiente",
+    usuario_id: currentUser.sub,
+    comentario: `Se ha creado la tarea #${tarea.id}.`,
+  });
+
+  // ---------- Asignaciones iniciales (si vienen) ----------
+  if (Array.isArray(asignados) && asignados.length > 0) {
+    const asignables = await models.Usuario.findAll({
+      where: { id: { [Op.in]: asignados }, estado: "Activo" },
+      attributes: ["id"],
+      raw: true,
     });
 
-    await models.TareaEstado.create({
-        tarea_id: tarea.id,
-        estado: "Pendiente",
-        usuario_id: currentUser.sub,
-        comentario: `Se ha creado la tarea #${tarea.id}.`,
-    });
+    const foundIds = asignables.map((u) => Number(u.id));
+    const requested = asignados.map(Number);
+    const missing = requested.filter((id) => !foundIds.includes(id));
 
-    // 👇 Nueva parte: asignar usuarios directamente si vienen en el body
-    if (Array.isArray(asignados) && asignados.length > 0) {
-        // Validar usuarios activos
-        const asignables = await models.Usuario.findAll({
-            where: { id: { [Op.in]: asignados }, estado: "Activo" },
-            attributes: ["id"],
-            raw: true,
-        });
-
-        const foundIds = asignables.map((u) => Number(u.id));
-        const requested = asignados.map(Number);
-        const missing = requested.filter((id) => !foundIds.includes(id));
-
-        if (missing.length) {
-            throw badRequest(
-                `Usuarios inválidos o inactivos: ${missing.join(",")}`
-            );
-        }
-
-        // Guardar asignaciones
-        const bulk = asignados.map((uid) => ({
-            tarea_id: tarea.id,
-            usuario_id: uid,
-            rol_en_tarea: "Ejecutor",
-            asignado_por_id: currentUser.sub,
-        }));
-        await models.TareaAsignacion.bulkCreate(bulk, { ignoreDuplicates: true });
-
-        // Actualizar estado si estaba pendiente
-        if (tarea.estado === "Pendiente") {
-            tarea.estado = "Asignada";
-            await tarea.save();
-            await models.TareaEstado.create({
-                tarea_id: tarea.id,
-                estado: "Asignada",
-                usuario_id: currentUser.sub,
-                comentario: "Asignación inicial",
-            });
-        }
-
-        // Notificar a cada usuario
-        for (const uid of asignados) {
-            try {
-                await notif.crear(uid, {
-                    tipo: "Tarea",
-                    titulo: "Nueva tarea asignada",
-                    mensaje: `Tarea #${tarea.id} asignada para el ${tarea.fecha_programada}`,
-                    referencia: { tarea_id: tarea.id },
-                    prioridad: "Info",
-                });
-            } catch (e) {
-                console.error("Notif asignación falló", { uid, tareaId: tarea.id, e });
-            }
-        }
+    if (missing.length) {
+      throw badRequest(`Usuarios inválidos o inactivos: ${missing.join(",")}`);
     }
 
-    // 🔥 Emitir evento en tiempo real
-    if (io) io.emit("tareas:update");
+    const bulk = requested.map((uid) => ({
+      tarea_id: tarea.id,
+      usuario_id: uid,
+      rol_en_tarea: "Ejecutor",
+      asignado_por_id: currentUser.sub,
+    }));
 
-    return await exports.obtenerTarea(currentUser, tarea.id);
+    await models.TareaAsignacion.bulkCreate(bulk, { ignoreDuplicates: true });
+
+    // Actualizamos estado a "Asignada"
+    tarea.estado = "Asignada";
+    await tarea.save();
+
+    await models.TareaEstado.create({
+      tarea_id: tarea.id,
+      estado: "Asignada",
+      usuario_id: currentUser.sub,
+      comentario: "Asignación inicial",
+    });
+
+    // Notificaciones (no bloqueamos si falla)
+    for (const uid of requested) {
+      notif
+        .crear(uid, {
+          tipo: "Tarea",
+          titulo: "Nueva tarea asignada",
+          mensaje: `Tarea #${tarea.id} asignada para el ${tarea.fecha_programada}`,
+          referencia: { tarea_id: tarea.id },
+          prioridad: "Info",
+        })
+        .catch(() => {});
+    }
+  }
+
+  // ---------- Evento en tiempo real ----------
+  if (io) io.emit("tareas:update");
+
+  // Devuelve la tarea ya enriquecida con includes
+  return await exports.obtenerTarea(currentUser, tarea.id);
 };
+
 
 
 exports.asignarUsuarios = async (currentUser, tareaId, body, io) => {
@@ -272,20 +404,14 @@ exports.asignarUsuarios = async (currentUser, tareaId, body, io) => {
     return await exports.obtenerTarea(currentUser, tareaId);
 };
 
-// ...imports habituales:
 
-
-// NUEVO: iniciarTarea
 exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
   const tarea = await models.Tarea.findByPk(tareaId);
   if (!tarea) throw notFound("Tarea no existe");
-
-  // Estados terminales no permiten iniciar
   if (["Verificada", "Cancelada"].includes(tarea.estado)) {
     throw badRequest("La tarea ya fue cerrada");
   }
 
-  // Permisos
   if (currentUser.role === "Trabajador") {
     const asign = await models.TareaAsignacion.findOne({
       where: { tarea_id: tareaId, usuario_id: currentUser.sub },
@@ -295,12 +421,9 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
     throw forbidden("El propietario no inicia tareas");
   }
 
-  // Idempotencia: si ya está EnProgreso, solo devolvemos
   if (tarea.estado === "En progreso") {
     return await exports.obtenerTarea(currentUser, tareaId);
   }
-
-  // Si ya está Completada, no puede “iniciarse”
   if (tarea.estado === "Completada") {
     throw badRequest("La tarea ya fue marcada como Completada");
   }
@@ -309,27 +432,23 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
     tarea.estado = "En progreso";
     await tarea.save({ transaction: t });
 
-    await models.TareaEstado.create(
-      {
-        tarea_id: tarea.id,
-        estado: "En progreso",
-        usuario_id: currentUser.sub,
-        comentario: comentario || null,
-      },
-      { transaction: t }
-    );
+    await models.TareaEstado.create({
+      tarea_id: tarea.id,
+      estado: "En progreso",
+      usuario_id: currentUser.sub,
+      comentario: comentario || null,
+      fecha: new Date(),
+    }, { transaction: t });
   });
 
-  // Notificación a Técnicos (ajústalo a tu gusto)
   await notif.crearParaRoles(["Tecnico"], {
     tipo: "Tarea",
     titulo: "Tarea en progreso",
     mensaje: `La tarea #${tareaId} fue marcada como En Progreso`,
     referencia: { tarea_id: tareaId },
     prioridad: "Info",
-  });
+  }).catch(() => {});
 
-  // Broadcast realtime
   if (io) {
     io.emit("tareas:update");
     io.emit("tarea:estado", { tareaId, estado: "En progreso" });
@@ -339,18 +458,14 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
 };
 
 
-
-// backend/src/modules/tareas/tareas.service.js (fragmento dentro de completarTarea)
-
-
-exports.completarTarea = async (currentUser, tareaId, comentario, io) => {
+exports.completarTarea = async (currentUser, tareaId, body, io) => {
   const tarea = await models.Tarea.findByPk(tareaId, {
-    include: [{ model: models.TipoActividad, attributes: ['codigo'] }],
+    include: [{ model: models.TipoActividad, attributes: ["codigo"] }],
   });
   if (!tarea) throw notFound("Tarea no existe");
-  if (["Verificada","Cancelada"].includes(tarea.estado)) throw badRequest("La tarea ya fue cerrada");
+  if (["Verificada","Cancelada"].includes(tarea.estado))
+    throw badRequest("La tarea ya fue cerrada");
 
-  // Permisos (como ya lo tienes)...
   if (currentUser.role === "Trabajador") {
     const asign = await models.TareaAsignacion.findOne({
       where: { tarea_id: tareaId, usuario_id: currentUser.sub },
@@ -360,113 +475,195 @@ exports.completarTarea = async (currentUser, tareaId, comentario, io) => {
     throw forbidden("El propietario no completa tareas");
   }
 
-  // === Indicadores: si el tipo aplica (no cosecha) valida y guarda en JSONB
-  const tipoCodigo = tarea.TipoActividad?.codigo;
-try {
-  const rawIndicadores = typeof comentario === "object" ? comentario?.indicadores : undefined;
-  const parsed = validateIndicadores(tipoCodigo, rawIndicadores);
+  const comentario =
+    typeof body === "string"
+      ? body
+      : body?.comentario || null;
 
-  if (parsed) {
-    // ✅ Agrega resumen y clave según tipo (poda, malezas, nutrición, etc.)
-    const resumen = buildResumen(tipoCodigo, parsed);
-    const key = resumenKey(tipoCodigo); // ej: 'resumen_poda'
+  const itemsReal = Array.isArray(body?.items) ? body.items : [];
+  const detalleReal = body && typeof body === "object" ? body.detalle || {} : {};
+  const tipoCodigo = tarea.TipoActividad?.codigo || "";
 
-    const nuevosDetalles = { ...(tarea.detalles || {}), indicadores: parsed };
-    if (key && resumen) nuevosDetalles[key] = resumen;
-
-    tarea.detalles = nuevosDetalles;
-    await tarea.save();
-  }
-} catch (zerr) {
-  const e = badRequest(`Indicadores inválidos para ${tipoCodigo}: ${zerr.message}`);
-  e.code = "BAD_INDICADORES";
-  throw e;
-}
-
-  // === tu lógica existente para cambiar estado a 'Completada' y log TareaEstado:
-  if (tarea.estado === "Completada") return await exports.obtenerTarea(currentUser, tareaId);
 
   await sequelize.transaction(async (t) => {
-    tarea.estado = "Completada";
-    await tarea.save({ transaction: t });
+    // 1) Actualizar cantidades reales de items (nutrición / fitosanitario / etc.)
+    if (itemsReal.length) {
+      const byId = new Map(itemsReal.filter(x => x.id).map(x => [x.id, x]));
+      const byItem = new Map(itemsReal.filter(x => x.item_id && !x.id).map(x => [x.item_id, x]));
 
-    await models.TareaEstado.create({
-      tarea_id: tarea.id,
-      estado: "Completada",
-      usuario_id: currentUser.sub,
-      comentario: (typeof comentario === 'string') ? comentario : (comentario?.comentario || null),
-    }, { transaction: t });
+      const tareaItems = await models.TareaItem.findAll({
+        where: { tarea_id: tareaId },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+
+      for (const ti of tareaItems) {
+        const src = byId.get(ti.id) || byItem.get(ti.item_id);
+        if (src && src.cantidad_real != null) {
+          ti.cantidad_real = Number(src.cantidad_real);
+          await ti.save({ transaction: t });
+        }
+      }
+    }
+
+    // 2) Actualizar métricas reales específicas por tipo de tarea
+    if (tipoCodigo === "poda") {
+      const { porcentaje_plantas_real_pct, herramientas_desinfectadas } = detalleReal;
+      const det = await models.TareaPoda.findOne({
+        where: { tarea_id: tareaId },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (det) {
+        if (porcentaje_plantas_real_pct != null) {
+          det.porcentaje_plantas_real_pct = Number(porcentaje_plantas_real_pct);
+        }
+        if (typeof herramientas_desinfectadas === "boolean") {
+          det.herramientas_desinfectadas = herramientas_desinfectadas;
+        }
+        await det.save({ transaction: t });
+      }
+    }
+
+    if (tipoCodigo === "maleza") {
+      const { cobertura_real_pct } = detalleReal;
+      const det = await models.TareaManejoMaleza.findOne({
+        where: { tarea_id: tareaId },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (det && cobertura_real_pct != null) {
+        det.cobertura_real_pct = Number(cobertura_real_pct);
+        await det.save({ transaction: t });
+      }
+    }
+
+    if (tipoCodigo === "enfundado") {
+      const { porcentaje_frutos_real_pct } = detalleReal;
+      const det = await models.TareaEnfundado.findOne({
+        where: { tarea_id: tareaId },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (det && porcentaje_frutos_real_pct != null) {
+        det.porcentaje_frutos_real_pct = Number(porcentaje_frutos_real_pct);
+        await det.save({ transaction: t });
+      }
+    }
+
+    if (tipoCodigo === "nutricion") {
+  const { porcentaje_plantas_real_pct } = detalleReal;
+  const det = await models.TareaNutricion.findOne({
+    where: { tarea_id: tareaId },
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
+  if (det && porcentaje_plantas_real_pct != null) {
+    det.porcentaje_plantas_real_pct = Number(porcentaje_plantas_real_pct);
+    await det.save({ transaction: t });
+  }
+}
+if (tipoCodigo === "fitosanitario") {
+  const { porcentaje_plantas_real_pct } = detalleReal;
+  const det = await models.TareaFitosanitaria.findOne({
+    where: { tarea_id: tareaId },
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
+  if (det && porcentaje_plantas_real_pct != null) {
+    det.porcentaje_plantas_real_pct = Number(porcentaje_plantas_real_pct);
+    await det.save({ transaction: t });
+  }
+}
+
+
+
+    // 3) Estado de la tarea
+    if (tarea.estado !== "Completada") {
+      tarea.estado = "Completada";
+      await tarea.save({ transaction: t });
+
+      await models.TareaEstado.create({
+        tarea_id: tarea.id,
+        estado: "Completada",
+        usuario_id: currentUser.sub,
+        comentario,
+        fecha: new Date(),
+      }, { transaction: t });
+    }
   });
 
-  // Notificaciones, sockets, etc...
+
+
+
   await notif.crearParaRoles(["Tecnico"], {
     tipo: "Tarea",
     titulo: "Tarea completada",
     mensaje: `La tarea #${tareaId} fue marcada como Completada`,
     referencia: { tarea_id: tareaId },
     prioridad: "Info",
-  });
+  }).catch(() => {});
+
   if (io) io.emit("tareas:update");
   return await exports.obtenerTarea(currentUser, tareaId);
 };
 
 
-// ======================================================================
-// Verificar tarea (solo Técnico) + consumo de insumos (idempotente) + indicadores
-// ======================================================================
-exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
-  // permitir { comentario, force, indicadores } o string
-  const comentario =
-    typeof comentarioOrBody === "string"
-      ? comentarioOrBody
-      : comentarioOrBody?.comentario || null;
-
-  const force =
-    typeof comentarioOrBody === "object" ? !!comentarioOrBody.force : false;
-
-  // -------- permisos básicos --------
-  if (currentUser.role !== "Tecnico") {
-    throw forbidden("Solo el técnico puede verificar");
+exports.verificarTarea = async (currentUser, tareaId, body, io) => {
+  if (currentUser.role !== "Tecnico" && currentUser.role !== "Propietario") {
+    throw forbidden("Solo Técnico o Propietario pueden verificar");
   }
 
-  // traemos también el TipoActividad para no queryear dos veces
+  const comentario =
+    typeof body === "string"
+      ? body
+      : body?.comentario || null;
+
+  const force =
+    typeof body === "object" ? !!body.force : false;
+
   const tarea = await models.Tarea.findByPk(tareaId, {
     include: [{ model: models.TipoActividad, attributes: ["codigo"] }],
   });
   if (!tarea) throw notFound("Tarea no existe");
-  if (tarea.estado !== "Completada") {
+  if (tarea.estado !== "Completada")
     throw badRequest("Para verificar, la tarea debe estar Completada");
-  }
 
-  // idempotencia: ¿ya hay consumo?
+  const tipoCodigo = tarea.TipoActividad?.codigo || "";
+
   const yaHayConsumo = await models.InventarioMovimiento.findOne({
     where: { referencia: { [Op.contains]: { tarea_id: tareaId } } },
   });
 
   await sequelize.transaction(async (t) => {
-    // ============================
-    // (1) Consumo de insumos (si aún no se hizo)
-    // ============================
+    // (1) Consumo de insumos basado en tarea_items
     if (!yaHayConsumo) {
-      const insumos = await models.TareaInsumo.findAll({
+      const items = await models.TareaItem.findAll({
         where: { tarea_id: tareaId },
+        include: [models.InventarioItem],
         transaction: t,
-        lock: t.LOCK.UPDATE,
+        // lock: t.LOCK.UPDATE,
       });
 
-      for (const x of insumos) {
-        const item = await models.InventarioItem.findByPk(x.item_id, {
-          transaction: t,
-          lock: t.LOCK.UPDATE,
-        });
+      for (const ti of items) {
+        if (ti.categoria !== "Insumo") continue;
+        const item = ti.InventarioItem;
+        if (!item) continue;
+
+        const usar = Number(
+          ti.cantidad_real && ti.cantidad_real > 0
+            ? ti.cantidad_real
+            : ti.cantidad_planificada || 0
+        );
+        if (!(usar > 0)) continue;
 
         try {
           await invService._moverStock({
             t,
             item,
             tipo: "SALIDA",
-            cantidad: x.cantidad,
-            unidad_id: x.unidad_id,
+            cantidad: usar,
+            unidad_id: ti.unidad_id,
             motivo: "Consumo por verificación de tarea",
             referencia: {
               tarea_id: tareaId,
@@ -481,12 +678,11 @@ exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
             );
           }
           if (err.code === "LOW_STOCK" && force) {
-            // Forzar salida (delta directo en base)
             const factor = await invService._getFactor(
-              x.unidad_id,
+              ti.unidad_id,
               item.unidad_id
             );
-            const cantBase = Number(x.cantidad) * factor;
+            const cantBase = usar * factor;
 
             const itemLocked = await models.InventarioItem.findByPk(item.id, {
               transaction: t,
@@ -500,8 +696,8 @@ exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
               {
                 item_id: item.id,
                 tipo: "SALIDA",
-                cantidad: x.cantidad,
-                unidad_id: x.unidad_id,
+                cantidad: usar,
+                unidad_id: ti.unidad_id,
                 factor_a_unidad_base: factor,
                 cantidad_en_base: cantBase.toFixed(3),
                 stock_resultante: itemLocked.stock_actual,
@@ -522,314 +718,163 @@ exports.verificarTarea = async (currentUser, tareaId, comentarioOrBody, io) => {
       }
     }
 
-    // ============================
-    // (2) Marcar reservas como consumidas
-    // ============================
+    // (2) Reservas → Consumidas
     await models.InventarioReserva.update(
       { estado: "Consumida" },
       { where: { tarea_id: tareaId, estado: "Reservada" }, transaction: t }
     );
 
-    // ============================
-    // (2.3) Indicadores (NO COSECHA): revalidar y dejar resumen
-    // ============================
-    const tipoCodigo = tarea.TipoActividad?.codigo; // p.ej. PODA, MALEZAS, NUTRICION, FITOSANITARIA, ENFUNDADO, COSECHA
-
-    if (tipoCodigo && tipoCodigo !== "COSECHA") {
-      try {
-        // indicadores pueden venir en el body o estar ya guardados en detalles
-        const incoming =
-          typeof comentarioOrBody === "object"
-            ? comentarioOrBody?.indicadores
-            : undefined;
-        const raw = incoming || tarea.detalles?.indicadores;
-        const parsed = validateIndicadores(tipoCodigo, raw); // si no aplica schema, devuelve null
-
-        if (parsed) {
-          const resumen = buildResumen(tipoCodigo, parsed);
-          const key = resumenKey(tipoCodigo);
-
-          const nuevosDetalles = { ...(tarea.detalles || {}), indicadores: parsed };
-          if (key && resumen) nuevosDetalles[key] = resumen;
-
-          tarea.detalles = nuevosDetalles;
-          await tarea.save({ transaction: t });
-        }
-      } catch (zerr) {
-        const e = badRequest(
-          `Indicadores inválidos para ${tipoCodigo}: ${zerr.message}`
-        );
-        e.code = "BAD_INDICADORES";
-        throw e;
-      }
-    }
-
-    // ============================
-    // (2.5) COSECHA: normalización a tablas (si aplica)
-    // ============================
-    if (tipoCodigo === "COSECHA") {
-      // indicadores desde body o JSONB
-      const inBody =
-        typeof comentarioOrBody === "object"
-          ? comentarioOrBody?.indicadores
-          : undefined;
-      const ind = inBody || tarea.detalles?.indicadores;
+    // (3) COSECHA: normalizar a LoteCosecha + Clasificación + Rechazos
+    if (tipoCodigo === "cosecha") {
+      const ind = typeof body === "object" ? body.indicadores : null;
       if (!ind || !ind.operacion || typeof ind.operacion.kgCosechados !== "number") {
-        throw badRequest(
-          "COSECHA: indicadores inválidos. Falta operacion.kgCosechados (number)."
-        );
+        throw badRequest("COSECHA: falta operacion.kgCosechados en indicadores");
       }
 
-      // Helpers
       const N = (v) => Number(v ?? 0);
       const round3 = (x) => Math.round(N(x) * 1000) / 1000;
       const safeStr = (s) =>
         String(s ?? "")
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
           .toLowerCase();
 
       const kgCosechados = N(ind.operacion.kgCosechados);
-      if (!(kgCosechados > 0)) {
-        throw badRequest("COSECHA: kgCosechados debe ser > 0");
-      }
+      if (!(kgCosechados > 0)) throw badRequest("COSECHA: kgCosechados debe ser > 0");
 
-      // Clasificación → Exportación / Nacional
       const exp = ind.clasificacion?.exportacion || {};
       const nac = ind.clasificacion?.nacional || {};
 
-      const kgExp =
-        typeof exp.kgEstimados === "number"
-          ? N(exp.kgEstimados)
-          : typeof exp.gabetas === "number" &&
-            typeof exp.pesoPromGabetaKg === "number"
-          ? N(exp.gabetas) * N(exp.pesoPromGabetaKg)
-          : 0;
+      const kgExp = typeof exp.kgEstimados === "number"
+        ? N(exp.kgEstimados)
+        : (N(exp.gabetas) * N(exp.pesoPromGabetaKg || 0));
 
-      const kgNac =
-        typeof nac.kgEstimados === "number"
-          ? N(nac.kgEstimados)
-          : typeof nac.gabetas === "number" &&
-            typeof nac.pesoPromGabetaKg === "number"
-          ? N(nac.gabetas) * N(nac.pesoPromGabetaKg)
-          : 0;
+      const kgNac = typeof nac.kgEstimados === "number"
+        ? N(nac.kgEstimados)
+        : (N(nac.gabetas) * N(nac.pesoPromGabetaKg || 0));
 
-      if (kgExp < 0 || kgNac < 0)
-        throw badRequest("COSECHA: kg por destino no puede ser negativo");
-
-      // Rechazos
-      const rechList = Array.isArray(ind.rechazo?.detalle)
-        ? ind.rechazo.detalle
-        : [];
+      const rechList = Array.isArray(ind.rechazo?.detalle) ? ind.rechazo.detalle : [];
       const kgRech = rechList.reduce((acc, r) => acc + N(r.kg), 0);
-      if (kgRech < 0) throw badRequest("COSECHA: rechazo (kg) no puede ser negativo");
 
-      // Cierre de masa
       if (round3(kgExp + kgNac + kgRech) !== round3(kgCosechados)) {
         throw badRequest(
-          `COSECHA: no cierra la masa. exp(${kgExp}) + nac(${kgNac}) + rech(${kgRech}) != kgCosechados(${kgCosechados})`
+          `COSECHA: no cierra masa. exp(${kgExp}) + nac(${kgNac}) + rech(${kgRech}) != ${kgCosechados}`
         );
       }
 
-      // Fecha DATEONLY segura
-      const f = ind.operacion.fechaCosecha ?? tarea.fecha_programada;
-      const yyyy_mm_dd =
-        typeof f === "string" ? f : new Date(f).toISOString().slice(0, 10);
+      const f =
+        ind.operacion.fechaCosecha || tarea.fecha_programada || new Date();
+      const fecha_cosecha =
+        typeof f === "string" ? f.slice(0,10) : new Date(f).toISOString().slice(0,10);
 
-      // Código único por lote y fecha
-      const codigo = `CO-${yyyy_mm_dd}-L${tarea.lote_id}`;
+      const codigo = `CO-${fecha_cosecha}-L${tarea.lote_id}`;
+      const notas = comentario || tarea.descripcion || null;
 
-      // Upsert LoteCosecha
-      const notas =
-        (typeof comentarioOrBody === "object"
-          ? comentarioOrBody?.comentario
-          : comentario) || tarea.descripcion || null;
-
-      const lc = await models.LoteCosecha.findOne({
+      let lc = await models.LoteCosecha.findOne({
         where: { codigo },
         transaction: t,
         lock: t.LOCK.UPDATE,
       });
 
-      let loteCosechaId;
       if (lc) {
         Object.assign(lc, {
           cosecha_id: tarea.cosecha_id,
           lote_id: tarea.lote_id,
           periodo_id: tarea.periodo_id || null,
           tarea_id: tarea.id,
-          fecha_cosecha: yyyy_mm_dd,
+          fecha_cosecha,
           kg_cosechados: round3(kgCosechados),
           notas,
         });
         await lc.save({ transaction: t });
-        loteCosechaId = lc.id;
       } else {
-        const nlc = await models.LoteCosecha.create(
+        lc = await models.LoteCosecha.create(
           {
             codigo,
             cosecha_id: tarea.cosecha_id,
             lote_id: tarea.lote_id,
             periodo_id: tarea.periodo_id || null,
             tarea_id: tarea.id,
-            fecha_cosecha: yyyy_mm_dd,
+            fecha_cosecha,
             kg_cosechados: round3(kgCosechados),
             notas,
           },
           { transaction: t }
         );
-        loteCosechaId = nlc.id;
       }
 
-      // Clasificaciones (Exportación y Nacional)
+      // Clasificación
       await models.LoteCosechaClasificacion.destroy(
-        { where: { lote_cosecha_id: loteCosechaId } },
-        { transaction: t }
+        { where: { lote_cosecha_id: lc.id }, transaction: t }
       );
-      await models.LoteCosechaClasificacion.bulkCreate(
-        [
-          {
-            lote_cosecha_id: loteCosechaId,
-            destino: "Exportacion",
-            gabetas: Math.max(0, parseInt(exp.gabetas ?? 0, 10)),
-            peso_promedio_gabeta_kg:
-              exp.pesoPromGabetaKg != null ? N(exp.pesoPromGabetaKg) : null,
-            kg_estimados: round3(kgExp),
-          },
-          {
-            lote_cosecha_id: loteCosechaId,
-            destino: "Nacional",
-            gabetas: Math.max(0, parseInt(nac.gabetas ?? 0, 10)),
-            peso_promedio_gabeta_kg:
-              nac.pesoPromGabetaKg != null ? N(nac.pesoPromGabetaKg) : null,
-            kg_estimados: round3(kgNac),
-          },
-        ],
-        { transaction: t }
-      );
+      await models.LoteCosechaClasificacion.bulkCreate([
+        {
+          lote_cosecha_id: lc.id,
+          destino: kgExp > 0 ? "Exportacion" : null,
+          gabetas: exp.gabetas || 0,
+          peso_promedio_gabeta_kg: exp.pesoPromGabetaKg || null,
+          kg_estimados: round3(kgExp),
+        },
+        {
+          lote_cosecha_id: lc.id,
+          destino: kgNac > 0 ? "Nacional" : null,
+          gabetas: nac.gabetas || 0,
+          peso_promedio_gabeta_kg: nac.pesoPromGabetaKg || null,
+          kg_estimados: round3(kgNac),
+        },
+      ], { transaction: t });
 
-      // Rechazos (detalle)
+      // Rechazos
       await models.LoteCosechaRechazo.destroy(
-        { where: { lote_cosecha_id: loteCosechaId } },
-        { transaction: t }
+        { where: { lote_cosecha_id: lc.id }, transaction: t }
       );
       if (rechList.length) {
         const mapCausa = (s) => {
           const x = safeStr(s);
           if (x.includes("mecan")) return "DanoMecanico";
-          if (x.includes("plag") || x.includes("antr")) return "Plaga";
+          if (x.includes("plag") || x.includes("enferm")) return "Plaga";
           if (x.includes("calib")) return "Calibre";
           if (x.includes("manip")) return "Manipulacion";
           return "Otro";
         };
-        const rows = rechList.map((r) => ({
-          lote_cosecha_id: loteCosechaId,
-          causa: mapCausa(r.causa),
-          kg: round3(N(r.kg)),
-          observacion: r.observacion || null,
-        }));
-        await models.LoteCosechaRechazo.bulkCreate(rows, { transaction: t });
+        await models.LoteCosechaRechazo.bulkCreate(
+          rechList.map(r => ({
+            lote_cosecha_id: lc.id,
+            causa: mapCausa(r.causa),
+            kg: round3(N(r.kg)),
+            observacion: r.observacion || null,
+          })),
+          { transaction: t }
+        );
       }
-
-      // Poscosecha (opcional 1:1)
-      const pos = ind.poscosecha || {};
-      if (Object.keys(pos).length) {
-        const payload = {
-          lote_cosecha_id: loteCosechaId,
-          cepillado: !!pos.cepillado,
-          clasificacion: !!pos.clasificacion,
-          tipo_contenedor: pos.tipoContenedor || "Gabeta plástica",
-          capacidad_gabeta_kg:
-            pos.capacidadGabetaKg != null ? N(pos.capacidadGabetaKg) : null,
-          gabetas_llenas:
-            pos.gabetasLlenas != null
-              ? Math.max(0, parseInt(pos.gabetasLlenas, 10))
-              : null,
-        };
-        const exists = await models.LoteCosechaPoscosecha.findOne({
-          where: { lote_cosecha_id: loteCosechaId },
-          transaction: t,
-        });
-        if (exists) {
-          await models.LoteCosechaPoscosecha.update(payload, {
-            where: { lote_cosecha_id: loteCosechaId },
-            transaction: t,
-          });
-        } else {
-          await models.LoteCosechaPoscosecha.create(payload, { transaction: t });
-        }
-      }
-
-      // Resumen en tarea.detalles (fuente de verdad: tablas)
-      const resumen = {
-        lote_cosecha_id: loteCosechaId,
-        kg_cosechados: round3(kgCosechados),
-        exportacion: {
-          gabetas: Math.max(0, parseInt(exp.gabetas ?? 0, 10)),
-          kg: round3(kgExp),
-        },
-        nacional: {
-          gabetas: Math.max(0, parseInt(nac.gabetas ?? 0, 10)),
-          kg: round3(kgNac),
-        },
-        rechazo_kg: round3(kgRech),
-      };
-      tarea.detalles = { ...(tarea.detalles || {}), resumen_cosecha: resumen };
-      await tarea.save({ transaction: t });
     }
 
-    // ============================
-    // (3) Cambiar estado y dejar traza (UN SOLO LUGAR)
-    // ============================
+    // (4) Estado → Verificada
     tarea.estado = "Verificada";
     await tarea.save({ transaction: t });
 
-    await models.TareaEstado.create(
-      {
-        tarea_id: tarea.id,
-        estado: "Verificada",
-        usuario_id: currentUser.sub,
-        comentario: comentario || null,
-        fecha: new Date(),
-      },
-      { transaction: t }
-    );
+    await models.TareaEstado.create({
+      tarea_id: tarea.id,
+      estado: "Verificada",
+      usuario_id: currentUser.sub,
+      comentario,
+      fecha: new Date(),
+    }, { transaction: t });
   });
 
-  // -------- notificar asignados --------
-  const asigns = await models.TareaAsignacion.findAll({
-    where: { tarea_id: tareaId },
-  });
+  const asigns = await models.TareaAsignacion.findAll({ where: { tarea_id: tareaId } });
   for (const a of asigns) {
     await notif.crear(a.usuario_id, {
       tipo: "Tarea",
       titulo: "Tarea verificada",
-      mensaje: `La tarea #${tareaId} fue verificada por el técnico`,
+      mensaje: `La tarea #${tareaId} fue verificada`,
       referencia: { tarea_id: tareaId },
       prioridad: "Info",
-    });
+    }).catch(() => {});
   }
 
   if (io) io.emit("tareas:update");
   return await exports.obtenerTarea(currentUser, tareaId);
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -901,9 +946,6 @@ if (io) {
 
 
 
-
-
-
 exports.listarNovedades = async (currentUser, tareaId) => {
     const tarea = await models.Tarea.findByPk(tareaId);
     if (!tarea) throw notFound("Tarea no existe");
@@ -937,12 +979,12 @@ exports.listarNovedades = async (currentUser, tareaId) => {
     }));
 };
 
-
 exports.listarTareas = async (
   currentUser,
-  { lote_id, estado, desde, hasta, asignadoA, page = 1, pageSize = 20 }
+  { lote_id, estado, desde, hasta, asignadoA }
 ) => {
   const where = {};
+
   if (lote_id) where.lote_id = lote_id;
   if (estado) where.estado = estado;
   if (desde && hasta) where.fecha_programada = { [Op.between]: [desde, hasta] };
@@ -952,8 +994,14 @@ exports.listarTareas = async (
   const include = [
     { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
     { model: models.Lote, attributes: ["nombre"] },
-    { model: models.Cosecha, attributes: ["id", "nombre", "numero", "anio_agricola", "estado"] },
-    { model: models.PeriodoCosecha, attributes: ["id", "nombre", "semana_inicio", "semana_fin"] },
+    {
+      model: models.Cosecha,
+      attributes: ["id", "nombre", "numero", "anio_agricola", "estado"],
+    },
+    {
+      model: models.PeriodoCosecha,
+      attributes: ["id", "nombre", "semana_inicio", "semana_fin"],
+    },
     {
       model: models.TareaAsignacion,
       required: currentUser.role === "Trabajador" || !!asignadoA,
@@ -972,23 +1020,19 @@ exports.listarTareas = async (
     },
   ];
 
-  const offset = (page - 1) * pageSize;
-  const { rows, count } = await models.Tarea.findAndCountAll({
+  // 🔥 Consulta pura: sin paginación, sin count de Sequelize
+  const tareas = await models.Tarea.findAll({
     where,
     include,
     order: [
       ["fecha_programada", "DESC"],
       ["id", "DESC"],
     ],
-    limit: pageSize,
-    offset,
   });
 
   return {
-    total: count,
-    page,
-    pageSize,
-    data: rows.map((t) => ({
+    total: tareas.length, // ahora esto coincide con lo que ves en data
+    data: tareas.map((t) => ({
       id: t.id,
       tipo: t.TipoActividad?.nombre,
       tipo_codigo: t.TipoActividad?.codigo,
@@ -1009,258 +1053,259 @@ exports.listarTareas = async (
   };
 };
 
+
 exports.obtenerTarea = async (currentUser, id) => {
-    const tarea = await models.Tarea.findByPk(id, {
+  const tarea = await models.Tarea.findByPk(id, {
+    include: [
+      { model: models.TipoActividad, attributes: ["codigo","nombre"] },
+      { model: models.Lote, attributes: ["nombre"] },
+      {
+        model: models.TareaAsignacion,
+        include: [{ model: models.Usuario, attributes: ["id","nombres","apellidos"] }],
+      },
+      {
+        model: models.TareaEstado,
+        include: [{ model: models.Usuario, attributes: ["id","nombres","apellidos"] }],
+      },
+      {
+        model: models.Novedad,
+        include: [{ model: models.Usuario, attributes: ["id","nombres","apellidos"] }],
+      },
+      {
+        model: models.Usuario,
+        as: "Creador",
+        attributes: ["id","nombres","apellidos"],
+      },
+      { model: models.Cosecha, attributes: ["id","nombre","numero","anio_agricola","estado"] },
+      { model: models.PeriodoCosecha, attributes: ["id","nombre","semana_inicio","semana_fin"] },
+      {
+        model: models.TareaItem,
         include: [
-            { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
-            { model: models.Lote, attributes: ["nombre"] },
-            {
-                model: models.TareaAsignacion,
-                include: [
-                    {
-                        model: models.Usuario,
-                        attributes: ["id", "nombres", "apellidos"],
-                    },
-                ],
-            },
-            {
-                model: models.TareaEstado,
-                include: [
-                    {
-                        model: models.Usuario,
-                        attributes: ["id", "nombres", "apellidos"],
-                    },
-                ],
-            },
-            {
-                model: models.Novedad,
-                include: [
-                    {
-                        model: models.Usuario,
-                        attributes: ["id", "nombres", "apellidos"],
-                    },
-                ],
-            },
-            {
-                model: models.Usuario,
-                as: "Creador",
-                attributes: ["id", "nombres", "apellidos"],
-            },
-            {
-                model: models.Cosecha,
-                attributes: [
-                    "id",
-                    "nombre",
-                    "numero",
-                    "anio_agricola",
-                    "estado",
-                ],
-            },
-            {
-                model: models.PeriodoCosecha,
-                attributes: ["id", "nombre", "semana_inicio", "semana_fin"],
-            },
-            { model: models.TareaRequerimiento, include: [
-          { model: models.InventarioItem, attributes: ['id','nombre','categoria','unidad_id'] },
-          { model: models.Unidad, attributes: ['codigo'] }
-      ]},
-      { model: models.TareaInsumo, include: [
-          { model: models.InventarioItem, attributes: ['id','nombre','unidad_id'] },
-          { model: models.Unidad, attributes: ['codigo'] }
-      ]},
+          { model: models.InventarioItem, attributes: ["id","nombre","categoria","unidad_id"] },
+          { model: models.Unidad, attributes: ["codigo"] },
+        ],
+      },
+      { model: models.TareaPoda },
+    { model: models.TareaManejoMaleza },
+    { model: models.TareaNutricion },
+    { model: models.TareaFitosanitaria },
+    { model: models.TareaEnfundado },
     ],
   });
-    if (!tarea) return null;
+  if (!tarea) return null;
 
-    // Si trabajador, solo si está asignado
-    if (currentUser.role === "Trabajador") {
-        const isAssigned = tarea.TareaAsignacions?.some(
-            (a) => a.usuario_id === currentUser.sub
-        );
-        if (!isAssigned) throw forbidden();
-    }
+  if (currentUser.role === "Trabajador") {
+    const isAssigned = tarea.TareaAsignacions?.some(
+      (a) => a.usuario_id === currentUser.sub
+    );
+    if (!isAssigned) throw forbidden();
+  }
 
-    return {
-        id: tarea.id,
-        tipo: tarea.TipoActividad?.nombre,
-        titulo: tarea.titulo,
-        tipo_codigo: tarea.TipoActividad?.codigo,
-        lote_id: tarea.lote_id,
-        lote: tarea.Lote?.nombre,
-        fecha_programada: tarea.fecha_programada,
-        descripcion: tarea.descripcion,
-        estado: tarea.estado,
-        detalles: tarea.detalles,
-        creador: tarea.Creador
-            ? {
-                  id: tarea.Creador.id,
-                  nombre: `${tarea.Creador.nombres} ${tarea.Creador.apellidos}`,
-              }
-            : null,
-        asignaciones: (tarea.TareaAsignacions || []).map((a) => ({
-            id: a.id,
-            usuario: a.Usuario
-                ? {
-                      id: a.Usuario.id,
-                      nombre: `${a.Usuario.nombres} ${a.Usuario.apellidos}`,
-                  }
-                : { id: a.usuario_id },
-            rol_en_tarea: a.rol_en_tarea,
-        })),
-        estados: (tarea.TareaEstados || [])
-            .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
-            .map((e) => ({
-                estado: e.estado,
-                fecha: e.fecha,
-                comentario: e.comentario,
-                usuario: e.Usuario
-                    ? {
-                          id: e.Usuario.id,
-                          nombre: `${e.Usuario.nombres} ${e.Usuario.apellidos}`,
-                      }
-                    : null,
-            })),
-        novedades: (tarea.Novedads || []).map((n) => ({
-            id: n.id,
-            texto: n.texto,
-            created_at: n.created_at,
-            autor: n.Usuario
-                ? {
-                      id: n.Usuario.id,
-                      nombre: `${n.Usuario.nombres} ${n.Usuario.apellidos}`,
-                  }
-                : null,
-        })),
-        cosecha: tarea.Cosecha ? tarea.Cosecha.nombre : undefined,
-        periodo: tarea.PeriodoCosecha ? tarea.PeriodoCosecha.nombre : undefined,
-        requerimientos: (tarea.TareaRequerimientos || []).map(r => ({
-      id: r.id,
-      categoria: r.categoria, // Herramienta|Equipo
-      item_id: r.item_id,
-      nombre: r.InventarioItem?.nombre,
-      unidad: r.Unidad?.codigo,
-      cantidad: r.cantidad
+  return {
+    id: tarea.id,
+    tipo: tarea.TipoActividad?.nombre,
+    tipo_codigo: tarea.TipoActividad?.codigo,
+    titulo: tarea.titulo,
+    lote_id: tarea.lote_id,
+    lote: tarea.Lote?.nombre,
+    fecha_programada: tarea.fecha_programada,
+    descripcion: tarea.descripcion,
+    estado: tarea.estado,
+    creador: tarea.Creador
+      ? {
+          id: tarea.Creador.id,
+          nombre: `${tarea.Creador.nombres} ${tarea.Creador.apellidos}`,
+        }
+      : null,
+    asignaciones: (tarea.TareaAsignacions || []).map((a) => ({
+      id: a.id,
+      usuario: a.Usuario
+        ? {
+            id: a.Usuario.id,
+            nombre: `${a.Usuario.nombres} ${a.Usuario.apellidos}`,
+          }
+        : { id: a.usuario_id },
+      rol_en_tarea: a.rol_en_tarea,
     })),
-    insumos: (tarea.TareaInsumos || []).map(x => ({
-      id: x.id, item_id: x.item_id, item: x.InventarioItem?.nombre, unidad: x.Unidad?.codigo, cantidad: x.cantidad
+    estados: (tarea.TareaEstados || [])
+      .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
+      .map((e) => ({
+        estado: e.estado,
+        fecha: e.fecha,
+        comentario: e.comentario,
+        usuario: e.Usuario
+          ? {
+              id: e.Usuario.id,
+              nombre: `${e.Usuario.nombres} ${e.Usuario.apellidos}`,
+            }
+          : null,
+      })),
+    novedades: (tarea.Novedads || []).map((n) => ({
+      id: n.id,
+      texto: n.texto,
+      created_at: n.created_at,
+      autor: n.Usuario
+        ? {
+            id: n.Usuario.id,
+            nombre: `${n.Usuario.nombres} ${n.Usuario.apellidos}`,
+          }
+        : null,
     })),
-    };
+    cosecha: tarea.Cosecha?.nombre,
+    periodo: tarea.PeriodoCosecha?.nombre,
+    items: (tarea.TareaItems || [])
+      .sort((a,b) => (a.idx || 0) - (b.idx || 0))
+      .map(i => ({
+        id: i.id,
+        item_id: i.item_id,
+        nombre: i.InventarioItem?.nombre,
+        categoria: i.categoria,
+        unidad: i.Unidad?.codigo,
+        cantidad_planificada: i.cantidad_planificada,
+        cantidad_real: i.cantidad_real,
+        idx: i.idx,
+      })),
+    poda: tarea.TareaPoda || null,
+  manejoMaleza: tarea.TareaManejoMaleza || null,
+  nutricion: tarea.TareaNutricion || null,
+  fitosanitario: tarea.TareaFitosanitaria || null,
+  enfundado: tarea.TareaEnfundado || null,
+  };
 };
-// Reemplaza/actualiza los insumos de la tarea y sincroniza reservas (no mueve stock todavía)
-exports.configurarInsumos = async (currentUser, tareaId, body, io) => {
-  if (!["Propietario", "Tecnico"].includes(currentUser.role)) throw forbidden();
 
-  const { insumos } = body || {};
-  if (!Array.isArray(insumos)) throw badRequest("insumos debe ser un arreglo");
+exports.configurarItems = async (currentUser, tareaId, body, io) => {
+  if (!["Propietario","Tecnico"].includes(currentUser.role)) throw forbidden();
+  const { items = [] } = body || {};
+  if (!Array.isArray(items)) throw badRequest("items debe ser un arreglo");
 
   const tarea = await models.Tarea.findByPk(tareaId);
   if (!tarea) throw notFound("Tarea no existe");
-  if (["Completada", "Verificada", "Cancelada"].includes(tarea.estado)) {
+  if (["Completada","Verificada","Cancelada"].includes(tarea.estado))
     throw badRequest("No se puede modificar una tarea cerrada");
-  }
 
-  // Validación preliminar
-  const normalizados = [];
-  for (const it of insumos) {
-    if (!it.item_id || !it.cantidad || !(it.unidad_id || it.unidad_codigo)) {
-      throw badRequest("item_id, cantidad y unidad son obligatorios");
+  const norm = [];
+
+  for (let idx = 0; idx < items.length; idx++) {
+    const it = items[idx];
+    const { item_id, categoria, unidad_id, unidad_codigo, cantidad_planificada } = it || {};
+    if (!item_id || !categoria || !cantidad_planificada || !(unidad_id || unidad_codigo)) {
+      throw badRequest("item_id, categoria, unidad y cantidad_planificada son obligatorios");
     }
-    const item = await models.InventarioItem.findByPk(it.item_id);
-    if (!item) throw badRequest(`Ítem inválido: ${it.item_id}`);
-    if (item.categoria === "Herramienta") {
-      throw badRequest("Las herramientas no se agregan como insumo (use requerimientos/préstamo).");
+
+    const item = await models.InventarioItem.findByPk(item_id);
+    if (!item) throw badRequest(`Ítem inválido: ${item_id}`);
+    if (!["Insumo","Herramienta","Equipo"].includes(categoria)) {
+      throw badRequest(`categoria inválida para item ${item.nombre}`);
     }
-    const unidad = it.unidad_id
-      ? await models.Unidad.findByPk(it.unidad_id)
-      : await models.Unidad.findOne({ where: { codigo: it.unidad_codigo } });
+
+    const unidad = unidad_id
+      ? await models.Unidad.findByPk(unidad_id)
+      : await models.Unidad.findOne({ where: { codigo: unidad_codigo } });
     if (!unidad) throw badRequest("unidad inválida");
 
-    // Convertimos a unidad base para reservar
-    const factor = await invService._getFactor(unidad.id, item.unidad_id);
-    const enBase = Number(it.cantidad) * factor;
+    let cantidad_en_base = 0;
+    try {
+      const factor = await invService._getFactor(unidad.id, item.unidad_id);
+      cantidad_en_base = Number(cantidad_planificada) * factor;
+    } catch (e) {
+      throw badRequest(`Config unidades para ${item.nombre}: ${e.message}`);
+    }
 
-    normalizados.push({
-      item, unidad, cant: Number(it.cantidad), unidad_id: unidad.id,
-      cantidad_en_base: enBase,
+    norm.push({
+      item,
+      unidad,
+      categoria,
+      cantidad_planificada: Number(cantidad_planificada),
+      cantidad_real: 0,
+      cantidad_en_base,
+      idx,
     });
   }
 
-  // Transacción: reemplaza TareaInsumo + actualiza reservas
   await sequelize.transaction(async (t) => {
-    // 1) limpiar insumos previos de la tarea
-    await models.TareaInsumo.destroy({ where: { tarea_id: tareaId }, transaction: t });
+    // Limpia items previos
+    await models.TareaItem.destroy({ where: { tarea_id: tareaId }, transaction: t });
 
-    // 2) crear insumos nuevos
-    await models.TareaInsumo.bulkCreate(
-      normalizados.map(n => ({
+    // Crea nuevos
+    await models.TareaItem.bulkCreate(
+      norm.map(n => ({
         tarea_id: tareaId,
         item_id: n.item.id,
-        unidad_id: n.unidad_id,
-        cantidad: n.cant,
+        categoria: n.categoria,
+        unidad_id: n.unidad.id,
+        cantidad_planificada: n.cantidad_planificada,
+        cantidad_real: n.cantidad_real,
+        idx: n.idx,
       })), { transaction: t }
     );
 
-    // 3) anular reservas previas (sólo insumos) y crear reservas nuevas
+    // Reservas: anulamos anteriores y recreamos SOLO para insumos
     await models.InventarioReserva.update(
       { estado: "Anulada" },
       { where: { tarea_id: tareaId, estado: "Reservada" }, transaction: t }
     );
 
-    await models.InventarioReserva.bulkCreate(
-      normalizados.map(n => ({
+    const reservas = norm
+      .filter(n => n.categoria === "Insumo")
+      .map(n => ({
         tarea_id: tareaId,
         item_id: n.item.id,
         cantidad_en_base: n.cantidad_en_base,
         estado: "Reservada",
         fecha: new Date(),
-      })), { transaction: t }
-    );
+      }));
 
-    // 4) actividad
+    if (reservas.length) {
+      await models.InventarioReserva.bulkCreate(reservas, { transaction: t });
+    }
+
     await models.TareaEstado.create({
       tarea_id: tareaId,
       estado: tarea.estado,
       usuario_id: currentUser.sub,
-      comentario: `Se han asignado insumos a la tarea #${tareaId}.`,
+      comentario: `Se han configurado ${norm.length} ítems para la tarea #${tareaId}.`,
+      fecha: new Date(),
     }, { transaction: t });
   });
 
-  // sockets (tarea + inventario)
-  emitTarea(io, tareaId, "insumos");
+  emitTarea(io, tareaId, "items");
   if (io) io.emit("inventario:update");
 
-  // respuesta
   return await exports.obtenerTarea(currentUser, tareaId);
 };
 
+exports.listarItems = async (currentUser, tareaId) => {
+  const tarea = await models.Tarea.findByPk(tareaId);
+  if (!tarea) throw notFound("Tarea no existe");
 
-exports.listarInsumos = async (currentUser, tareaId) => {
-    const tarea = await models.Tarea.findByPk(tareaId);
-    if (!tarea) throw notFound("Tarea no existe");
-    if (currentUser.role === "Trabajador") {
-        const asign = await models.TareaAsignacion.findOne({
-            where: { tarea_id: tareaId, usuario_id: currentUser.sub },
-        });
-        if (!asign) throw forbidden();
-    }
-    const list = await models.TareaInsumo.findAll({
-        where: { tarea_id: tareaId },
-        include: [
-            {
-                model: models.InventarioItem,
-                attributes: ["nombre", "unidad_id"],
-            },
-            { model: models.Unidad, attributes: ["codigo"] },
-        ],
+  if (currentUser.role === "Trabajador") {
+    const asign = await models.TareaAsignacion.findOne({
+      where: { tarea_id: tareaId, usuario_id: currentUser.sub },
     });
-    return list.map((x) => ({
-        id: x.id,
-        item_id: x.item_id,
-        item: x.InventarioItem?.nombre,
-        unidad: x.Unidad?.codigo,
-        cantidad: x.cantidad,
-    }));
+    if (!asign) throw forbidden();
+  }
+
+  const list = await models.TareaItem.findAll({
+    where: { tarea_id: tareaId },
+    include: [
+      { model: models.InventarioItem, attributes: ["nombre","categoria","unidad_id"] },
+      { model: models.Unidad, attributes: ["codigo"] },
+    ],
+    order: [["idx","ASC"],["id","ASC"]],
+  });
+
+  return list.map(i => ({
+    id: i.id,
+    item_id: i.item_id,
+    nombre: i.InventarioItem?.nombre,
+    categoria: i.categoria,
+    unidad: i.Unidad?.codigo,
+    cantidad_planificada: i.cantidad_planificada,
+    cantidad_real: i.cantidad_real,
+    idx: i.idx,
+  }));
 };
+
 
 // service
 exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
@@ -1355,114 +1400,150 @@ exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
   return await exports.obtenerTarea(currentUser, tareaId);
 };
 
-
-// backend/src/modules/tareas/tareas.service.js
-exports.configurarRequerimientos = async (currentUser, tareaId, body, io) => {
-  if (!["Propietario","Tecnico"].includes(currentUser.role)) throw forbidden();
-  const { requerimientos = [] } = body || {}; // [{item_id, cantidad, unidad_id|unidad_codigo, categoria:'Herramienta'|'Equipo'}]
-  const tarea = await models.Tarea.findByPk(tareaId);
-  if (!tarea) throw notFound("Tarea no existe");
-  if (["Completada","Verificada","Cancelada"].includes(tarea.estado)) throw badRequest("No se puede modificar una tarea cerrada");
-
-  // Validar y normalizar
-  const norm = [];
-  for (const r of requerimientos) {
-    if (!r.item_id || !r.cantidad || !(r.unidad_id || r.unidad_codigo) || !r.categoria)
-      throw badRequest("item_id, cantidad, unidad y categoria son obligatorios");
-    const item = await models.InventarioItem.findByPk(r.item_id);
-    if (!item) throw badRequest(`Ítem inválido: ${r.item_id}`);
-    if (!['Herramienta','Equipo'].includes(r.categoria)) throw badRequest('categoria inválida');
-    const unidad = r.unidad_id
-      ? await models.Unidad.findByPk(r.unidad_id)
-      : await models.Unidad.findOne({ where: { codigo: r.unidad_codigo }});
-    if (!unidad) throw badRequest("unidad inválida");
-
-    // convertir a unidad base del item
-    const factor = await invService._getFactor(unidad.id, item.unidad_id);
-    const enBase = Number(r.cantidad) * factor;
-
-    norm.push({ item, unidad, cantidad: Number(r.cantidad), unidad_id: unidad.id, categoria: r.categoria, cantidad_en_base: enBase });
+exports.cancelarTarea = async (currentUser, tareaId, body = {}, io) => {
+  // 1. Verificación de rol
+  if (!["Propietario", "Tecnico"].includes(currentUser.role)) {
+    throw forbidden(); // 403
   }
+
+  const { comentario } = body;
 
   await sequelize.transaction(async (t) => {
-    // Reemplazar requerimientos
-    await models.TareaRequerimiento.destroy({ where: { tarea_id: tareaId } , transaction: t});
-    await models.TareaRequerimiento.bulkCreate(
-      norm.map(n => ({
-        tarea_id: tareaId,
-        item_id: n.item.id,
-        unidad_id: n.unidad_id,
-        cantidad: n.cantidad,
-        categoria: n.categoria,
-      })), { transaction: t }
-    );
+    // 2. Buscar tarea con sus reservas de inventario
+    const tarea = await models.Tarea.findByPk(tareaId, {
+      include: [models.InventarioReserva],
+      transaction: t,
+      // lock: t.LOCK.UPDATE, // opcional, puedes quitarlo si no quieres lock
+    });
 
-    // Reservas: anular antiguas H/E y crear nuevas
+    // 👇 reemplazo del assertFound
+    if (!tarea) throw notFound("Tarea no encontrada");
+
+    // 3. Validar estado permitido
+    if (!["Pendiente", "Asignada", "En progreso"].includes(tarea.estado)) {
+      throw badRequest(
+        "Solo se pueden cancelar tareas pendientes, asignadas o en progreso"
+      );
+    }
+
+    // 4. (Opcional pero muy lógico) Anular reservas de inventario asociadas
     await models.InventarioReserva.update(
-      { estado: 'Anulada' },
-      { where: { tarea_id: tareaId, estado: 'Reservada' }, transaction: t }
-    );
-    await models.InventarioReserva.bulkCreate(
-      norm.map(n => ({
-        tarea_id: tareaId,
-        item_id: n.item.id,
-        cantidad_en_base: n.cantidad_en_base,
-        estado: 'Reservada',
-        fecha: new Date(),
-      })), { transaction: t }
+      { estado: "Anulada" },
+      { where: { tarea_id: tarea.id, estado: "Reservada" }, transaction: t }
     );
 
-    // Actividad
-    await models.TareaEstado.create({
-      tarea_id: tareaId,
-      estado: tarea.estado,
-      usuario_id: currentUser.sub,
-      comentario: `Se han asignado ${norm.length === 1 ? 'requerimientos' : 'requerimientos'} (herramientas/equipos) a la tarea #${tareaId}.`
-    }, { transaction: t });
+    // 5. Actualizar estado de la tarea
+    tarea.estado = "Cancelada";
+    await tarea.save({ transaction: t });
+
+    // 6. Registrar en historial de estado
+    await models.TareaEstado.create(
+      {
+        tarea_id: tarea.id,
+        estado: "Cancelada",
+        usuario_id: currentUser.sub,        // 👈 coherente con el resto
+        comentario: comentario || "Tarea cancelada",
+        fecha: new Date(),
+      },
+      { transaction: t }
+    );
   });
 
-  // sockets
+  // 7. Notificar por sockets (fuera de la tx)
   if (io) {
     io.emit("tareas:update");
-    io.to(`tarea:${tareaId}`).emit("tarea:insumos", { tareaId }); // reutilizamos para refrescar panel
-    io.emit("inventario:update");
+    io.emit("tarea:estado", { tareaId, estado: "Cancelada" });
   }
 
+  // 8. Devuelves la tarea enriquecida, igual que en otros servicios
   return await exports.obtenerTarea(currentUser, tareaId);
 };
 
 
 
-// backend/src/modules/tareas/tareas.service.js
+// 🔹 NUEVO: resumen por estado / por grupo
+exports.resumenTareas = async (
+  currentUser,
+  { lote_id, desde, hasta, asignadoA }
+) => {
+  const where = {};
 
-exports.listarRequerimientosTarea = async (currentUser, tareaId) => {
-  const tarea = await models.Tarea.findByPk(tareaId);
-  if (!tarea) throw notFound("Tarea no existe");
+  // Filtros básicos (mismos que listarTareas)
+  if (lote_id) where.lote_id = lote_id;
+  if (desde && hasta) where.fecha_programada = { [Op.between]: [desde, hasta] };
+  else if (desde) where.fecha_programada = { [Op.gte]: desde };
+  else if (hasta) where.fecha_programada = { [Op.lte]: hasta };
 
-  // Permisos: Trabajador solo si está asignado; Técnico/Propietario pueden ver
-  if (currentUser.role === "Trabajador") {
-    const asign = await models.TareaAsignacion.findOne({
-      where: { tarea_id: tareaId, usuario_id: currentUser.sub },
-    });
-    if (!asign) throw forbidden();
-  }
+  // Misma lógica de include / permisos que listarTareas
+  const include = [
+    { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
+    { model: models.Lote, attributes: ["nombre"] },
+    {
+      model: models.Cosecha,
+      attributes: ["id", "nombre", "numero", "anio_agricola", "estado"],
+    },
+    {
+      model: models.PeriodoCosecha,
+      attributes: ["id", "nombre", "semana_inicio", "semana_fin"],
+    },
+    {
+      model: models.TareaAsignacion,
+      required: currentUser.role === "Trabajador" || !!asignadoA,
+      where:
+        currentUser.role === "Trabajador"
+          ? { usuario_id: currentUser.sub }
+          : asignadoA
+          ? { usuario_id: asignadoA }
+          : undefined,
+    },
+  ];
 
-  const list = await models.TareaRequerimiento.findAll({
-    where: { tarea_id: tareaId },
-    include: [
-      { model: models.InventarioItem, attributes: ['nombre', 'categoria'] },
-      { model: models.Unidad, attributes: ['codigo'] },
-    ],
-    order: [['id','ASC']],
+  const tareas = await models.Tarea.findAll({
+    where,
+    include,
   });
 
-  // shape amigable para el frontend
-  return list.map(r => ({
-    id: r.id,
-    item_id: r.item_id,
-    item: r.InventarioItem?.nombre,
-    categoria: r.categoria,                 // 'Herramienta' | 'Equipo'
-    cantidad: r.cantidad,
-    unidad: r.Unidad?.codigo || 'unidad',   // normalmente 'unidad'
-  }));
+  const porEstado = {};
+  const porGrupo = {
+    Pendientes: 0,
+    "En progreso": 0,
+    Completadas: 0,
+    Verificadas: 0,
+    Canceladas: 0,
+  };
+
+  const acumularGrupo = (estado) => {
+    switch (estado) {
+      case "Pendiente":
+      case "Asignada":
+        porGrupo.Pendientes++;
+        break;
+      case "En progreso":
+        porGrupo["En progreso"]++;
+        break;
+      case "Completada":
+        porGrupo.Completadas++;
+        break;
+      case "Verificada":
+        porGrupo.Verificadas++;
+        break;
+      case "Cancelada":
+        porGrupo.Canceladas++;
+        break;
+      default:
+        break;
+    }
+  };
+
+  for (const t of tareas) {
+    const e = t.estado || "Pendiente";
+    porEstado[e] = (porEstado[e] || 0) + 1;
+    acumularGrupo(e);
+  }
+
+  return {
+    total: tareas.length,
+    porEstado,
+    porGrupo,   // 👈 esto nos sirve directo para las cards
+  };
 };

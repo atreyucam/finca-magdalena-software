@@ -19,3 +19,4 @@ router.post('/', requireAuth, requireRole('Propietario'), controller.crearCosech
 router.post('/:id/periodos', requireAuth, requireRole('Propietario'), controller.crearPeriodos);
 
 module.exports = router;
+

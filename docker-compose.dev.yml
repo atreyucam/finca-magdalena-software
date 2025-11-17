@@ -1,0 +1,10 @@
+services:
+  db:
+    environment:
+      DB_NAME: finca_dev
+
+  api:
+    env_file:
+      - ./backend/.env.dev
+    environment:
+      NODE_ENV: development

@@ -131,37 +131,54 @@ export const obtenerSemanaPorUsuario = (id) =>
 
 
 // --- Tareas
+export const resumenTareas = () =>
+  api.get("/tareas/resumen");
 export const listarTareas = (params) => api.get("/tareas", { params });
 export const obtenerTarea = (id) => api.get(`/tareas/${id}`);
 export const crearTarea = (data) => api.post("/tareas", data);
+
 export const asignarUsuariosTarea = (id, data) =>
   api.post(`/tareas/${id}/asignaciones`, data);
 
-// frontend src/api/apiClient.ts
-export const iniciarTarea = (id, body) => api.post(`/tareas/${id}/iniciar`, body);
+export const actualizarAsignaciones = (id, body) =>
+  api.patch(`/tareas/${id}/ActualizarAsignaciones`, body);
+
+export const iniciarTarea = (id, body) => 
+  api.post(`/tareas/${id}/iniciar`, body);
 
 export const completarTarea = (id, data) =>
   api.post(`/tareas/${id}/completar`, data);
+
 export const verificarTarea = (id, data) =>
   api.post(`/tareas/${id}/verificar`, data);
-export const listarInsumosTarea = (id) => api.get(`/tareas/${id}/insumos`);
-export const configurarInsumosTarea = (id, data) =>
-  api.post(`/tareas/${id}/insumos`, data);
-export const listarNovedadesTarea = (id) => api.get(`/tareas/${id}/novedades`);
+
+export const listarNovedadesTarea = (id) => 
+  api.get(`/tareas/${id}/novedades`);
+
 export const crearNovedadTarea = (id, data) =>
   api.post(`/tareas/${id}/novedades`, data);
+
+export const listarTareaItems = (tareaId) =>
+  api.get(`/tareas/${tareaId}/items`);
+
+export const configurarTareaItems = (tareaId, data) =>
+  api.post(`/tareas/${tareaId}/items`, data);
+
+
+
+
+
+
+// POST /tareas/:id/asignaciones
+export const asignarUsuarios = (id, body) =>
+  api.post(`/tareas/${id}/asignaciones`, body);
+
 
 // --- Lotes / Cosechas / Tipos
 export const listarLotes = () => api.get("/lotes");
 export const listarCosechas = () => api.get("/cosechas");
 export const listarTiposActividad = () => api.get("/tipos-actividad");
 
-// POST /tareas/:id/asignaciones
-export const asignarUsuarios = (id, body) =>
-  api.post(`/tareas/${id}/asignaciones`, body);
-
-export const actualizarAsignaciones = (id, body) =>
-  api.patch(`/tareas/${id}/ActualizarAsignaciones`, body);
 
 // ================= INVENTARIO =================
 
@@ -209,15 +226,6 @@ export const devolverHerramienta = (id, data) =>
 export const listarHerramientasNoDevueltas = () =>
   api.get("/inventario/herramientas/no-devueltas");
 
-// 👇 Export default para que uses `import api from "../api/apiClient"`
-
-export async function listarRequerimientosTarea(tareaId){
-  return api.get(`/tareas/${tareaId}/requerimientos`);
-}
-// src/api/apiClient.js
-export const configurarRequerimientos = (tareaId, payload) =>
-  api.patch(`/tareas/${tareaId}/requerimientos`, payload);
-
 
 // === NUEVO ===
 export const obtenerMiUsuario = () => api.get('/usuarios/me');
@@ -225,5 +233,12 @@ export const obtenerMisPagos    = () => api.get('/usuarios/me/pagos');   // o us
 export const obtenerMisTareas   = () => api.get('/usuarios/me/tareas');
 
 
+export const crearLote = (payload) => api.post("/lotes", payload);
+
+export const crearCosecha = (payload) => api.post("/cosechas", payload);
+
+export function obtenerLote(id) {
+  return api.get(`/lotes/${id}`);
+}
 
 export default api;

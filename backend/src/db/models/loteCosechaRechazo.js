@@ -1,5 +1,5 @@
-// backend/src/db/models/loteCosechaRechazo.js
 const { DataTypes } = require('sequelize');
+
 module.exports = (sequelize) => {
   const LoteCosechaRechazo = sequelize.define('LoteCosechaRechazo', {
     id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
