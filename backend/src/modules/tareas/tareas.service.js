@@ -139,9 +139,6 @@ exports.crearTarea = async (currentUser, data, io) => {
     case "poda": {
   const {
     tipo,
-    // legacy:
-    plantas_intervenidas,
-    // nuevo:
     porcentaje_plantas_plan_pct,
     herramientas_desinfectadas,
   } = detalle || {};
@@ -153,16 +150,16 @@ exports.crearTarea = async (currentUser, data, io) => {
   await models.TareaPoda.create({
     tarea_id: tarea.id,
     tipo,
-    plantas_intervenidas: plantas_intervenidas ?? null,
     porcentaje_plantas_plan_pct: porcentaje_plantas_plan_pct ?? null,
-    porcentaje_plantas_real_pct: null,
+    porcentaje_plantas_real_pct: null, // se llena en completar
     herramientas_desinfectadas:
       typeof herramientas_desinfectadas === "boolean"
         ? herramientas_desinfectadas
-        : true,
+        : true, // por defecto True (BPA)
   });
   break;
 }
+
 
 case "maleza": {
   const {
@@ -216,10 +213,7 @@ case "maleza": {
     fecha_hora_fin,
     volumen_aplicacion_lt,
     equipo_aplicacion,
-    temp_celsius,
-    viento_kmh,
-    humedad_pct,
-    porcentaje_plantas_plan_pct,   // nuevo
+    porcentaje_plantas_plan_pct,
   } = detalle || {};
 
   if (!plaga_enfermedad) {
@@ -238,9 +232,6 @@ case "maleza": {
     fecha_hora_fin: fecha_hora_fin || fechaProg,
     volumen_aplicacion_lt: volumen_aplicacion_lt ?? null,
     equipo_aplicacion: equipo_aplicacion || null,
-    temp_celsius: temp_celsius ?? null,
-    viento_kmh: viento_kmh ?? null,
-    humedad_pct: humedad_pct ?? null,
     porcentaje_plantas_plan_pct: porcentaje_plantas_plan_pct ?? null,
     porcentaje_plantas_real_pct: null,
   });
@@ -248,25 +239,42 @@ case "maleza": {
 }
 
 
+
 case "enfundado": {
-  const {
-    frutos_enfundados,
-    porcentaje_frutos_plan_pct,
-  } = detalle || {};
+  const { porcentaje_frutos_plan_pct } = detalle || {};
 
   await models.TareaEnfundado.create({
     tarea_id: tarea.id,
-    frutos_enfundados: frutos_enfundados ?? 0,
     porcentaje_frutos_plan_pct: porcentaje_frutos_plan_pct ?? null,
     porcentaje_frutos_real_pct: null,
   });
   break;
 }
 
-    // 'cosecha' no requiere detalle al crear
-    case "cosecha":
+
+    case "cosecha": {
+      const { kg_planificados } = detalle || {};
+
+      const fechaCosecha = fechaProg.toISOString().slice(0, 10); // YYYY-MM-DD
+      const codigo = `CO-${fechaCosecha}-L${lote_id}`;
+
+      await models.TareaCosecha.create({
+        codigo,
+        cosecha_id,
+        lote_id,
+        periodo_id: periodoId || null,
+        tarea_id: tarea.id,
+        fecha_cosecha: fechaCosecha,
+        kg_planificados: kg_planificados ?? null,
+        kg_cosechados: 0,
+        grado_madurez: null,
+        notas: descripcion || null,
+      });
+      break;
+    }
+
     default:
-      // si en el futuro agregas otro tipo no detallado, no rompe
+      // otros tipos sin detalle
       break;
   }
 
@@ -412,6 +420,7 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
     throw badRequest("La tarea ya fue cerrada");
   }
 
+  // Validaciones de rol (igual que antes)
   if (currentUser.role === "Trabajador") {
     const asign = await models.TareaAsignacion.findOne({
       where: { tarea_id: tareaId, usuario_id: currentUser.sub },
@@ -421,6 +430,7 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
     throw forbidden("El propietario no inicia tareas");
   }
 
+  // Si ya está en progreso, solo devolvemos el detalle
   if (tarea.estado === "En progreso") {
     return await exports.obtenerTarea(currentUser, tareaId);
   }
@@ -429,6 +439,11 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
   }
 
   await sequelize.transaction(async (t) => {
+    // 🔹 Nuevo: fecha/hora de inicio real (solo si no tenía)
+    if (!tarea.fecha_inicio_real) {
+      tarea.fecha_inicio_real = new Date();
+    }
+
     tarea.estado = "En progreso";
     await tarea.save({ transaction: t });
 
@@ -458,6 +473,7 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
 };
 
 
+
 exports.completarTarea = async (currentUser, tareaId, body, io) => {
   const tarea = await models.Tarea.findByPk(tareaId, {
     include: [{ model: models.TipoActividad, attributes: ["codigo"] }],
@@ -484,9 +500,8 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
   const detalleReal = body && typeof body === "object" ? body.detalle || {} : {};
   const tipoCodigo = tarea.TipoActividad?.codigo || "";
 
-
   await sequelize.transaction(async (t) => {
-    // 1) Actualizar cantidades reales de items (nutrición / fitosanitario / etc.)
+    // 1) Actualizar cantidades reales de items (tu código actual)
     if (itemsReal.length) {
       const byId = new Map(itemsReal.filter(x => x.id).map(x => [x.id, x]));
       const byItem = new Map(itemsReal.filter(x => x.item_id && !x.id).map(x => [x.item_id, x]));
@@ -506,14 +521,18 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
       }
     }
 
-    // 2) Actualizar métricas reales específicas por tipo de tarea
+    // ==============================================================================
+    // TAREAS
+    // 2) Actualizar métricas reales específicas por tipo (tu código, con los ifs por tipo)
     if (tipoCodigo === "poda") {
       const { porcentaje_plantas_real_pct, herramientas_desinfectadas } = detalleReal;
+
       const det = await models.TareaPoda.findOne({
         where: { tarea_id: tareaId },
         transaction: t,
         lock: t.LOCK.UPDATE,
       });
+
       if (det) {
         if (porcentaje_plantas_real_pct != null) {
           det.porcentaje_plantas_real_pct = Number(porcentaje_plantas_real_pct);
@@ -525,19 +544,23 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
       }
     }
 
+    //------------------------------------------
     if (tipoCodigo === "maleza") {
       const { cobertura_real_pct } = detalleReal;
+
       const det = await models.TareaManejoMaleza.findOne({
         where: { tarea_id: tareaId },
         transaction: t,
         lock: t.LOCK.UPDATE,
       });
+
       if (det && cobertura_real_pct != null) {
         det.cobertura_real_pct = Number(cobertura_real_pct);
         await det.save({ transaction: t });
       }
     }
 
+    //------------------------------------------
     if (tipoCodigo === "enfundado") {
       const { porcentaje_frutos_real_pct } = detalleReal;
       const det = await models.TareaEnfundado.findOne({
@@ -551,34 +574,94 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
       }
     }
 
+    //------------------------------------------
     if (tipoCodigo === "nutricion") {
-  const { porcentaje_plantas_real_pct } = detalleReal;
-  const det = await models.TareaNutricion.findOne({
-    where: { tarea_id: tareaId },
-    transaction: t,
-    lock: t.LOCK.UPDATE,
-  });
-  if (det && porcentaje_plantas_real_pct != null) {
-    det.porcentaje_plantas_real_pct = Number(porcentaje_plantas_real_pct);
-    await det.save({ transaction: t });
-  }
-}
-if (tipoCodigo === "fitosanitario") {
-  const { porcentaje_plantas_real_pct } = detalleReal;
-  const det = await models.TareaFitosanitaria.findOne({
-    where: { tarea_id: tareaId },
-    transaction: t,
-    lock: t.LOCK.UPDATE,
-  });
-  if (det && porcentaje_plantas_real_pct != null) {
-    det.porcentaje_plantas_real_pct = Number(porcentaje_plantas_real_pct);
-    await det.save({ transaction: t });
-  }
-}
+      const { porcentaje_plantas_real_pct } = detalleReal;
+      const det = await models.TareaNutricion.findOne({
+        where: { tarea_id: tareaId },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (det && porcentaje_plantas_real_pct != null) {
+        det.porcentaje_plantas_real_pct = Number(porcentaje_plantas_real_pct);
+        await det.save({ transaction: t });
+      }
+    }
+
+    //------------------------------------------
+    if (tipoCodigo === "fitosanitario") {
+      const { porcentaje_plantas_real_pct } = detalleReal;
+      const det = await models.TareaFitosanitaria.findOne({
+        where: { tarea_id: tareaId },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (det && porcentaje_plantas_real_pct != null) {
+        det.porcentaje_plantas_real_pct = Number(porcentaje_plantas_real_pct);
+        await det.save({ transaction: t });
+      }
+    }
+
+    //------------------------------------------
+        if (tipoCodigo === "cosecha") {
+      const {
+        fecha_cosecha,
+        kg_cosechados,
+        grado_madurez,
+        notas,
+      } = detalleReal;
+
+      const det = await models.TareaCosecha.findOne({
+        where: { tarea_id: tareaId },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+
+      if (det) {
+        // fecha real de cosecha (si viene)
+        if (fecha_cosecha) {
+          const f =
+            typeof fecha_cosecha === "string"
+              ? fecha_cosecha.slice(0, 10)
+              : new Date(fecha_cosecha).toISOString().slice(0, 10);
+          det.fecha_cosecha = f;
+        }
+
+        // kg cosechados reales
+        if (kg_cosechados != null) {
+          det.kg_cosechados = Number(kg_cosechados);
+        }
+
+        // grado de madurez (opcional)
+        if (grado_madurez != null) {
+          det.grado_madurez = Number(grado_madurez);
+        }
+
+        // notas reales (si manda, sobrescribe la descripción planificada)
+        if (notas != null) {
+          det.notas = notas;
+        }
+
+        await det.save({ transaction: t });
+      }
+    }
 
 
+    // 3) 🔹 NUEVO: marcar fin real y duración
+    const ahora = new Date();
 
-    // 3) Estado de la tarea
+    if (!tarea.fecha_inicio_real) {
+      // fallback por si nunca llamaron a /iniciar
+      tarea.fecha_inicio_real = ahora;
+    }
+
+    tarea.fecha_fin_real = ahora;
+
+    const diffMs = tarea.fecha_fin_real - tarea.fecha_inicio_real;
+    const duracionMin = Math.max(1, Math.round(diffMs / 60000)); // mínimo 1 min
+    tarea.duracion_real_min = duracionMin;
+
+    // 4) Estado de la tarea
     if (tarea.estado !== "Completada") {
       tarea.estado = "Completada";
       await tarea.save({ transaction: t });
@@ -593,9 +676,6 @@ if (tipoCodigo === "fitosanitario") {
     }
   });
 
-
-
-
   await notif.crearParaRoles(["Tecnico"], {
     tipo: "Tarea",
     titulo: "Tarea completada",
@@ -605,8 +685,10 @@ if (tipoCodigo === "fitosanitario") {
   }).catch(() => {});
 
   if (io) io.emit("tareas:update");
+
   return await exports.obtenerTarea(currentUser, tareaId);
 };
+
 
 
 exports.verificarTarea = async (currentUser, tareaId, body, io) => {
@@ -724,129 +806,161 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
       { where: { tarea_id: tareaId, estado: "Reservada" }, transaction: t }
     );
 
-    // (3) COSECHA: normalizar a LoteCosecha + Clasificación + Rechazos
+
+        // (3) COSECHA: normalizar a TareaCosecha + Clasificación + Rechazos
     if (tipoCodigo === "cosecha") {
-      const ind = typeof body === "object" ? body.indicadores : null;
-      if (!ind || !ind.operacion || typeof ind.operacion.kgCosechados !== "number") {
-        throw badRequest("COSECHA: falta operacion.kgCosechados en indicadores");
-      }
+  const ind = typeof body === "object" ? body.indicadores : null;
+  if (!ind || !ind.operacion || typeof ind.operacion.kgCosechados !== "number") {
+    throw badRequest("COSECHA: falta operacion.kgCosechados en indicadores");
+  }
 
-      const N = (v) => Number(v ?? 0);
-      const round3 = (x) => Math.round(N(x) * 1000) / 1000;
-      const safeStr = (s) =>
-        String(s ?? "")
-          .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-          .toLowerCase();
+  const N = (v) => Number(v ?? 0);
+  const round3 = (x) => Math.round(N(x) * 1000) / 1000;
+  const safeStr = (s) =>
+    String(s ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
 
-      const kgCosechados = N(ind.operacion.kgCosechados);
-      if (!(kgCosechados > 0)) throw badRequest("COSECHA: kgCosechados debe ser > 0");
+  const kgCosechados = N(ind.operacion.kgCosechados);
+  if (!(kgCosechados > 0)) {
+    throw badRequest("COSECHA: kgCosechados debe ser > 0");
+  }
 
-      const exp = ind.clasificacion?.exportacion || {};
-      const nac = ind.clasificacion?.nacional || {};
+  const exp = ind.clasificacion?.exportacion || {};
+  const nac = ind.clasificacion?.nacional || {};
 
-      const kgExp = typeof exp.kgEstimados === "number"
-        ? N(exp.kgEstimados)
-        : (N(exp.gabetas) * N(exp.pesoPromGabetaKg || 0));
+  const kgExp =
+    typeof exp.kgEstimados === "number"
+      ? N(exp.kgEstimados)
+      : N(exp.gabetas) * N(exp.pesoPromGabetaKg || 0);
 
-      const kgNac = typeof nac.kgEstimados === "number"
-        ? N(nac.kgEstimados)
-        : (N(nac.gabetas) * N(nac.pesoPromGabetaKg || 0));
+  const kgNac =
+    typeof nac.kgEstimados === "number"
+      ? N(nac.kgEstimados)
+      : N(nac.gabetas) * N(nac.pesoPromGabetaKg || 0);
 
-      const rechList = Array.isArray(ind.rechazo?.detalle) ? ind.rechazo.detalle : [];
-      const kgRech = rechList.reduce((acc, r) => acc + N(r.kg), 0);
+  const rechList = Array.isArray(ind.rechazo?.detalle)
+    ? ind.rechazo.detalle
+    : [];
+  const kgRech = rechList.reduce((acc, r) => acc + N(r.kg), 0);
 
-      if (round3(kgExp + kgNac + kgRech) !== round3(kgCosechados)) {
-        throw badRequest(
-          `COSECHA: no cierra masa. exp(${kgExp}) + nac(${kgNac}) + rech(${kgRech}) != ${kgCosechados}`
-        );
-      }
+  if (round3(kgExp + kgNac + kgRech) !== round3(kgCosechados)) {
+    throw badRequest(
+      `COSECHA: no cierra masa. exp(${kgExp}) + nac(${kgNac}) + rech(${kgRech}) != ${kgCosechados}`
+    );
+  }
 
-      const f =
-        ind.operacion.fechaCosecha || tarea.fecha_programada || new Date();
-      const fecha_cosecha =
-        typeof f === "string" ? f.slice(0,10) : new Date(f).toISOString().slice(0,10);
+  const f = ind.operacion.fechaCosecha || tarea.fecha_programada || new Date();
+  const fecha_cosecha =
+    typeof f === "string"
+      ? f.slice(0, 10)
+      : new Date(f).toISOString().slice(0, 10);
 
-      const codigo = `CO-${fecha_cosecha}-L${tarea.lote_id}`;
-      const notas = comentario || tarea.descripcion || null;
+  const codigo = `CO-${fecha_cosecha}-L${tarea.lote_id}`;
+  const notas = comentario || tarea.descripcion || null;
 
-      let lc = await models.LoteCosecha.findOne({
-        where: { codigo },
-        transaction: t,
-        lock: t.LOCK.UPDATE,
-      });
+  // 🔍 Buscar TareaCosecha existente
+  let tc = await models.TareaCosecha.findOne({
+    where: { tarea_id: tarea.id },
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
 
-      if (lc) {
-        Object.assign(lc, {
-          cosecha_id: tarea.cosecha_id,
-          lote_id: tarea.lote_id,
-          periodo_id: tarea.periodo_id || null,
-          tarea_id: tarea.id,
-          fecha_cosecha,
-          kg_cosechados: round3(kgCosechados),
-          notas,
-        });
-        await lc.save({ transaction: t });
-      } else {
-        lc = await models.LoteCosecha.create(
-          {
-            codigo,
-            cosecha_id: tarea.cosecha_id,
-            lote_id: tarea.lote_id,
-            periodo_id: tarea.periodo_id || null,
-            tarea_id: tarea.id,
-            fecha_cosecha,
-            kg_cosechados: round3(kgCosechados),
-            notas,
-          },
-          { transaction: t }
-        );
-      }
+  // fallback por código para datos antiguos (si los hubiera)
+  if (!tc) {
+    tc = await models.TareaCosecha.findOne({
+      where: { codigo },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+  }
 
-      // Clasificación
-      await models.LoteCosechaClasificacion.destroy(
-        { where: { lote_cosecha_id: lc.id }, transaction: t }
-      );
-      await models.LoteCosechaClasificacion.bulkCreate([
-        {
-          lote_cosecha_id: lc.id,
-          destino: kgExp > 0 ? "Exportacion" : null,
-          gabetas: exp.gabetas || 0,
-          peso_promedio_gabeta_kg: exp.pesoPromGabetaKg || null,
-          kg_estimados: round3(kgExp),
-        },
-        {
-          lote_cosecha_id: lc.id,
-          destino: kgNac > 0 ? "Nacional" : null,
-          gabetas: nac.gabetas || 0,
-          peso_promedio_gabeta_kg: nac.pesoPromGabetaKg || null,
-          kg_estimados: round3(kgNac),
-        },
-      ], { transaction: t });
+  if (tc) {
+    Object.assign(tc, {
+      codigo,
+      cosecha_id: tarea.cosecha_id,
+      lote_id: tarea.lote_id,
+      periodo_id: tarea.periodo_id || null,
+      fecha_cosecha,
+      kg_cosechados: round3(kgCosechados),
+      notas,
+    });
 
-      // Rechazos
-      await models.LoteCosechaRechazo.destroy(
-        { where: { lote_cosecha_id: lc.id }, transaction: t }
-      );
-      if (rechList.length) {
-        const mapCausa = (s) => {
-          const x = safeStr(s);
-          if (x.includes("mecan")) return "DanoMecanico";
-          if (x.includes("plag") || x.includes("enferm")) return "Plaga";
-          if (x.includes("calib")) return "Calibre";
-          if (x.includes("manip")) return "Manipulacion";
-          return "Otro";
-        };
-        await models.LoteCosechaRechazo.bulkCreate(
-          rechList.map(r => ({
-            lote_cosecha_id: lc.id,
-            causa: mapCausa(r.causa),
-            kg: round3(N(r.kg)),
-            observacion: r.observacion || null,
-          })),
-          { transaction: t }
-        );
-      }
-    }
+    // 👇 ya NO guardamos porcentaje_cumplimiento_pct aquí
+    await tc.save({ transaction: t });
+  } else {
+    tc = await models.TareaCosecha.create(
+      {
+        codigo,
+        cosecha_id: tarea.cosecha_id,
+        lote_id: tarea.lote_id,
+        periodo_id: tarea.periodo_id || null,
+        tarea_id: tarea.id,
+        fecha_cosecha,
+        kg_cosechados: round3(kgCosechados),
+        notas,
+      },
+      { transaction: t }
+    );
+  }
+
+  // 🔹 Clasificación
+  await models.TareaCosechaClasificacion.destroy({
+    where: { tarea_cosecha_id: tc.id },
+    transaction: t,
+  });
+
+  await models.TareaCosechaClasificacion.bulkCreate(
+    [
+      {
+        tarea_cosecha_id: tc.id,
+        destino: kgExp > 0 ? "Exportacion" : null,
+        gabetas: exp.gabetas || 0,
+        peso_promedio_gabeta_kg: exp.pesoPromGabetaKg || null,
+        kg: round3(kgExp),
+      },
+      {
+        tarea_cosecha_id: tc.id,
+        destino: kgNac > 0 ? "Nacional" : null,
+        gabetas: nac.gabetas || 0,
+        peso_promedio_gabeta_kg: nac.pesoPromGabetaKg || null,
+        kg: round3(kgNac),
+      },
+    ],
+    { transaction: t }
+  );
+
+  // 🔹 Rechazos
+  await models.TareaCosechaRechazo.destroy({
+    where: { tarea_cosecha_id: tc.id },
+    transaction: t,
+  });
+
+  if (rechList.length) {
+    const mapCausa = (s) => {
+      const x = safeStr(s);
+      if (x.includes("mecan")) return "DanoMecanico";
+      if (x.includes("plag") || x.includes("enferm")) return "Plaga";
+      if (x.includes("calib")) return "Calibre";
+      if (x.includes("manip")) return "Manipulacion";
+      return "Otro";
+    };
+
+    await models.TareaCosechaRechazo.bulkCreate(
+      rechList.map((r) => ({
+        tarea_cosecha_id: tc.id,
+        causa: mapCausa(r.causa),
+        kg: round3(N(r.kg)),
+        observacion: r.observacion || null,
+      })),
+      { transaction: t }
+    );
+  }
+}
+
+
+
 
     // (4) Estado → Verificada
     tarea.estado = "Verificada";
@@ -1000,7 +1114,7 @@ exports.listarTareas = async (
     },
     {
       model: models.PeriodoCosecha,
-      attributes: ["id", "nombre", "semana_inicio", "semana_fin"],
+      attributes: ["id", "nombre"],
     },
     {
       model: models.TareaAsignacion,
@@ -1054,46 +1168,92 @@ exports.listarTareas = async (
 };
 
 
+
+
 exports.obtenerTarea = async (currentUser, id) => {
   const tarea = await models.Tarea.findByPk(id, {
     include: [
-      { model: models.TipoActividad, attributes: ["codigo","nombre"] },
-      { model: models.Lote, attributes: ["nombre"] },
+      { 
+        model: models.TipoActividad, 
+        attributes: ["codigo", "nombre"] 
+      },
+      { 
+        model: models.Lote, 
+        attributes: ["id", "nombre"] 
+      },
       {
         model: models.TareaAsignacion,
-        include: [{ model: models.Usuario, attributes: ["id","nombres","apellidos"] }],
+        include: [
+          { 
+            model: models.Usuario, 
+            attributes: ["id", "nombres", "apellidos"] 
+          },
+        ],
       },
       {
         model: models.TareaEstado,
-        include: [{ model: models.Usuario, attributes: ["id","nombres","apellidos"] }],
+        include: [
+          { 
+            model: models.Usuario, 
+            attributes: ["id", "nombres", "apellidos"] 
+          },
+        ],
       },
       {
         model: models.Novedad,
-        include: [{ model: models.Usuario, attributes: ["id","nombres","apellidos"] }],
+        include: [
+          { 
+            model: models.Usuario, 
+            attributes: ["id", "nombres", "apellidos"] 
+          },
+        ],
       },
       {
         model: models.Usuario,
         as: "Creador",
-        attributes: ["id","nombres","apellidos"],
+        attributes: ["id", "nombres", "apellidos"],
       },
-      { model: models.Cosecha, attributes: ["id","nombre","numero","anio_agricola","estado"] },
-      { model: models.PeriodoCosecha, attributes: ["id","nombre","semana_inicio","semana_fin"] },
+      { 
+        model: models.Cosecha, 
+        attributes: ["id", "nombre", "numero", "anio_agricola", "estado"] 
+      },
+      { 
+        model: models.PeriodoCosecha, 
+        attributes: ["id", "nombre"] 
+      },
       {
         model: models.TareaItem,
         include: [
-          { model: models.InventarioItem, attributes: ["id","nombre","categoria","unidad_id"] },
-          { model: models.Unidad, attributes: ["codigo"] },
+          { 
+            model: models.InventarioItem, 
+            attributes: ["id", "nombre", "categoria", "unidad_id"] 
+          },
+          { 
+            model: models.Unidad, 
+            attributes: ["codigo"] 
+          },
         ],
       },
+
+      // 🔹 Detalles por tipo de actividad
       { model: models.TareaPoda },
-    { model: models.TareaManejoMaleza },
-    { model: models.TareaNutricion },
-    { model: models.TareaFitosanitaria },
-    { model: models.TareaEnfundado },
+      { model: models.TareaManejoMaleza },
+      { model: models.TareaNutricion },
+      { model: models.TareaFitosanitaria },
+      { model: models.TareaEnfundado },
+      {
+        model: models.TareaCosecha,
+        include: [
+          models.TareaCosechaClasificacion,
+          models.TareaCosechaRechazo,
+        ],
+      },
     ],
   });
+
   if (!tarea) return null;
 
+  // 🔒 Trabajador solo puede ver tareas donde está asignado
   if (currentUser.role === "Trabajador") {
     const isAssigned = tarea.TareaAsignacions?.some(
       (a) => a.usuario_id === currentUser.sub
@@ -1102,6 +1262,7 @@ exports.obtenerTarea = async (currentUser, id) => {
   }
 
   return {
+    // 🔹 Datos base de la tarea
     id: tarea.id,
     tipo: tarea.TipoActividad?.nombre,
     tipo_codigo: tarea.TipoActividad?.codigo,
@@ -1111,12 +1272,22 @@ exports.obtenerTarea = async (currentUser, id) => {
     fecha_programada: tarea.fecha_programada,
     descripcion: tarea.descripcion,
     estado: tarea.estado,
+
+// ⏱️ Tiempos reales  (CORRECTO)
+fecha_hora_inicio_real: tarea.fecha_inicio_real,
+fecha_hora_fin_real: tarea.fecha_fin_real,
+duracion_real_min: tarea.duracion_real_min,
+
+
+    // 👤 Creador
     creador: tarea.Creador
       ? {
           id: tarea.Creador.id,
           nombre: `${tarea.Creador.nombres} ${tarea.Creador.apellidos}`,
         }
       : null,
+
+    // 👥 Asignaciones
     asignaciones: (tarea.TareaAsignacions || []).map((a) => ({
       id: a.id,
       usuario: a.Usuario
@@ -1127,6 +1298,8 @@ exports.obtenerTarea = async (currentUser, id) => {
         : { id: a.usuario_id },
       rol_en_tarea: a.rol_en_tarea,
     })),
+
+    // 🔁 Historial de estados
     estados: (tarea.TareaEstados || [])
       .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
       .map((e) => ({
@@ -1140,6 +1313,8 @@ exports.obtenerTarea = async (currentUser, id) => {
             }
           : null,
       })),
+
+    // 📝 Novedades
     novedades: (tarea.Novedads || []).map((n) => ({
       id: n.id,
       texto: n.texto,
@@ -1151,11 +1326,15 @@ exports.obtenerTarea = async (currentUser, id) => {
           }
         : null,
     })),
+
+    // 🌱 Cosecha / periodo
     cosecha: tarea.Cosecha?.nombre,
     periodo: tarea.PeriodoCosecha?.nombre,
+
+    // 📦 Items de inventario
     items: (tarea.TareaItems || [])
-      .sort((a,b) => (a.idx || 0) - (b.idx || 0))
-      .map(i => ({
+      .sort((a, b) => (a.idx || 0) - (b.idx || 0))
+      .map((i) => ({
         id: i.id,
         item_id: i.item_id,
         nombre: i.InventarioItem?.nombre,
@@ -1165,13 +1344,118 @@ exports.obtenerTarea = async (currentUser, id) => {
         cantidad_real: i.cantidad_real,
         idx: i.idx,
       })),
-    poda: tarea.TareaPoda || null,
-  manejoMaleza: tarea.TareaManejoMaleza || null,
-  nutricion: tarea.TareaNutricion || null,
-  fitosanitario: tarea.TareaFitosanitaria || null,
-  enfundado: tarea.TareaEnfundado || null,
+
+    // 🌿 Detalle PODA
+    poda: tarea.TareaPoda
+      ? {
+          id: tarea.TareaPoda.id,
+          tipo: tarea.TareaPoda.tipo,
+          porcentaje_plantas_plan_pct:
+            tarea.TareaPoda.porcentaje_plantas_plan_pct,
+          porcentaje_plantas_real_pct:
+            tarea.TareaPoda.porcentaje_plantas_real_pct,
+          herramientas_desinfectadas:
+            tarea.TareaPoda.herramientas_desinfectadas,
+          fecha_hora_inicio: tarea.TareaPoda.fecha_hora_inicio,
+          fecha_hora_fin: tarea.TareaPoda.fecha_hora_fin,
+        }
+      : null,
+
+    // 🌾 Detalle MANEJO DE MALEZAS
+    manejoMaleza: tarea.TareaManejoMaleza
+      ? {
+          id: tarea.TareaManejoMaleza.id,
+          metodo: tarea.TareaManejoMaleza.metodo, // Manual | Quimico | Mecanico
+          cobertura_planificada_pct:
+            tarea.TareaManejoMaleza.cobertura_planificada_pct,
+          cobertura_real_pct: tarea.TareaManejoMaleza.cobertura_real_pct,
+          fecha_hora_inicio: tarea.TareaManejoMaleza.fecha_hora_inicio,
+          fecha_hora_fin: tarea.TareaManejoMaleza.fecha_hora_fin,
+        }
+      : null,
+
+    // 💧 Detalle NUTRICIÓN
+    nutricion: tarea.TareaNutricion
+      ? {
+          id: tarea.TareaNutricion.id,
+          metodo_aplicacion: tarea.TareaNutricion.metodo_aplicacion, // Drench | Foliar | Fertirriego | (otra opción extra)
+          porcentaje_plantas_plan_pct:
+            tarea.TareaNutricion.porcentaje_plantas_plan_pct,
+          porcentaje_plantas_real_pct:
+            tarea.TareaNutricion.porcentaje_plantas_real_pct,
+          fecha_hora_inicio: tarea.TareaNutricion.fecha_hora_inicio,
+          fecha_hora_fin: tarea.TareaNutricion.fecha_hora_fin,
+        }
+      : null,
+
+    // 🐛 Detalle FITOSANITARIO
+    fitosanitario: tarea.TareaFitosanitaria
+      ? {
+          id: tarea.TareaFitosanitaria.id,
+          plaga_enfermedad: tarea.TareaFitosanitaria.plaga_enfermedad,
+          conteo_umbral: tarea.TareaFitosanitaria.conteo_umbral,
+          periodo_carencia_dias:
+            tarea.TareaFitosanitaria.periodo_carencia_dias,
+          fecha_hora_inicio: tarea.TareaFitosanitaria.fecha_hora_inicio,
+          fecha_hora_fin: tarea.TareaFitosanitaria.fecha_hora_fin,
+          volumen_aplicacion_lt:
+            tarea.TareaFitosanitaria.volumen_aplicacion_lt,
+          equipo_aplicacion: tarea.TareaFitosanitaria.equipo_aplicacion,
+          porcentaje_plantas_plan_pct:
+            tarea.TareaFitosanitaria.porcentaje_plantas_plan_pct,
+          porcentaje_plantas_real_pct:
+            tarea.TareaFitosanitaria.porcentaje_plantas_real_pct,
+        }
+      : null,
+
+    // 🎒 Detalle ENFUNDADO
+    enfundado: tarea.TareaEnfundado
+      ? {
+          id: tarea.TareaEnfundado.id,
+          frutos_enfundados_plan: tarea.TareaEnfundado.frutos_enfundados_plan,
+          frutos_enfundados_real: tarea.TareaEnfundado.frutos_enfundados_real,
+          porcentaje_frutos_plan_pct:
+            tarea.TareaEnfundado.porcentaje_frutos_plan_pct,
+          porcentaje_frutos_real_pct:
+            tarea.TareaEnfundado.porcentaje_frutos_real_pct,
+          fecha_hora_inicio: tarea.TareaEnfundado.fecha_hora_inicio,
+          fecha_hora_fin: tarea.TareaEnfundado.fecha_hora_fin,
+        }
+      : null,
+
+    // 🍈 Detalle COSECHA / POSCOSECHA
+    tareaCosecha: tarea.TareaCosecha
+      ? {
+          id: tarea.TareaCosecha.id,
+          fecha_cosecha: tarea.TareaCosecha.fecha_cosecha,
+          kg_planificados: tarea.TareaCosecha.kg_planificados,
+          kg_cosechados: tarea.TareaCosecha.kg_cosechados,
+          grado_madurez: tarea.TareaCosecha.grado_madurez,
+          notas: tarea.TareaCosecha.notas,
+
+          clasificacion: (tarea.TareaCosecha.TareaCosechaClasificacions || []).map(
+            (c) => ({
+              id: c.id,
+              destino: c.destino,
+              gabetas: c.gabetas,
+              peso_promedio_gabeta_kg: c.peso_promedio_gabeta_kg,
+              kg: c.kg,
+            })
+          ),
+
+          rechazos: (tarea.TareaCosecha.TareaCosechaRechazos || []).map(
+            (r) => ({
+              id: r.id,
+              causa: r.causa,
+              kg: r.kg,
+              observacion: r.observacion,
+            })
+          ),
+        }
+      : null,
   };
 };
+
 
 exports.configurarItems = async (currentUser, tareaId, body, io) => {
   if (!["Propietario","Tecnico"].includes(currentUser.role)) throw forbidden();
@@ -1321,7 +1605,8 @@ exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
     throw badRequest("No se puede editar una tarea cerrada");
 
   // normalizar SIEMPRE a Number (evita string vs number)
-  const requested = usuarios.map(Number);
+  const requested = [...new Set(usuarios.map(Number))];
+
   const actuales = (tarea.TareaAsignacions || []).map(a => Number(a.usuario_id));
 
   // validar usuarios activos
@@ -1484,7 +1769,7 @@ exports.resumenTareas = async (
     },
     {
       model: models.PeriodoCosecha,
-      attributes: ["id", "nombre", "semana_inicio", "semana_fin"],
+      attributes: ["id", "nombre"],
     },
     {
       model: models.TareaAsignacion,
@@ -1546,4 +1831,123 @@ exports.resumenTareas = async (
     porEstado,
     porGrupo,   // 👈 esto nos sirve directo para las cards
   };
+};
+
+
+
+
+exports.actualizarCosecha = async (tareaId, payload) => {
+  const {
+    grado_madurez,
+    notas,
+    clasificacion = [],
+    rechazos = [],
+  } = payload || {};
+
+  return sequelize.transaction(async (t) => {
+    // 1) Verificar que la tarea existe
+    const tarea = await models.Tarea.findByPk(tareaId, { transaction: t });
+    if (!tarea) throw notFound("Tarea no encontrada");
+
+    // 2) Buscar el detalle de cosecha asociado
+    let tareaCosecha = await models.TareaCosecha.findOne({
+      where: { tarea_id: tarea.id },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    // Si no hay registro de cosecha → de facto no es tarea de cosecha
+    if (!tareaCosecha) {
+      throw badRequest(
+        "La tarea no tiene detalle de cosecha asociado (no es de tipo cosecha)."
+      );
+    }
+
+    // 3) Actualizar campos simples
+    if (grado_madurez !== undefined) {
+      tareaCosecha.grado_madurez = grado_madurez;
+    }
+    if (notas !== undefined) {
+      tareaCosecha.notas = notas;
+    }
+
+    await tareaCosecha.save({ transaction: t });
+
+    // 4) Reemplazar CLASIFICACIÓN
+    if (Array.isArray(clasificacion)) {
+      await models.TareaCosechaClasificacion.destroy({
+        where: { tarea_cosecha_id: tareaCosecha.id },
+        transaction: t,
+      });
+
+      const rowsClas = clasificacion
+        .filter(
+          (c) =>
+            c &&
+            (c.destino || c.gabetas || c.kg || c.peso_promedio_gabeta_kg)
+        )
+        .map((c) => ({
+          tarea_cosecha_id: tareaCosecha.id,
+          destino: c.destino || null,
+          gabetas: Number(c.gabetas) || 0,
+          peso_promedio_gabeta_kg:
+            c.peso_promedio_gabeta_kg !== undefined &&
+            c.peso_promedio_gabeta_kg !== null &&
+            c.peso_promedio_gabeta_kg !== ""
+              ? Number(c.peso_promedio_gabeta_kg)
+              : null,
+          kg: Number(c.kg) || 0,
+        }));
+
+      if (rowsClas.length > 0) {
+        await models.TareaCosechaClasificacion.bulkCreate(rowsClas, {
+          transaction: t,
+        });
+      }
+    }
+
+    // 5) Reemplazar RECHAZOS
+    if (Array.isArray(rechazos)) {
+      await models.TareaCosechaRechazo.destroy({
+        where: { tarea_cosecha_id: tareaCosecha.id },
+        transaction: t,
+      });
+
+      const rowsRech = rechazos
+        .filter((r) => r && r.causa && r.kg !== undefined && r.kg !== null)
+        .map((r) => ({
+          tarea_cosecha_id: tareaCosecha.id,
+          causa: r.causa, // 'DanoMecanico', 'Plaga', etc.
+          kg: Number(r.kg) || 0,
+          observacion: r.observacion || null,
+        }));
+
+      if (rowsRech.length > 0) {
+        await models.TareaCosechaRechazo.bulkCreate(rowsRech, {
+          transaction: t,
+        });
+      }
+    }
+
+    // 6) Recargar con relaciones (usando los alias que tengas definidos)
+    const tareaCosechaUpdated = await models.TareaCosecha.findByPk(
+      tareaCosecha.id,
+      {
+        include: [
+          {
+            model: models.TareaCosechaClasificacion,
+          },
+          {
+            model: models.TareaCosechaRechazo,
+          },
+        ],
+        transaction: t,
+      }
+    );
+
+    return {
+      ok: true,
+      tareaCosecha: tareaCosechaUpdated,
+    };
+  });
 };

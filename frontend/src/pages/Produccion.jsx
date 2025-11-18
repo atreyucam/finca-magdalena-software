@@ -1,10 +1,13 @@
 // src/pages/Produccion.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 
-import { listarLotes, listarCosechas } from "../api/apiClient";
+import { listarLotes, listarCosechas, cerrarCosecha } from "../api/apiClient";
 import CrearLoteModal from "../components/CrearLoteModal";
 import CrearCosechaModal from "../components/CrearCosechaModal";
+import GestionPeriodosModal from "../components/GestionPeriodosModal";
+
 
 export default function Produccion() {
   const [tab, setTab] = useState("lotes"); // "lotes" | "cosechas"
@@ -19,6 +22,11 @@ export default function Produccion() {
 
   const [showLoteModal, setShowLoteModal] = useState(false);
   const [showCosechaModal, setShowCosechaModal] = useState(false);
+
+  const [showPeriodosModal, setShowPeriodosModal] = useState(false);
+const [cosechaSeleccionada, setCosechaSeleccionada] = useState(null);
+
+  const [closingId, setClosingId] = useState(null); 
 
   const fetchData = async () => {
     try {
@@ -62,6 +70,48 @@ export default function Produccion() {
     await fetchData();
   };
 
+   // 🔹 Handler para cerrar cosecha
+  const handleCerrarCosecha = async (cosecha) => {
+    if (!cosecha || !cosecha.id) return;
+    const estado = (cosecha.estado || "").toLowerCase();
+    if (estado === "cerrada") return;
+
+    const confirmar = window.confirm(
+      `¿Cerrar la cosecha "${cosecha.nombre}"? Esta acción no se puede deshacer.`
+    );
+    if (!confirmar) return;
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    const fecha_fin = window.prompt(
+      "Ingresa la fecha de fin de la cosecha (YYYY-MM-DD):",
+      hoy
+    );
+    if (!fecha_fin) return;
+
+    try {
+      setClosingId(cosecha.id);
+      await cerrarCosecha(cosecha.id, { fecha_fin });
+      toast.success("Cosecha cerrada correctamente");
+      await fetchData();
+    } catch (err) {
+      console.error("Error cerrando cosecha", err);
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "No se pudo cerrar la cosecha";
+      toast.error(msg);
+    } finally {
+      setClosingId(null);
+    }
+  };
+
+  const handleGestionarPeriodos = (cosecha) => {
+  setCosechaSeleccionada(cosecha);
+  setShowPeriodosModal(true);
+};
+
+
+
   return (
     <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-[1400px] rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
@@ -75,12 +125,12 @@ export default function Produccion() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button
+            {/* <button
               onClick={fetchData}
               className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Recargar datos
-            </button>
+            </button> */}
 
             {tab === "lotes" ? (
               <button
@@ -188,7 +238,13 @@ export default function Produccion() {
         {tab === "lotes" ? (
           <SeccionLotes lotes={lotes} loading={isLoadingTab} />
         ) : (
-          <SeccionCosechas cosechas={cosechas} loading={isLoadingTab} />
+          <SeccionCosechas 
+          cosechas={cosechas} 
+          loading={isLoadingTab} 
+          onCerrar={handleCerrarCosecha}
+            closingId={closingId}
+            onGestionarPeriodos={handleGestionarPeriodos}
+            />
         )}
       </div>
 
@@ -203,6 +259,13 @@ export default function Produccion() {
         onClose={() => setShowCosechaModal(false)}
         onCreated={handleCreated}
       />
+      <GestionPeriodosModal
+  open={showPeriodosModal}
+  onClose={() => setShowPeriodosModal(false)}
+  cosecha={cosechaSeleccionada}
+  onUpdated={fetchData}
+/>
+
     </section>
   );
 }
@@ -307,15 +370,14 @@ function SeccionLotes({ lotes, loading }) {
     </div>
   );
 }
-
 /* =============== SECCIÓN COSECHAS =============== */
 
-function SeccionCosechas({ cosechas, loading }) {
+function SeccionCosechas({ cosechas, loading, onCerrar, closingId, onGestionarPeriodos }) {
   if (!loading && cosechas.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
         No hay cosechas registradas. Crea una nueva cosecha para comenzar a
-        agrupar la producción por periodos.
+        agrupar la producción por períodos.
       </div>
     );
   }
@@ -327,19 +389,23 @@ function SeccionCosechas({ cosechas, loading }) {
       {cosechas.map((c) => {
         const nombre =
           c.nombre || c.nombre_cosecha || `Cosecha #${c.id ?? "?"}`;
-        const estado = c.estado || "En curso";
+        const estado = c.estado || "Activa";
         const inicio = c.fecha_inicio || c.fecha_desde || c.desde;
         const fin = c.fecha_fin || c.fecha_hasta || c.hasta;
         const totalKg = c.total_kg ?? c.kg_totales ?? null;
+        const anioAgricola = c.anio_agricola;
+        const codigo = c.codigo;
 
         const estadoClasses = [
           "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold",
-          estado.toLowerCase() === "en curso"
+          estado.toLowerCase() === "activa" || estado.toLowerCase() === "en curso"
             ? "bg-sky-100 text-sky-700"
             : estado.toLowerCase() === "cerrada"
             ? "bg-slate-200 text-slate-800"
             : "bg-amber-100 text-amber-700",
         ].join(" ");
+
+        const puedeCerrar = estado.toLowerCase() === "activa";
 
         return (
           <article
@@ -354,6 +420,22 @@ function SeccionCosechas({ cosechas, loading }) {
             </div>
 
             <dl className="space-y-1 text-xs text-slate-600">
+              {anioAgricola && (
+                <div className="flex justify-between gap-2">
+                  <dt className="font-medium text-slate-500">
+                    Año agrícola
+                  </dt>
+                  <dd>{anioAgricola}</dd>
+                </div>
+              )}
+
+              {codigo && (
+                <div className="flex justify-between gap-2">
+                  <dt className="font-medium text-slate-500">Código</dt>
+                  <dd className="font-mono text-[11px]">{codigo}</dd>
+                </div>
+              )}
+
               <div className="flex justify-between gap-2">
                 <dt className="font-medium text-slate-500">Periodo</dt>
                 <dd>
@@ -404,6 +486,26 @@ function SeccionCosechas({ cosechas, loading }) {
               >
                 Ver reporte
               </button>
+
+              {/* 👉 NUEVO: gestionar periodos */}
+  <button
+    type="button"
+    onClick={() => onGestionarPeriodos?.(c)}
+    className="rounded-xl border border-sky-300 bg-sky-50 px-3 py-1.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+  >
+    Gestionar periodos
+  </button>
+
+              {puedeCerrar && (
+                <button
+                  type="button"
+                  onClick={() => onCerrar?.(c)}
+                  disabled={closingId === c.id}
+                  className="rounded-xl bg-amber-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {closingId === c.id ? "Cerrando…" : "Cerrar cosecha"}
+                </button>
+              )}
             </div>
           </article>
         );

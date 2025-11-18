@@ -164,7 +164,8 @@ export const listarTareaItems = (tareaId) =>
 export const configurarTareaItems = (tareaId, data) =>
   api.post(`/tareas/${tareaId}/items`, data);
 
-
+export const actualizarCosecha = (tareaId, payload) =>
+  api.patch(`/tareas/${tareaId}/cosecha`, payload);
 
 
 
@@ -179,6 +180,9 @@ export const listarLotes = () => api.get("/lotes");
 export const listarCosechas = () => api.get("/cosechas");
 export const listarTiposActividad = () => api.get("/tipos-actividad");
 
+// 🔹 NUEVO: cerrar cosecha
+export const cerrarCosecha = (id, payload) =>
+  api.patch(`/cosechas/${id}/cerrar`, payload);
 
 // ================= INVENTARIO =================
 
@@ -240,5 +244,45 @@ export const crearCosecha = (payload) => api.post("/cosechas", payload);
 export function obtenerLote(id) {
   return api.get(`/lotes/${id}`);
 }
+
+
+// 👉 NUEVO: obtener una cosecha con sus periodos
+export const obtenerCosecha = (id) => api.get(`/cosechas/${id}`);
+
+
+
+// 👉 NUEVO: gestión de periodos
+export const crearPeriodosCosecha = (cosechaId, periodos) =>
+  api.post(`/cosechas/${cosechaId}/periodos`, periodos); // espera array
+
+export const actualizarPeriodoCosecha = (periodoId, data) =>
+  api.patch(`/cosechas/periodos/${periodoId}`, data);
+
+export const eliminarPeriodoCosecha = (periodoId) =>
+  api.delete(`/cosechas/periodos/${periodoId}`);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 export default api;

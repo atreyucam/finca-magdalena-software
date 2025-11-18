@@ -18,15 +18,28 @@ export default function AsignacionesModal({ tareaId, open, onClose, onSaved }) {
           listarUsuarios({ estado: "Activo", pageSize: 200 }),
           obtenerTarea(tareaId),
         ]);
-        const us = (uRes.data?.data || []).filter((u) =>
-          ["Trabajador", "Tecnico"].includes(u.role)
-        );
+        const normalizeRole = (u) => {
+  const raw = u.role || u.rol || u.Role || u.Rol;
+  if (typeof raw === "string") return raw.trim();
+  if (raw && typeof raw === "object") return (raw.nombre || raw.name || "").trim();
+  return "";
+};
+
+const us = (uRes.data?.data || [])
+  .map((u) => ({
+    ...u,
+    _role: normalizeRole(u),
+  }))
+  .filter((u) => ["Trabajador", "Tecnico"].includes(u._role));
+setUsuarios(us);
+
         setUsuarios(us);
         setSelAsign(
-          (tRes.data?.asignaciones || [])
-            .map((a) => String(a.usuario?.id))
-            .filter(Boolean)
-        );
+  (tRes.data?.asignaciones || [])
+    .map((a) => String(a.usuario_id || a.usuario?.id))
+    .filter(Boolean)
+);
+
         setSelPick([]);
       } catch (e) {
         console.error(e);

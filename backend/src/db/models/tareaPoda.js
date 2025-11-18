@@ -12,9 +12,6 @@ module.exports = (sequelize) => {
       allowNull: false,
     },
 
-    // ⚠️ Opcional, lo dejamos por compatibilidad (ya no lo usamos en UI)
-    plantas_intervenidas: { type: DataTypes.INTEGER },
-
     // ✅ Nuevo: porcentaje de plantas a intervenir (planificado)
     porcentaje_plantas_plan_pct: {
       type: DataTypes.DECIMAL(5, 2),

@@ -134,3 +134,23 @@ exports.resumenTareas = async (req, res, next) => {
     next(err);
   }
 };
+
+
+
+exports.actualizarCosecha = async (req, res, next) => {
+  try {
+    const tareaId = Number(req.params.id);
+    const { grado_madurez, notas, clasificacion, rechazos } = req.body;
+
+    const result = await service.actualizarCosecha(tareaId, {
+      grado_madurez,
+      notas,
+      clasificacion,
+      rechazos,
+    });
+
+    res.json(result); // o solo { ok: true }
+  } catch (err) {
+    next(err);
+  }
+};

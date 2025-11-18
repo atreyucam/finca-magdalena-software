@@ -14,6 +14,7 @@ import TareasItemsModal from "../components/tareaItemsModal";
 import AsignacionesModal from "../components/AsignacionesModal";
 import Avatar from "../components/Avatar";
 import TaskActionModal from "../components/TaskActionModal";
+import CosechaClasificacionModal from "../components/CosechaClasificacionModal";
 
 const fmtDT = (v) => (v ? new Date(v).toLocaleString() : "—");
 
@@ -52,7 +53,6 @@ export default function TaskDetailPage() {
   const authStore = useAuthStore((s) => s);
   const user = authStore.user;
 
-  // role puede venir como string o como objeto { nombre: 'Tecnico', ... }
   const role = (() => {
     const raw =
       authStore.getRole?.() ??
@@ -87,6 +87,8 @@ export default function TaskDetailPage() {
 
   const [novedades, setNovedades] = useState([]);
   const [textoNovedad, setTextoNovedad] = useState("");
+  const [cosechaModalOpen, setCosechaModalOpen] = useState(false);
+
 
   // items unificados desde backend
   const [items, setItems] = useState([]);
@@ -115,9 +117,11 @@ export default function TaskDetailPage() {
   // ====== ASIGNACIÓN DEL USUARIO ======
   const isAssigned = useMemo(() => {
     if (!tarea || !currentUserId) return false;
-    return (tarea.asignaciones || []).some(
-      (a) => a.usuario?.id === currentUserId
-    );
+
+    return (tarea.asignaciones || []).some((a) => {
+      const uid = a.usuario_id || a.usuario?.id;
+      return Number(uid) === Number(currentUserId);
+    });
   }, [tarea, currentUserId]);
 
   // Trabajador o Técnico ASIGNADO → puede iniciar/completar
@@ -152,15 +156,14 @@ export default function TaskDetailPage() {
   };
 
   useEffect(() => {
-  const scrollEl = document.querySelector(".app-scroll");
+    const scrollEl = document.querySelector(".app-scroll");
 
-  if (scrollEl) {
-    scrollEl.scrollTo({ top: 0, behavior: "instant" });
-  } else {
-    window.scrollTo({ top: 0, behavior: "instant" });
-  }
-}, []);
-
+    if (scrollEl) {
+      scrollEl.scrollTo({ top: 0, behavior: "instant" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, []);
 
   useEffect(() => {
     if (!Number.isNaN(tareaId)) refreshAll();
@@ -271,23 +274,22 @@ export default function TaskDetailPage() {
     return `${val.toFixed(1)} %`;
   };
 
+  const box = (label, value) => (
+    <div className="flex justify-between py-1">
+      <span className="text-slate-600">{label}:</span>
+      <span className="font-medium text-slate-800">
+        {value !== undefined && value !== null && value !== "" ? value : "—"}
+      </span>
+    </div>
+  );
+
   function renderTaskDetails() {
     if (!tarea?.tipo_codigo) return null;
 
     const d = detalles || {};
 
-    const box = (label, value) => (
-      <div className="flex justify-between py-1">
-        <span className="text-slate-600">{label}:</span>
-        <span className="font-medium text-slate-800">
-          {value !== undefined && value !== null && value !== ""
-            ? value
-            : "—"}
-        </span>
-      </div>
-    );
-
     switch (tarea.tipo_codigo) {
+      // 🌿 PODA
       case "poda":
         return (
           <>
@@ -308,9 +310,18 @@ export default function TaskDetailPage() {
               "Herramientas desinfectadas",
               humanBool(d.herramientas_desinfectadas)
             )}
+            {/* {box(
+              "Inicio (ejecución)",
+              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
+            )}
+            {box(
+              "Fin (ejecución)",
+              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
+            )} */}
           </>
         );
 
+      // 🌱 MALEZA
       case "maleza":
         return (
           <>
@@ -324,28 +335,94 @@ export default function TaskDetailPage() {
               "Área sin intervenir (aprox.)",
               faltanteHasta100(d.cobertura_real_pct)
             )}
+            {/* {box(
+              "Inicio (ejecución)",
+              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
+            )}
+            {box(
+              "Fin (ejecución)",
+              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
+            )} */}
           </>
         );
 
+      // 💧 NUTRICIÓN
       case "nutricion":
-        return <>{box("Método de aplicación", d.metodo_aplicacion)}</>;
+        return (
+          <>
+            {box("Método de aplicación", d.metodo_aplicacion)}
+            {box(
+              "% de plantas a tratar planificado",
+              fmtPct(d.porcentaje_plantas_plan_pct)
+            )}
+            {box(
+              "% de plantas tratadas real",
+              fmtPct(d.porcentaje_plantas_real_pct)
+            )}
+            {box(
+              "Plantas sin tratar (aprox.)",
+              faltanteHasta100(d.porcentaje_plantas_real_pct)
+            )}
+            {/* {box(
+              "Inicio (ejecución)",
+              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
+            )}
+            {box(
+              "Fin (ejecución)",
+              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
+            )} */}
+          </>
+        );
 
+      // 🐛 FITOSANITARIO
       case "fitosanitario":
         return (
           <>
             {box("Plaga/enfermedad", d.plaga_enfermedad)}
             {box("Conteo umbral", d.conteo_umbral)}
-            {box("Inicio", d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio))}
-            {box("Fin", d.fecha_hora_fin && fmtDT(d.fecha_hora_fin))}
-            {box("Volumen aplicado (L)", d.volumen_aplicacion_lt)}
-            {box("Equipo", d.equipo_aplicacion)}
             {box("Periodo de carencia (días)", d.periodo_carencia_dias)}
+            {box(
+              "% de plantas/área a tratar planificado",
+              fmtPct(d.porcentaje_plantas_plan_pct)
+            )}
+            {box(
+              "% de plantas/área tratada real",
+              fmtPct(d.porcentaje_plantas_real_pct)
+            )}
+            {box(
+              "Área sin tratar (aprox.)",
+              faltanteHasta100(d.porcentaje_plantas_real_pct)
+            )}
+            {box(
+              "Volumen aplicado (L)",
+              d.volumen_aplicacion_lt != null
+                ? Number(d.volumen_aplicacion_lt).toFixed(2)
+                : "—"
+            )}
+            {box("Equipo de aplicación", d.equipo_aplicacion)}
+            {/* {box(
+              "Inicio (ejecución)",
+              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
+            )}
+            {box(
+              "Fin (ejecución)",
+              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
+            )} */}
           </>
         );
 
+      // 🎒 ENFUNDADO
       case "enfundado":
         return (
           <>
+            {box(
+              "Frutos enfundados planificados (unidades)",
+              d.frutos_enfundados_plan
+            )}
+            {box(
+              "Frutos enfundados reales (unidades)",
+              d.frutos_enfundados_real
+            )}
             {box(
               "Frutos enfundados planificado (%)",
               fmtPct(d.porcentaje_frutos_plan_pct)
@@ -358,10 +435,147 @@ export default function TaskDetailPage() {
               "Frutos sin enfundar (aprox.)",
               faltanteHasta100(d.porcentaje_frutos_real_pct)
             )}
+            {/* {box(
+              "Inicio (ejecución)",
+              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
+            )}
+            {box(
+              "Fin (ejecución)",
+              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
+            )} */}
           </>
         );
 
-      case "cosecha":
+      // 🍈 COSECHA / POSCOSECHA
+      case "cosecha": {
+        const c = tarea.tareaCosecha || {};
+        const kgPlan =
+          c.kg_planificados !== null && c.kg_planificados !== undefined
+            ? Number(c.kg_planificados)
+            : null;
+        const kgReal =
+          c.kg_cosechados !== null && c.kg_cosechados !== undefined
+            ? Number(c.kg_cosechados)
+            : null;
+        const pctCumpl =
+          kgPlan && kgPlan > 0 ? (kgReal * 100) / kgPlan : null;
+
+        const fmtKg = (v) =>
+          v === null || v === undefined
+            ? "—"
+            : `${Number(v).toFixed(2)} kg`;
+
+        return (
+          <>
+            {/* Botón para abrir modal de clasificación */}
+      {(isOwner || isTech) && tarea.estado !== "Pendiente" && tarea.tareaCosecha &&(
+        <div className="mb-3 flex justify-end">
+          <button
+            onClick={() => setCosechaModalOpen(true)}
+            className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            Registrar / editar clasificación y rechazos
+          </button>
+        </div>
+      )}
+
+
+
+
+            {box("Fecha de cosecha", c.fecha_cosecha && fmtDT(c.fecha_cosecha))}
+            {box("Kg planificados", fmtKg(kgPlan))}
+            {box("Kg cosechados", fmtKg(kgReal))}
+            {box("Cumplimiento estimado", pctCumpl != null ? fmtPct(pctCumpl) : "—")}
+            {box("Grado de madurez", c.grado_madurez)}
+            {box("Notas / observaciones", c.notas)}
+
+            {c.clasificacion && c.clasificacion.length > 0 && (
+              <div className="mt-3">
+                <div className="text-sm font-medium text-slate-700 mb-1">
+                  Clasificación por destino
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-xs md:text-sm">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th className="p-2 text-left font-medium">Destino</th>
+                        <th className="p-2 text-right font-medium">
+                          Gabetas
+                        </th>
+                        <th className="p-2 text-right font-medium">
+                          Peso prom. gabeta (kg)
+                        </th>
+                        <th className="p-2 text-right font-medium">Kg</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {c.clasificacion.map((cl) => (
+                        <tr key={cl.id}>
+                          <td className="p-2 text-slate-900">
+                            {cl.destino}
+                          </td>
+                          <td className="p-2 text-right text-slate-700">
+                            {cl.gabetas}
+                          </td>
+                          <td className="p-2 text-right text-slate-700">
+                            {cl.peso_promedio_gabeta_kg != null
+                              ? Number(
+                                  cl.peso_promedio_gabeta_kg
+                                ).toFixed(2)
+                              : "—"}
+                          </td>
+                          <td className="p-2 text-right text-slate-700">
+                            {cl.kg != null
+                              ? Number(cl.kg).toFixed(2)
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {c.rechazos && c.rechazos.length > 0 && (
+              <div className="mt-4">
+                <div className="text-sm font-medium text-slate-700 mb-1">
+                  Rechazos de fruta
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-xs md:text-sm">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th className="p-2 text-left font-medium">Causa</th>
+                        <th className="p-2 text-right font-medium">Kg</th>
+                        <th className="p-2 text-left font-medium">
+                          Observación
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {c.rechazos.map((r) => (
+                        <tr key={r.id}>
+                          <td className="p-2 text-slate-900">{r.causa}</td>
+                          <td className="p-2 text-right text-slate-700">
+                            {r.kg != null
+                              ? Number(r.kg).toFixed(2)
+                              : "—"}
+                          </td>
+                          <td className="p-2 text-slate-700">
+                            {r.observacion || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      }
+
       default:
         return (
           <div className="text-sm text-slate-500">
@@ -486,11 +700,11 @@ export default function TaskDetailPage() {
                     </div>
                   </div>
 
-                  {/* Fecha */}
+                  {/* Fecha programada */}
                   <div className="flex items-center gap-3">
                     <span className="text-slate-600 inline-flex items-center gap-2">
                       <span>🕒</span>
-                      <span className="font-medium">Fecha</span>
+                      <span className="font-medium">Fecha programada</span>
                     </span>
                     <span className="font-medium">
                       {fmtDT(tarea.fecha_programada)}
@@ -618,13 +832,33 @@ export default function TaskDetailPage() {
                 </div>
               </section>
 
-              {/* Detalles específicos */}
+              {/* Detalles específicos + tiempos reales */}
               <section className="space-y-3">
                 <h3 className="font-semibold text-slate-800">
                   Detalles de la tarea
                 </h3>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
+                  {/* Tiempos reales generales de la tarea */}
+                  {box(
+                    "Inicio real de la tarea",
+                    tarea.fecha_hora_inicio_real &&
+                      fmtDT(tarea.fecha_hora_inicio_real)
+                  )}
+                  {box(
+                    "Fin real de la tarea",
+                    tarea.fecha_hora_fin_real &&
+                      fmtDT(tarea.fecha_hora_fin_real)
+                  )}
+                  {box(
+                    "Duración real (minutos)",
+                    tarea.duracion_real_min != null
+                      ? `${Number(tarea.duracion_real_min).toFixed(1)} min`
+                      : "—"
+                  )}
+
+                  <hr className="my-2 border-slate-200" />
+
                   {renderTaskDetails()}
                 </div>
               </section>
@@ -843,6 +1077,13 @@ export default function TaskDetailPage() {
           onClose={() => setAsignModalOpen(false)}
           onSaved={refreshAll}
         />
+        <CosechaClasificacionModal
+  tareaId={tareaId}
+  open={cosechaModalOpen}
+  onClose={() => setCosechaModalOpen(false)}
+  onSaved={refreshAll}
+  cosecha={tarea?.tareaCosecha}
+/>
 
         <TaskActionModal
           open={actionModal.open}

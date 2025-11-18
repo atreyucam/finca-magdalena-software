@@ -21,7 +21,7 @@ router.post('/', requireAuth, requireRole('Propietario','Tecnico'), controller.c
 
 // Asignar responsables (Propietario/Tecnico)
 router.post('/:id/asignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.asignarUsuarios);
-router.patch('/:id/asignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarAsignaciones);
+router.patch('/:id/ActualizarAsignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarAsignaciones);
 
 // Items de tarea (unificado: Insumo / herramienta / equipo)
 router.post('/:id/items', requireAuth, requireRole('Propietario','Tecnico'), controller.configurarItems);
@@ -36,6 +36,12 @@ router.post("/:id/cancelar", requireAuth, requireRole('Propietario','Tecnico'), 
 // Novedades
 router.post('/:id/novedades', requireAuth, controller.crearNovedad);
 router.get('/:id/novedades', requireAuth, controller.listarNovedades);
+
+router.patch(
+  "/:id/cosecha",
+  requireAuth,
+  controller.actualizarCosecha
+);
 
 module.exports = router;
 

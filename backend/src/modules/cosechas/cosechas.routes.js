@@ -13,10 +13,44 @@ router.get('/', requireAuth, controller.listarCosechas);
 router.get('/:id', requireAuth, controller.obtenerCosecha);
 
 // Crear cosecha (solo propietario)
-router.post('/', requireAuth, requireRole('Propietario'), controller.crearCosecha);
+router.post(
+  '/',
+  requireAuth,
+  requireRole('Propietario'),
+  controller.crearCosecha
+);
+
+// Cerrar cosecha (solo propietario)
+router.patch(
+  '/:id/cerrar',
+  requireAuth,
+  requireRole('Propietario'),
+  controller.cerrarCosecha
+);
 
 // Crear periodos de una cosecha
-router.post('/:id/periodos', requireAuth, requireRole('Propietario'), controller.crearPeriodos);
+router.post(
+  '/:id/periodos',
+  requireAuth,
+  requireRole('Propietario'),
+  controller.crearPeriodos
+);
+
+
+// ✅ Actualizar un periodo de cosecha
+router.patch(
+  '/periodos/:periodoId',
+  requireAuth,
+  requireRole('Propietario'),
+  controller.actualizarPeriodo
+);
+
+// ✅ Eliminar un periodo de cosecha
+router.delete(
+  '/periodos/:periodoId',
+  requireAuth,
+  requireRole('Propietario'),
+  controller.eliminarPeriodo
+);
 
 module.exports = router;
-

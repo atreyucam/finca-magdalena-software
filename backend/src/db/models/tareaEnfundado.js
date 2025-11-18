@@ -6,13 +6,6 @@ module.exports = (sequelize) => {
     id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
     tarea_id: { type: DataTypes.BIGINT, allowNull: false, unique: true },
 
-    // ⚠️ Lo dejamos por compatibilidad (cantidad absoluta), opcional
-    frutos_enfundados: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-    },
-
     // ✅ Planificado: % de frutos a enfundar
     porcentaje_frutos_plan_pct: {
       type: DataTypes.DECIMAL(5, 2),

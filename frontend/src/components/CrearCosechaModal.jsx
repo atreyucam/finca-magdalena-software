@@ -6,9 +6,7 @@ import toast from "react-hot-toast";
 export default function CrearCosechaModal({ open, onClose, onCreated }) {
   const [nombre, setNombre] = useState("");
   const [numero, setNumero] = useState("");
-  const [anioAgricola, setAnioAgricola] = useState("");
   const [fechaInicio, setFechaInicio] = useState("");
-  const [fechaFin, setFechaFin] = useState("");
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -16,9 +14,7 @@ export default function CrearCosechaModal({ open, onClose, onCreated }) {
     if (open) {
       setNombre("");
       setNumero("");
-      setAnioAgricola("");
       setFechaInicio("");
-      setFechaFin("");
       setErrors({});
       setSaving(false);
     }
@@ -32,15 +28,7 @@ export default function CrearCosechaModal({ open, onClose, onCreated }) {
     if (!numero || Number(numero) <= 0) {
       e.numero = "Ingrese el número de cosecha (1, 2, 3...)";
     }
-    if (!anioAgricola.trim()) {
-      e.anioAgricola = 'Ingrese el año agrícola (ej. "2024-2025")';
-    }
     if (!fechaInicio) e.fechaInicio = "La fecha de inicio es obligatoria";
-    if (!fechaFin) e.fechaFin = "La fecha de fin es obligatoria";
-
-    if (fechaInicio && fechaFin && fechaFin < fechaInicio) {
-      e.fechaFin = "La fecha de fin debe ser posterior a la de inicio";
-    }
 
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -53,10 +41,7 @@ export default function CrearCosechaModal({ open, onClose, onCreated }) {
     const payload = {
       nombre: nombre.trim(),
       numero: Number(numero),
-      anio_agricola: anioAgricola.trim(),
-      fecha_inicio: fechaInicio,
-      fecha_fin: fechaFin,
-      // estado se pone en el backend (Activa)
+      fecha_inicio: fechaInicio, // 👈 sólo esto; anio_agricola y codigo los calcula el backend
     };
 
     try {
@@ -87,7 +72,8 @@ export default function CrearCosechaModal({ open, onClose, onCreated }) {
               Nueva cosecha
             </h2>
             <p className="text-sm text-slate-500">
-              Define un nuevo período de cosecha para la finca.
+              Define un nuevo período de cosecha para la finca. El año agrícola y
+              el código se generarán automáticamente a partir de la fecha de inicio.
             </p>
           </div>
           <button
@@ -107,7 +93,8 @@ export default function CrearCosechaModal({ open, onClose, onCreated }) {
             </svg>
           </button>
         </div>
-
+      {/* Separador entre filtros y contenido */}
+        <div className="mb-4 h-px w-full bg-slate-200" />
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="space-y-4 text-sm">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -147,54 +134,19 @@ export default function CrearCosechaModal({ open, onClose, onCreated }) {
 
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-700">
-              Año agrícola *
+              Fecha de inicio *
             </label>
             <input
-              type="text"
-              value={anioAgricola}
-              onChange={(e) => setAnioAgricola(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
-              placeholder='Ej. "2024-2025"'
+              type="date"
+              value={fechaInicio}
+              onChange={(e) => setFechaInicio(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
             />
-            {errors.anioAgricola && (
+            {errors.fechaInicio && (
               <p className="mt-1 text-xs text-rose-600">
-                {errors.anioAgricola}
+                {errors.fechaInicio}
               </p>
             )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">
-                Fecha de inicio *
-              </label>
-              <input
-                type="date"
-                value={fechaInicio}
-                onChange={(e) => setFechaInicio(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
-              />
-              {errors.fechaInicio && (
-                <p className="mt-1 text-xs text-rose-600">
-                  {errors.fechaInicio}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-700">
-                Fecha de fin *
-              </label>
-              <input
-                type="date"
-                value={fechaFin}
-                onChange={(e) => setFechaFin(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
-              />
-              {errors.fechaFin && (
-                <p className="mt-1 text-xs text-rose-600">{errors.fechaFin}</p>
-              )}
-            </div>
           </div>
 
           {/* Acciones */}

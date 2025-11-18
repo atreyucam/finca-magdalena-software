@@ -97,7 +97,8 @@ export default function CrearLoteModal({ open, onClose, onCreated }) {
             </svg>
           </button>
         </div>
-
+  {/* Separador entre filtros y contenido */}
+        <div className="mb-4 h-px w-full bg-slate-200" />
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="space-y-4 text-sm">
           <div>
