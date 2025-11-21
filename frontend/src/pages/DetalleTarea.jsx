@@ -712,7 +712,8 @@ export default function TaskDetailPage() {
                   </div>
                 </div>
               </div>
-
+  {/* Separador entre filtros y contenido */}
+        <div className="mb-4 h-px w-full bg-slate-200" />
               {/* descripción */}
               <section>
                 <h3 className="font-semibold mb-1 text-slate-800">
@@ -722,7 +723,8 @@ export default function TaskDetailPage() {
                   {tarea.descripcion || "—"}
                 </p>
               </section>
-
+              {/* Separador entre filtros y contenido */}
+        <div className="mb-4 h-px w-full bg-slate-200" />
               {/* recursos */}
               <section className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -831,7 +833,8 @@ export default function TaskDetailPage() {
                   )}
                 </div>
               </section>
-
+  {/* Separador entre filtros y contenido */}
+        <div className="mb-4 h-px w-full bg-slate-200" />
               {/* Detalles específicos + tiempos reales */}
               <section className="space-y-3">
                 <h3 className="font-semibold text-slate-800">
@@ -862,7 +865,8 @@ export default function TaskDetailPage() {
                   {renderTaskDetails()}
                 </div>
               </section>
-
+  {/* Separador entre filtros y contenido */}
+        <div className="mb-4 h-px w-full bg-slate-200" />
               {/* novedades */}
               <section className="space-y-2">
                 <h3 className="font-semibold text-slate-800">Novedades</h3>
@@ -910,12 +914,12 @@ export default function TaskDetailPage() {
                     placeholder="Escribe una novedad…"
                     className={`${textareaBase} rounded-2xl border-0`}
                   />
+                </div>
                   <div className="flex justify-end p-2">
                     <button onClick={addNovedad} className={btnPrimary}>
                       Enviar novedad
                     </button>
                   </div>
-                </div>
               </section>
             </div>
 
@@ -1009,57 +1013,88 @@ export default function TaskDetailPage() {
               </section>
 
               {/* historial */}
-              <section className="rounded-2xl border border-slate-200 p-4 bg-white">
-                <h4 className="mb-3 font-semibold text-slate-800">
-                  Historial de actividad
-                </h4>
-                {tarea.estados?.length ? (
-                  <ol className="relative ml-4 ps-4 space-y-4 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-px before:bg-slate-200">
-                    {tarea.estados
-                      .slice()
-                      .sort(
-                        (a, b) => new Date(a.fecha) - new Date(b.fecha)
-                      )
-                      .map((e, idx) => {
-                        const name = e.usuario?.nombre || "";
-                        return (
-                          <li key={idx} className="relative">
-                            <div className="absolute -left-4 top-0">
-                              <Avatar
-                                user={e.usuario}
-                                name={name}
-                                size={28}
-                                className="h-7 w-7"
-                              />
-                            </div>
-                            <div className="text-sm">
-                              <span className="font-medium">
-                                {e.estado}
-                              </span>{" "}
-                              <span className="text-slate-500">
-                                — {fmtDT(e.fecha)}
-                              </span>
-                            </div>
-                            {e.comentario && (
-                              <div className="text-sm italic text-slate-700">
-                                {e.comentario}
-                              </div>
-                            )}
-                            {name && (
-                              <div className="text-[11px] text-slate-500">
-                                {name}
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
-                  </ol>
-                ) : (
-                  <div className="text-sm text-slate-500">
-                    Sin actividad
+
+
+           {/* ================= HISTORIAL DE ACTIVIDAD (DISEÑO TIMELINE) ================= */}
+<section className="rounded-2xl border border-slate-200 bg-white p-6">
+  <h4 className="mb-6 text-lg font-bold text-slate-900">
+    Historial de actividad
+  </h4>
+
+  {tarea.estados?.length ? (
+    <div className="relative">
+      {/* Esta es la línea vertical gris que conecta todo. 
+          Se ajusta 'left-5' para centrarla con los avatares de 40px (size 10) */}
+      <div className="absolute left-5 top-2 bottom-2 w-0.5 bg-slate-200" />
+
+      <ul className="space-y-8">
+        {tarea.estados
+          .slice()
+          .sort((a, b) => new Date(b.fecha) - new Date(a.fecha)) // Ordenar: más reciente arriba
+          .map((e, idx) => {
+            const name = e.usuario?.nombre || "Usuario";
+            const isComment = !!e.comentario; // Si tiene comentario, lo destacamos diferente
+
+            return (
+              <li key={idx} className="relative pl-14">
+                {/* --- AVATAR (Izquierda) --- */}
+                <div className="absolute left-0 top-0 bg-white py-1">
+                  {/* El borde blanco alrededor del avatar ayuda a que se separe visualmente de la línea */}
+                  <Avatar
+                    user={e.usuario}
+                    name={name}
+                    size={40}
+                    className="h-10 w-10 border-2 border-white shadow-sm"
+                  />
+                </div>
+
+                {/* --- CONTENIDO (Derecha) --- */}
+                <div className="flex flex-col gap-1">
+                  {/* Encabezado: Nombre + Hora */}
+                  <div className="flex flex-wrap items-center gap-x-2 text-sm">
+                    <span className="font-bold text-slate-900">
+                      {name}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {fmtDT(e.fecha)}
+                    </span>
                   </div>
-                )}
-              </section>
+
+                  {/* Acción: Qué hizo (Cambió estado) */}
+                  <div className="text-sm text-slate-600">
+                    Cambió el estado a{" "}
+                    <span
+                      className={`font-medium ${
+                        e.estado === "Completada"
+                          ? "text-emerald-600"
+                          : e.estado === "En progreso"
+                          ? "text-blue-600"
+                          : "text-slate-800"
+                      }`}
+                    >
+                      {e.estado}
+                    </span>
+                  </div>
+
+                  {/* --- CAJA DE COMENTARIO (Estilo Referencia) --- */}
+                  {isComment && (
+                    <div className="mt-2 rounded-xl bg-slate-50 p-4 border border-slate-100 text-slate-700 text-sm leading-relaxed shadow-sm">
+                      {e.comentario}
+                    </div>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+      </ul>
+    </div>
+  ) : (
+    <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+      <span className="text-4xl mb-2">📝</span>
+      <p className="text-sm">No hay actividad registrada aún.</p>
+    </div>
+  )}
+</section>
             </div>
           </div>
         )}
