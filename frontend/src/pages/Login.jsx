@@ -171,7 +171,7 @@ export default function Login() {
 
         {/* ===== DERECHA ===== */}
         <div className="relative hidden overflow-hidden lg:block">
-          <div className="absolute inset-6 rounded-[28px] bg-sky-50 ring-1 ring-inset ring-sky-100" />
+          <div className="absolute inset-6 rounded-[28px] " />
           <img
             src={heroImg}
             alt="Ilustración pitahaya"

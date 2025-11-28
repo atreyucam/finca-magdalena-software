@@ -12,7 +12,7 @@ const items = [
   { to: `${base}/produccion`, label: "Producción" },
   { to: `${base}/usuarios`, label: "Usuarios" },
   { to: `${base}/pagos`, label: "Pagos"},
-  { to: `${base}/metricas`, label: "Métricas" },
+  { to: `${base}/metricas`, label: "Reportes" },
   { to: `${base}/notificaciones`, label: "Notificaciones" },
 ];
 
