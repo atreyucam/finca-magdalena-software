@@ -1,30 +1,40 @@
 import { useState, useEffect, useCallback } from "react";
-import { getDashboardResumen } from "../api/apiClient";
-import { toast } from "sonner";
+import { getDashboardIntegral } from "../api/apiClient";
+import { toast } from "sonner"; // O tu librería de notificaciones
 
 export default function useDashboard() {
-  const [datos, setDatos] = useState(null);
-  const [cargando, setCargando] = useState(true);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Filtros (por defecto Finca 1, o podrías obtenerlo del usuario)
+  const [filtros, setFiltros] = useState({ finca_id: "" });
 
-  const cargarDatos = useCallback(async () => {
-    setCargando(true);
+  const recargar = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      const res = await getDashboardResumen();
-      setDatos(res.data);
+      // Llamamos al endpoint que devuelve { kpi_seguridad, kpi_finanzas, ... }
+      const res = await getDashboardIntegral(filtros);
+      setData(res.data);
     } catch (err) {
-      console.error(err);
-      setError("No se pudo cargar la información del dashboard.");
-      toast.error("Error de conexión al cargar métricas");
+      console.error("Error cargando dashboard:", err);
+      setError("No se pudieron cargar los indicadores.");
+      // toast.error("Error de conexión");
     } finally {
-      setCargando(false);
+      setLoading(false);
     }
-  }, []);
+  }, [filtros]);
 
   useEffect(() => {
-    cargarDatos();
-  }, [cargarDatos]);
+    recargar();
+  }, [recargar]);
 
-  return { datos, cargando, error, recargar: cargarDatos };
+  return { 
+    data, 
+    loading, 
+    error, 
+    recargar,
+    setFiltro: (k, v) => setFiltros(prev => ({ ...prev, [k]: v })) 
+  };
 }
