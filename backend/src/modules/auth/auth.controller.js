@@ -1,36 +1,87 @@
 const service = require('./auth.service');
 
-
-exports.login = async (req, res, next) => {
-try {
-const { email, password } = req.body;
-const result = await service.login(email, password);
-res.json(result);
-} catch (err) {
-err.status = 401;
-next(err);
-}
+// Configuración común de cookies para reutilizar
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // 'lax' es mejor para dev
+  maxAge: 7 * 24 * 60 * 60 * 1000 // 7 días
 };
 
+// ✅ LOGIN
+exports.login = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email y contraseña son obligatorios' });
+    }
+
+    const result = await service.login(email, password);
+    
+    // Guardamos el refresh token en cookie
+    res.cookie('refresh_token', result.tokens.refresh, cookieOptions);
+
+    // Respondemos solo con access_token y usuario
+    res.json({ 
+      user: result.user, 
+      access_token: result.tokens.access 
+    });
+  } catch (err) {
+    if (err.message.includes('inválidas') || err.message.includes('inactivo')) {
+      err.status = 401;
+    }
+    next(err);
+  }
+};
+
+// ✅ REFRESH TOKEN (Corregido)
 exports.refresh = async (req, res, next) => {
   try {
-    const token =
-      req.body?.refresh ||
-      req.headers['x-refresh-token'] ||
-      req.cookies?.refresh_token;
+    // Buscar token en cookies (prioridad) o body
+    const token = req.cookies?.refresh_token || req.body?.refresh_token;
 
-    if (!token) return res.status(401).json({ message: 'Refresh token requerido' });
+    if (!token) {
+      return res.status(401).json({ message: 'Refresh token requerido' });
+    }
 
     const result = await service.refresh(token);
 
-    // opcional: setear cookie httpOnly además del JSON
-    // res.cookie('refresh_token', result.tokens.refresh, {
-    //   httpOnly: true, sameSite: 'lax', secure: false, path: '/auth/refresh', maxAge: 7*24*60*60*1000
-    // });
+    // 🟢 CORRECCIÓN: Actualizar la cookie con el NUEVO refresh token rotado
+    res.cookie('refresh_token', result.tokens.refresh, cookieOptions);
 
-    res.json(result);
+    // Devolver nuevo access token
+    res.json({
+        user: result.user,
+        access_token: result.tokens.access
+    });
   } catch (err) {
+    // Si falla el refresh (token inválido/expirado), limpiamos la cookie
+    res.clearCookie('refresh_token');
     err.status = 401;
+    next(err);
+  }
+};
+
+// ✅ LOGOUT
+exports.logout = async (req, res, next) => {
+  try {
+    res.clearCookie('refresh_token'); 
+    res.json({ message: 'Sesión cerrada correctamente' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ✅ PROFILE
+exports.profile = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.sub) {
+      return res.status(404).json({ message: 'Usuario no identificado' });
+    }
+    const userProfile = await service.getProfile(req.user.sub);
+    res.json(userProfile);
+  } catch (err) {
     next(err);
   }
 };

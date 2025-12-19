@@ -13,49 +13,32 @@ function badRequest(message = 'Solicitud inválida') {
  * - Si no hay fecha_fin → año simple (ej. "2025")
  * - Si hay fecha_fin y cruza de año → "2025-2026"
  */
+// Actualizamos la función para recibir el finca_id
 function buildCosechaMetadata({
+  finca_id, // 🔹 Nuevo parámetro
   numero,
   fecha_inicio,
-  fecha_fin = null,
-  usePlaceholder0000 = false,
+  fecha_fin = null
 }) {
   const inicio = new Date(fecha_inicio);
-  if (Number.isNaN(inicio.getTime())) throw badRequest('fecha_inicio inválida');
-
   const yInicio = inicio.getFullYear();
-  let anio_agricola;
-  let codigo;
+  let anio_agricola = String(yInicio);
+  
+  // 🔹 El nuevo código incluirá el ID de la finca: FA-CO-{FINCA}-{NUMERO}-{AÑO}
+  let codigo = `FA-CO-F${finca_id}-${numero}-${yInicio}`;
 
-  if (!fecha_fin) {
-    // Al crear: solo año de inicio
-    anio_agricola = String(yInicio);
-
-    if (usePlaceholder0000) {
-      codigo = `FA-CO-${numero}-${yInicio}-0000`;
-    } else {
-      codigo = `FA-CO-${numero}-${yInicio}`;
-    }
-  } else {
+  if (fecha_fin) {
     const fin = new Date(fecha_fin);
-    if (Number.isNaN(fin.getTime())) throw badRequest('fecha_fin inválida');
-    if (fin < inicio)
-      throw badRequest('La fecha de fin no puede ser anterior a la de inicio');
-
     const yFin = fin.getFullYear();
-
-    if (yInicio === yFin) {
-      anio_agricola = String(yInicio);
-      codigo = usePlaceholder0000
-        ? `FA-CO-${numero}-${yInicio}-0000`
-        : `FA-CO-${numero}-${yInicio}`;
-    } else {
+    if (yInicio !== yFin) {
       anio_agricola = `${yInicio}-${yFin}`;
-      codigo = `FA-CO-${numero}-${yInicio}-${yFin}`;
+      codigo = `FA-CO-F${finca_id}-${numero}-${yInicio}-${yFin}`;
     }
   }
 
   return { anio_agricola, codigo };
 }
+
 
 /* ========== LISTAR / OBTENER ========== */
 
@@ -69,10 +52,46 @@ exports.listarCosechas = async () => {
   });
 };
 
+// Helper para el label dinámico [Mes - Mes Año]
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+const generarLabelAgricola = (fInicio, fFin) => {
+  const inicio = new Date(fInicio);
+  const mesI = MESES[inicio.getUTCMonth()];
+  const anioI = inicio.getUTCFullYear();
+  if (!fFin) return `[${mesI} ${anioI} - Activa]`;
+  const fin = new Date(fFin);
+  const mesF = MESES[fin.getUTCMonth()];
+  const anioF = fin.getUTCFullYear();
+  return anioI === anioF ? `[${mesI} - ${mesF} ${anioI}]` : `[${mesI} ${anioI} - ${mesF} ${anioF}]`;
+};
+
 exports.obtenerCosecha = async (id) => {
-  return await models.Cosecha.findByPk(id, {
-    include: [{ model: models.PeriodoCosecha }],
+  const cosecha = await models.Cosecha.findByPk(id, {
+    include: [
+      { model: models.PeriodoCosecha, order: [['id', 'ASC']] },
+      { model: models.Finca, attributes: ['nombre'] }
+    ],
   });
+
+  if (!cosecha) return null;
+
+// 🛡️ Lógica corregida: Permitir cierre si no hay tareas pendientes
+  const totalTareas = await models.Tarea.count({ where: { cosecha_id: id } });
+  const verificadas = await models.Tarea.count({ where: { cosecha_id: id, estado: 'Verificada' } });
+
+const puedeCerrar = totalTareas === verificadas; 
+  const progreso = totalTareas > 0 ? Math.round((verificadas / totalTareas) * 100) : 100; // 100% si no hay tareas
+  return {
+    ...cosecha.toJSON(),
+    anio_agricola_label: generarLabelAgricola(cosecha.fecha_inicio, cosecha.fecha_fin),
+    metricas: {
+      totalTareas,
+      verificadas,
+      progresoVerificacion: progreso,
+      puedeCerrar
+    }
+  };
 };
 
 /* ========== CREAR COSECHA ========== */
@@ -82,7 +101,12 @@ exports.crearCosecha = async (currentUser, data) => {
     throw badRequest('Solo propietario puede crear cosechas');
   }
 
-  const { nombre, numero, fecha_inicio } = data;
+  const { nombre, numero, fecha_inicio, finca_id } = data;
+
+  if (!finca_id) throw badRequest('finca_id es obligatorio');
+
+  const finca = await models.Finca.findByPk(finca_id);
+  if (!finca) throw badRequest('Finca no encontrada');
 
   if (!nombre) throw badRequest('nombre es obligatorio');
   if (!numero || Number(numero) <= 0) {
@@ -93,10 +117,10 @@ exports.crearCosecha = async (currentUser, data) => {
   const n = Number(numero);
 
   const { anio_agricola, codigo } = buildCosechaMetadata({
+    finca_id: data.finca_id, // 🔹 Pasamos finca_id
     numero: n,
     fecha_inicio,
     fecha_fin: null,
-    usePlaceholder0000: false,
   });
 
   // ⚠️ Usamos transacción para crear cosecha + periodos
@@ -108,6 +132,7 @@ exports.crearCosecha = async (currentUser, data) => {
         codigo,
         anio_agricola,
         fecha_inicio,
+        finca_id,
         fecha_fin: null,
         estado: 'Activa',
       },
@@ -144,6 +169,7 @@ exports.crearCosecha = async (currentUser, data) => {
 };
 /* ========== CERRAR COSECHA ========== */
 
+/* ========== CERRAR COSECHA ========== */
 exports.cerrarCosecha = async (currentUser, id, data) => {
   if (currentUser.role !== 'Propietario') {
     throw badRequest('Solo propietario puede cerrar cosechas');
@@ -159,10 +185,10 @@ exports.cerrarCosecha = async (currentUser, id, data) => {
   if (!fecha_fin) throw badRequest('fecha_fin es obligatoria');
 
   const { anio_agricola, codigo } = buildCosechaMetadata({
+    finca_id: cosecha.finca_id, // 👈 AGREGAR ESTA LÍNEA PARA EVITAR EL "Fundefined"
     numero: cosecha.numero,
     fecha_inicio: cosecha.fecha_inicio,
     fecha_fin,
-    usePlaceholder0000: false, // o true si quieres el sufijo
   });
 
   cosecha.fecha_fin = fecha_fin;
@@ -240,3 +266,5 @@ exports.eliminarPeriodo = async (currentUser, periodoId) => {
 
   return { message: 'Periodo eliminado correctamente' };
 };
+
+

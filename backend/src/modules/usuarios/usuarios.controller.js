@@ -91,3 +91,10 @@ exports.obtenerMisTareas = async (req, res, next) => {
     res.json(datos);
   } catch (err) { next(err); }
 };
+
+exports.obtenerEstadisticas = async (req, res, next) => {
+  try {
+    const stats = await service.obtenerEstadisticas();
+    res.json(stats);
+  } catch (err) { next(err); }
+};

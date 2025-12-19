@@ -1,8 +1,72 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors'); 
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
 const { config } = require('./config/env');
 
+const app = express();
+
+// --- 1. Seguridad Básica ---
+app.set('trust proxy', 1); 
+
+// Helmet con configuración permisiva para desarrollo (imágenes, scripts)
+app.use(helmet({
+  crossOriginResourcePolicy: false, 
+}));
+
+app.use(cookieParser());
+
+// --- 2. CORS (Crucial) ---
+// En desarrollo, permitimos localhost explícitamente y wildcard si hace falta
+const allowedOrigins = [
+  "http://localhost:5173", 
+  "http://127.0.0.1:5173"
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Permitir requests sin origen (como Postman o Server-to-Server)
+    if (!origin) return callback(null, true);
+    
+    if (process.env.NODE_ENV === 'development') {
+        // En desarrollo, ser más laxos o permitir explícitamente el origen del frontend
+        return callback(null, true); 
+    }
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log("Bloqueado por CORS:", origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-refresh-token']
+}));
+
+// --- 3. Rate Limiting (Suavizado para Dev) ---
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 1000, // 👈 Aumentado para que no te bloquee mientras pruebas
+  standardHeaders: true, 
+  legacyHeaders: false,
+});
+app.use(limiter);
+
+// Auth Limiter (Suavizado)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 100, // 👈 Aumentado para desarrollo
+});
+app.use('/auth/login', authLimiter);
+
+app.use(express.json());
+
+// ... (Resto de tus rutas igual) ...
+// Imports de rutas...
 const healthRoutes = require('./modules/health/health.routes');
 const authRoutes = require('./modules/auth/auth.routes');
 const usuariosRoutes = require('./modules/usuarios/usuarios.routes');
@@ -17,20 +81,14 @@ const metricasRoutes = require('./modules/metricas/metricas.routes');
 const cosechasRoutes = require('./modules/cosechas/cosechas.routes');
 const tiposActividadRoutes = require('./modules/tipoActividad/tiposActividad.routes');
 const unidadesRouter = require('./modules/inventario/unidades.routes');
-
-const app = express();
-app.use(cors({
-  origin: "http://localhost:5173", // origen del frontend
-  credentials: true,               // si luego usas cookies/sesión
-}));
-app.use(express.json());
-
+const fincasRoutes = require('./modules/fincas/fincas.routes');
 
 // Rutas
 app.use('/files', express.static(path.join(__dirname, '../storage')));
 app.use('/health', healthRoutes);
 app.use('/auth', authRoutes);
 app.use('/usuarios', usuariosRoutes);
+app.use('/fincas', fincasRoutes);
 app.use('/lotes', lotesRoutes);
 app.use('/inventario', inventarioRoutes);
 app.use('/tareas', tareasRoutes);
@@ -43,14 +101,13 @@ app.use('/cosechas', cosechasRoutes);
 app.use('/tipos-actividad', tiposActividadRoutes);
 app.use('/unidades', unidadesRouter);
 
-// Manejo básico de errores
+// Manejo de errores
 app.use((err, req, res, next) => {
-console.error(err);
-const status = err.status || 500;
-const code = err.code || 'INTERNAL_ERROR';
-const message = err.message || 'Error interno';
-res.status(status).json({ code, message });
+  console.error(err);
+  const status = err.status || 500;
+  const code = err.code || 'INTERNAL_ERROR';
+  const message = err.message || 'Error interno';
+  res.status(status).json({ code, message });
 });
-
 
 module.exports = { app };

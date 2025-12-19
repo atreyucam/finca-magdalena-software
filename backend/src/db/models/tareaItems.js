@@ -43,6 +43,11 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: '0.000',
     },
+    lote_insumo_manual: { 
+      type: DataTypes.STRING(100), 
+      allowNull: true,
+      comment: 'Código de lote/batch del envase físico usado'
+    },
 
     // Para ordenar en el frontend (opcional)
     idx: {

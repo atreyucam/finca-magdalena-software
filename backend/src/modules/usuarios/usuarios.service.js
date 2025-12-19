@@ -13,80 +13,105 @@ const e = new Error(message); e.status = 400; e.code = 'BAD_REQUEST'; return e;
 }
 
 exports.crearUsuario = async (currentUser, data) => {
-const { cedula, nombres, apellidos, email, telefono, direccion, fecha_ingreso, role, password } = data;
-if (!cedula || !nombres || !apellidos || !email || !role || !password) throw badRequest('Faltan campos obligatorios');
+  // Extraemos 'tipo' con default a 'Fijo'
+  const { cedula, nombres, apellidos, email, telefono, direccion, fecha_ingreso, role, password, tipo = 'Fijo' } = data;
 
+  // 1. Validaciones Generales
+  if (!cedula || !nombres || !apellidos || !role) {
+    throw badRequest('Faltan campos obligatorios: Cédula, Nombres, Apellidos o Rol.');
+  }
 
-// Regla: Tecnico solo crea Trabajador
-if (currentUser.role === 'Tecnico' && role !== 'Trabajador') {
-throw forbid('El técnico solo puede crear usuarios con rol Trabajador.');
-}
+  // 2. Reglas de Negocio según Tipo
+  if (tipo === 'Fijo') {
+    // Si es Fijo, Email y Password son OBLIGATORIOS
+    if (!email || !password) throw badRequest('El personal fijo requiere Email y Contraseña.');
+  } else if (tipo === 'Esporadico') {
+    // Si es Esporádico, SOLO puede ser Trabajador
+    if (role !== 'Trabajador') throw badRequest('Los trabajadores esporádicos solo pueden tener el rol de Trabajador.');
+  }
 
+  // 3. Regla de permisos del Técnico
+  if (currentUser.role === 'Tecnico' && role !== 'Trabajador') {
+    throw forbid('El técnico solo puede crear usuarios con rol Trabajador.');
+  }
 
-const roleRow = await models.Role.findOne({ where: { nombre: role } });
-if (!roleRow) throw badRequest('Rol inválido');
+  const roleRow = await models.Role.findOne({ where: { nombre: role } });
+  if (!roleRow) throw badRequest('Rol inválido');
 
+  try {
+    // Preparamos datos condicionales
+    const finalEmail = tipo === 'Fijo' ? email : null;
+    const finalPasswordHash = (tipo === 'Fijo' && password) ? await hashPassword(password) : null;
 
-try {
-const usuario = await models.Usuario.create({
-cedula, nombres, apellidos, email, telefono, direccion, fecha_ingreso,
-role_id: roleRow.id,
-password_hash: await hashPassword(password),
-});
-return {
-id: usuario.id,
-cedula, nombres, apellidos, email, telefono, direccion, fecha_ingreso,
-role: roleRow.nombre,
-estado: usuario.estado,
+    const usuario = await models.Usuario.create({
+      cedula, nombres, apellidos, telefono, direccion, fecha_ingreso,
+      role_id: roleRow.id,
+      tipo,                 // Guardamos el tipo
+      email: finalEmail,    // NULL si es esporádico
+      password_hash: finalPasswordHash, // NULL si es esporádico
+    });
+
+    return {
+      id: usuario.id,
+      cedula, nombres, apellidos, email: finalEmail, telefono, direccion, fecha_ingreso,
+      role: roleRow.nombre,
+      tipo: usuario.tipo,
+      estado: usuario.estado,
+    };
+  } catch (err) {
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      err.status = 409; 
+      err.code = 'DUPLICATE'; 
+      err.message = 'La cédula (o el email) ya existen en el sistema.';
+    }
+    throw err;
+  }
 };
-} catch (err) {
-if (err.name === 'SequelizeUniqueConstraintError') {
-err.status = 409; err.code = 'DUPLICATE'; err.message = 'Cédula o email ya existen';
-}
-throw err;
-}
-};
 
-exports.listarUsuarios = async ({ q, estado, role, page = 1, pageSize = 20 }) => {
-const where = {};
-if (role) {
-  where['$Role.nombre$'] = role;  // Sequelize con include
-}
+exports.listarUsuarios = async ({ q, estado, role, tipo, page = 1, pageSize = 20 }) => {
+  const where = {};
+  
+  if (role) where['$Role.nombre$'] = role;
+  if (estado) where.estado = estado;
+  if (tipo) where.tipo = tipo; // Nuevo filtro
 
-if (estado) where.estado = estado;
-if (q) {
-where[Op.or] = [
-{ nombres: { [Op.iLike]: `%${q}%` } },
-{ apellidos: { [Op.iLike]: `%${q}%` } },
-{ email: { [Op.iLike]: `%${q}%` } },
-{ cedula: { [Op.iLike]: `%${q}%` } },
-];
-}
-const offset = (page - 1) * pageSize;
-const { rows, count } = await models.Usuario.findAndCountAll({
-where,
-include: [{ model: models.Role, attributes: ['nombre'] }],
-order: [['created_at','DESC']],
-limit: pageSize,
-offset,
-});
-return {
-total: count,
-page,
-pageSize,
-data: rows.map(u => ({
-id: u.id,
-cedula: u.cedula,
-nombres: u.nombres,
-apellidos: u.apellidos,
-email: u.email,
-telefono: u.telefono,
-direccion: u.direccion,
-fecha_ingreso: u.fecha_ingreso,
-estado: u.estado,
-role: u.Role?.nombre,
-}))
-};
+  if (q) {
+    where[Op.or] = [
+      { nombres: { [Op.iLike]: `%${q}%` } },
+      { apellidos: { [Op.iLike]: `%${q}%` } },
+      { cedula: { [Op.iLike]: `%${q}%` } },
+      // Solo buscamos por email si q no es vacío, para evitar problemas con NULLs
+      { email: { [Op.iLike]: `%${q}%` } },
+    ];
+  }
+
+  const offset = (page - 1) * pageSize;
+  const { rows, count } = await models.Usuario.findAndCountAll({
+    where,
+    include: [{ model: models.Role, attributes: ['nombre'] }],
+    order: [['created_at','DESC']],
+    limit: pageSize,
+    offset,
+  });
+
+  return {
+    total: count,
+    page,
+    pageSize,
+    data: rows.map(u => ({
+      id: u.id,
+      cedula: u.cedula,
+      nombres: u.nombres,
+      apellidos: u.apellidos,
+      email: u.email,
+      telefono: u.telefono,
+      direccion: u.direccion,
+      fecha_ingreso: u.fecha_ingreso,
+      estado: u.estado,
+      tipo: u.tipo, // Retornamos el tipo
+      role: u.Role?.nombre,
+    }))
+  };
 };
 
 exports.obtenerUsuario = async (id) => {
@@ -122,7 +147,8 @@ u.role_id = newRole.id;
 
 
 // Campos editables
-const fields = ['cedula','nombres','apellidos','email','telefono','direccion','fecha_ingreso','estado'];
+// AHORA (Eliminamos 'fecha_ingreso' para protegerla):
+const fields = ['cedula','nombres','apellidos','email','telefono','direccion','estado', 'tipo'];
 for (const f of fields) if (f in data) u[f] = data[f];
 
 
@@ -139,6 +165,7 @@ cedula: u.cedula,
 nombres: u.nombres,
 apellidos: u.apellidos,
 email: u.email,
+tipo: u.tipo,
 telefono: u.telefono,
 direccion: u.direccion,
 fecha_ingreso: u.fecha_ingreso,
@@ -206,4 +233,14 @@ exports.obtenerTareasUsuario = async (id) => {
     estado: a.Tarea.estado,
     fecha_programada: a.Tarea.fecha_programada,
   }));
+};
+
+exports.obtenerEstadisticas = async () => {
+  // Contamos totales reales en la base de datos
+  const registrados = await models.Usuario.count();
+  const activos = await models.Usuario.count({ where: { estado: 'Activo' } });
+  // Agrupamos Inactivos y Bloqueados en una sola métrica
+  const inactivos = await models.Usuario.count({ where: { estado: ['Inactivo', 'Bloqueado'] } });
+  
+  return { registrados, activos, inactivos };
 };

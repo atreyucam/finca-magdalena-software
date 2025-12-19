@@ -44,6 +44,14 @@ function processQueue(error, token = null) {
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
+    // 🔴 ERROR DE RED PURO (backend caído, sin respuesta)
+    if (!error.response) {
+      console.error("[API NETWORK ERROR]", {
+        message: error.message,
+        url: error.config?.url,
+      });
+      return Promise.reject(error);
+    }
     const originalRequest = error.config;
     const msg =
       error?.response?.data?.message ||
@@ -113,22 +121,44 @@ export const editarUsuario = (id, data) => api.patch(`/usuarios/${id}`, data);
 export const desactivarUsuario = (id) =>
   api.patch(`/usuarios/${id}/desactivar`);
 
+export const obtenerPagosUsuario = (id) => {
+  return api.get(`/usuarios/${id}/pagos`);
+};
+
 // --- Pagos
 export const consolidarSemana = (data) => api.post("/pagos/semana", data);
-export const obtenerSemana = (params = {}) =>
-  api.get("/pagos/semana", { params });
+
+export const obtenerSemana = (params = {}) => api.get("/pagos/semana", { params });
+
 export const editarDetallePago = (nominaId, detalleId, data) =>
   api.patch(`/pagos/semana/${nominaId}/detalles/${detalleId}`, data);
-export const upsertDetallePago = (nominaId, data) =>
-  api.post(`/pagos/semana/${nominaId}/detalles`, data);
+
+// ✅ NUEVO: bulk update (Guardar borrador - camino B)
+export const bulkUpdateDetallesPago = (nominaId, data) =>
+  api.patch(`/pagos/semana/${nominaId}/detalles`, data);
+
+// ✅ NUEVO: excluir/incluir (toggle)
+export const toggleExcluirDetallePago = (nominaId, detalleId, data = {}) =>
+  api.patch(`/pagos/semana/${nominaId}/detalles/${detalleId}/excluir`, data);
+
 export const aprobarSemana = (nominaId) =>
   api.post(`/pagos/semana/${nominaId}/aprobar`);
+
 export const generarRecibo = (nominaId, detalleId) =>
   api.post(`/pagos/semana/${nominaId}/recibos/${detalleId}`);
-export const misRecibos = () => api.get("/pagos/mios");
-export const obtenerSemanaPorUsuario = (id) =>
-  api.get(`/usuarios/${id}/pagos`);
 
+export const listarSemanasBorrador = () => api.get("/pagos/semanas/borrador");
+
+export const eliminarSemana = (nominaId) => api.delete(`/pagos/semana/${nominaId}`);
+
+export const misRecibos = () => api.get("/pagos/mios");
+
+// ✅ NUEVO: modal tareas agrupadas por día
+export const obtenerTareasDetallePago = (nominaId, detalleId) =>
+  api.get(`/pagos/semana/${nominaId}/detalles/${detalleId}/tareas`);
+
+// ✅ NUEVO: historial (Tab 2)
+export const historialPagos = (params = {}) => api.get("/pagos/historial", { params });
 
 // --- Tareas
 export const resumenTareas = () =>
@@ -161,13 +191,17 @@ export const crearNovedadTarea = (id, data) =>
 export const listarTareaItems = (tareaId) =>
   api.get(`/tareas/${tareaId}/items`);
 
+export const cancelarTarea = (id, data) =>
+  api.post(`/tareas/${id}/cancelar`, data);
+
 export const configurarTareaItems = (tareaId, data) =>
   api.post(`/tareas/${tareaId}/items`, data);
 
 export const actualizarCosecha = (tareaId, payload) =>
-  api.patch(`/tareas/${tareaId}/cosecha`, payload);
+  api.patch(`/tareas/${tareaId}/detalles`, payload);
 
-
+export const actualizarDetalles = (tareaId, payload) =>
+  api.patch(`/tareas/${tareaId}/detalles`, payload);
 
 
 // POST /tareas/:id/asignaciones
@@ -184,9 +218,19 @@ export const listarTiposActividad = () => api.get("/tipos-actividad");
 export const cerrarCosecha = (id, payload) =>
   api.patch(`/cosechas/${id}/cerrar`, payload);
 
+
+export const listarFincas = () => api.get("/fincas");
+export const crearFinca = (data) => api.post("/fincas", data);
+export const obtenerContextoFinca = (id) => api.get(`/fincas/${id}/contexto`);
+
+
+
 // ================= INVENTARIO =================
 
-// Listar ítems (insumos/herramientas)
+// ✅ FIX: usar api (baseURL + Authorization)
+export const getResumenInventario = () => api.get("/inventario/resumen");
+
+// Listar ítems (insumos/herramientas/equipos)
 export const listarItemsInventario = (params = {}) =>
   api.get("/inventario/items", { params });
 
@@ -198,11 +242,11 @@ export const crearItemInventario = (data) =>
 export const editarItemInventario = (id, data) =>
   api.patch(`/inventario/items/${id}`, data);
 
-// Ajustar stock (entrada, salida, ajuste)
+// Ajustar stock (entrada/salida)
 export const ajustarStock = (id, data) =>
   api.post(`/inventario/items/${id}/ajustes`, data);
 
-// Listar movimientos de inventario
+// Movimientos
 export const listarMovimientosInventario = (params = {}) =>
   api.get("/inventario/movimientos", { params });
 
@@ -210,23 +254,16 @@ export const listarMovimientosInventario = (params = {}) =>
 export const alertasStockBajo = () =>
   api.get("/inventario/alertas/stock-bajo");
 
-// --- Unidades
+// Unidades
 export const listarUnidades = () => api.get("/unidades");
 
-
-
-
-// ================= HERRAMIENTAS =================
-
-// Prestar herramienta
+// Herramientas - préstamos
 export const prestarHerramienta = (id, data) =>
   api.post(`/inventario/herramientas/${id}/prestar`, data);
 
-// Devolver herramienta
 export const devolverHerramienta = (id, data) =>
   api.post(`/inventario/herramientas/${id}/devolver`, data);
 
-// Listar herramientas no devueltas
 export const listarHerramientasNoDevueltas = () =>
   api.get("/inventario/herramientas/no-devueltas");
 
@@ -241,11 +278,18 @@ export const crearLote = (payload) => api.post("/lotes", payload);
 
 export const crearCosecha = (payload) => api.post("/cosechas", payload);
 
-export function obtenerLote(id) {
-  return api.get(`/lotes/${id}`);
+export function obtenerLote(id, params = {}) {
+  return api.get(`/lotes/${id}`, { params });
 }
 
+// NUEVO: toggle estado lote
+export const toggleEstadoLote = (id) =>
+  api.patch(`/lotes/${id}/estado`);
 
+// Busca la línea 284 y cámbiala por:
+// Opcional: Si quieres una función genérica para corregir cualquier tarea
+export const corregirTarea = (tareaId, payload) => 
+  api.patch(`/tareas/${tareaId}/detalles`, payload);
 // 👉 NUEVO: obtener una cosecha con sus periodos
 export const obtenerCosecha = (id) => api.get(`/cosechas/${id}`);
 
@@ -262,27 +306,44 @@ export const eliminarPeriodoCosecha = (periodoId) =>
   api.delete(`/cosechas/periodos/${periodoId}`);
 
 
+// ================= REPORTES =================
+
+// ================= REPORTES (NUEVOS) =================
+
+// 1. Dashboard Integral (Alta Dirección)
+export const getDashboardIntegral = (params = {}) =>
+  api.get("/reportes/dashboard", { params });
+
+// 2. Producción / Rendimiento de Cosecha
+export const getReporteRendimiento = (params = {}) =>
+  api.get("/reportes/cosecha/rendimiento", { params });
+
+// 3. Fitosanitario (Semáforo de seguridad)
+export const getReporteFitosanitario = (params = {}) =>
+  api.get("/reportes/fitosanitario", { params });
+
+// 4. Operaciones (Tareas y Eficiencia)
+export const getReporteOperaciones = (params = {}) =>
+  api.get("/reportes/operaciones", { params });
+
+// 5. Costos Operativos (Mano de obra + Insumos)
+export const getReporteCostos = (params = {}) =>
+  api.get("/reportes/costos", { params });
 
 
+// ================= NOTIFICACIONES =================
+
+export const listarNotificaciones = (params = {}) =>
+  api.get("/notificaciones", { params });
+
+export const marcarNotificacionLeida = (id) =>
+  api.patch(`/notificaciones/${id}/leida`);
+
+export const marcarTodasNotificacionesLeidas = () =>
+  api.post("/notificaciones/leidas");
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+export const obtenerEstadisticas = () => axios.get('/usuarios/estadisticas');
 
 
 export default api;

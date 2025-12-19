@@ -1,328 +1,369 @@
-// src/pages/Inventario.jsx
-import { useEffect, useState, useMemo } from "react";
-import {
-  listarItemsInventario,
-  listarMovimientosInventario,
-  alertasStockBajo,
-  editarItemInventario,
-} from "../api/apiClient";
-import toast from "react-hot-toast";
-import CrearItemModal from "../components/CrearItemModal";
-import AjustarStockModal from "../components/AjustarStockModal";
+// frontend/src/pages/Inventario.jsx
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Layers, Package, Wrench, Monitor, History } from "lucide-react";
+
+import { alertasStockBajo, getResumenInventario } from "../api/apiClient";
 import useUnidades from "../hooks/useUnidades";
 
-export default function Inventario() {
-  const [tab, setTab] = useState(() => {
-  if (typeof window === "undefined") return "Insumo";
-  return localStorage.getItem("inventarioTab") || "Insumo";
-}); // Insumo | Herramienta | Equipo | Historial
+import VentanaModal from "../components/ui/VentanaModal";
 
-  const [items, setItems] = useState([]);
-  const [movimientos, setMovimientos] = useState([]);
+// Sub-Componentes
+import VistaInventario from "../components/inventario/VistaInventario";
+import VistaHistorial from "../components/inventario/VistaHistorial";
+import AlertasStock from "../components/inventario/AlertasStock";
+
+// Formularios
+import FormularioItem from "../components/inventario/FormularioItem";
+import FormularioAjuste from "../components/inventario/FormularioAjuste";
+
+import Boton from "../components/ui/Boton";
+
+export default function Inventario() {
+  const [tab, setTab] = useState(() => localStorage.getItem("inventarioTab") || "Insumo");
   const [alertas, setAlertas] = useState([]);
-  const [busqueda, setBusqueda] = useState("");
-  const [showCrearItem, setShowCrearItem] = useState(false);
-  const [showAjustar, setShowAjustar] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
+
+  // Cards
+  const [resumen, setResumen] = useState({
+    total: 0,
+    insumos: 0,
+    herramientas: 0,
+    equipos: 0,
+  });
+
+  // ✅ chips Activos / Inactivos / Todos (suaves)
+  const [activosFiltro, setActivosFiltro] = useState(
+    () => localStorage.getItem("inventarioActivos") || "true"
+  );
+
+  // Modales
+  const [crearAbierto, setCrearAbierto] = useState(false);
+  const [ajustarAbierto, setAjustarAbierto] = useState(false);
+  const [itemSeleccionado, setItemSeleccionado] = useState(null);
+
+  // ✅ Clave para forzar recarga de listados (sin recargar página)
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const { unidades } = useUnidades();
 
-  const [filtroActivos, setFiltroActivos] = useState("all"); // "true" | "false" | "all"
-
-  // —— estilos compartidos
-  const inputBase =
-    "w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200";
-  const btnPrimary =
-    "inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 active:bg-emerald-700";
-  const btnGhost =
-    "inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50";
-
-  const cargar = async () => {
+  const cargarDatos = async () => {
     try {
-      if (tab === "Historial") {
-        const res = await listarMovimientosInventario({ pageSize: 50 });
-        setMovimientos(res.data?.data || []);
-      } else {
-        const params = { categoria: tab, q: busqueda };
-        if (filtroActivos !== "all") params.activos = filtroActivos;
-        const res = await listarItemsInventario(params);
-        setItems(res.data || []);
-        const alertasRes = await alertasStockBajo();
-        setAlertas(alertasRes.data || []);
-      }
-    } catch (err) {
-      toast.error("No se pudo cargar inventario");
+      const [resAlertas, resResumen] = await Promise.all([
+        alertasStockBajo(),
+        getResumenInventario(),
+      ]);
+
+      setAlertas(resAlertas.data || []);
+      setResumen(
+        resResumen.data || { total: 0, insumos: 0, herramientas: 0, equipos: 0 }
+      );
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  useEffect(() => {
-    cargar();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, busqueda, filtroActivos]);
-  useEffect(() => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("inventarioTab", tab);
-}, [tab]);
-
-
-  const toggleActivo = async (it) => {
-    try {
-      await editarItemInventario(it.id, { activo: !it.activo });
-      toast.success(!it.activo ? "Ítem activado" : "Ítem desactivado");
-      await cargar();
-    } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        "No se pudo actualizar el estado";
-      toast.error(msg);
-      console.error(err);
-    }
+  const recargarTodo = () => {
+    setRefreshKey((prev) => prev + 1);
+    cargarDatos();
   };
 
-  // para mostrar total por pestaña arriba
-  const headerBadge = useMemo(() => {
-    if (tab === "Historial") return movimientos.length;
-    return items.length;
-  }, [tab, items.length, movimientos.length]);
+  useEffect(() => {
+    cargarDatos();
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("inventarioTab", tab);
+  }, [tab]);
+
+  useEffect(() => {
+    localStorage.setItem("inventarioActivos", activosFiltro);
+  }, [activosFiltro]);
+
+  const abrirAjuste = (item) => {
+    setItemSeleccionado(item);
+    setAjustarAbierto(true);
+  };
+
+  // ✅ Cards suaves (misma lógica de Tareas.jsx: tintes, ring, no sólido)
+  const cards = useMemo(() => {
+    const baseCard =
+      "rounded-2xl border p-4 cursor-pointer hover:shadow-md transition-all";
+
+    const activeBase = "ring-2";
+
+    return [
+      {
+        key: "TOTAL",
+        titulo: "Total Ítems",
+        valor: resumen.total,
+        icono: Layers,
+        // Activo = oscuro como “Total” en Tareas.jsx
+        cls: (active) =>
+          [
+            baseCard,
+            active
+              ? "bg-slate-800 text-white border-slate-800 shadow-lg shadow-slate-200"
+              : "bg-white border-slate-100 text-slate-700 hover:bg-slate-50",
+          ].join(" "),
+        iconCls: (active) => (active ? "text-slate-200" : "text-slate-500"),
+        onClick: () => setTab("Insumo"), // opcional: al click te manda a Insumo
+      },
+      {
+        key: "Insumo",
+        titulo: "Insumos",
+        valor: resumen.insumos,
+        icono: Package,
+        cls: (active) =>
+          [
+            baseCard,
+            active
+              ? `bg-emerald-100 border-emerald-200 ${activeBase} ring-emerald-100`
+              : "bg-emerald-50/50 border-emerald-100 text-emerald-900/60 hover:bg-emerald-50",
+          ].join(" "),
+        iconCls: () => "text-emerald-600",
+        onClick: () => setTab("Insumo"),
+      },
+      {
+        key: "Herramienta",
+        titulo: "Herramientas",
+        valor: resumen.herramientas,
+        icono: Wrench,
+        cls: (active) =>
+          [
+            baseCard,
+            active
+              ? `bg-amber-100 border-amber-200 ${activeBase} ring-amber-100`
+              : "bg-amber-50/50 border-amber-100 text-amber-900/60 hover:bg-amber-50",
+          ].join(" "),
+        iconCls: () => "text-amber-600",
+        onClick: () => setTab("Herramienta"),
+      },
+      {
+        key: "Equipo",
+        titulo: "Equipos",
+        valor: resumen.equipos,
+        icono: Monitor,
+        cls: (active) =>
+          [
+            baseCard,
+            active
+              ? `bg-violet-100 border-violet-200 ${activeBase} ring-violet-100`
+              : "bg-violet-50/50 border-violet-100 text-violet-900/60 hover:bg-violet-50",
+          ].join(" "),
+        iconCls: () => "text-violet-600",
+        onClick: () => setTab("Equipo"),
+      },
+      {
+        key: "Historial",
+        titulo: "Historial",
+        valor: "—",
+        icono: History,
+        cls: (active) =>
+          [
+            baseCard,
+            active
+              ? `bg-slate-100 border-slate-200 ${activeBase} ring-slate-100`
+              : "bg-slate-50/50 border-slate-100 text-slate-900/60 hover:bg-slate-50",
+          ].join(" "),
+        iconCls: () => "text-slate-600",
+        onClick: () => setTab("Historial"),
+      },
+    ];
+  }, [resumen]);
+
+  const tabsSecundarias = ["Insumo", "Herramienta", "Equipo", "Historial"];
 
   return (
-    // Fondo gris y padding consistente con “Usuarios”
     <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
-      {/* Card contenedora */}
-      <div className="mx-auto max-w-[1400px] rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
-        {/* Header */}
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mx-auto max-w-[1400px] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
+        {/* HEADER */}
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              Inventario <span className="text-slate-400 text-base font-medium">({headerBadge})</span>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+              Inventario y Recursos
             </h1>
-            <p className="text-slate-500">Insumos, herramientas y equipos.</p>
+            <p className="text-slate-500 font-medium">
+              Control de stock, entradas y salidas.
+            </p>
           </div>
 
           {tab !== "Historial" && (
             <div className="flex gap-2">
-              <button
-                onClick={() => setShowCrearItem(true)}
-                className={btnPrimary}
-              >
-                Nuevo ítem
-              </button>
+              <Boton onClick={() => setCrearAbierto(true)} icono={Plus}>
+                Nuevo Ítem
+              </Boton>
             </div>
           )}
         </div>
-{/* Tabs: segmented control */}
-<div className="mb-2">
-  <h2 className="text-md font-semibold text-slate-600">Categorías</h2>
-</div>
 
-<div className="mb-6 flex items-center gap-3">
-  <div className="rounded-xl border border-slate-200 bg-slate-50 p-1 inline-flex">
-    {["Insumo", "Herramienta", "Equipo", "Historial"].map((t) => (
-      <button
-        key={t}
-        onClick={() => setTab(t)}
+        {/* ✅ CARDS (suaves estilo Tareas.jsx) */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+          {cards.map((c) => {
+            const Icon = c.icono;
+            const active = tab === c.key;
+
+            return (
+              <div key={c.key} onClick={c.onClick} className={c.cls(active)}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon size={18} className={c.iconCls(active)} />
+                  <span className="text-[10px] uppercase font-bold tracking-wider opacity-80">
+                    {c.titulo}
+                  </span>
+                </div>
+                <div className={`text-2xl font-black ${active && c.key === "TOTAL" ? "text-white" : ""}`}>
+                  {c.valor ?? 0}
+                </div>
+
+                {/* Tabs mini (opcional): se siente pro como “chips” internos */}
+                {c.key !== "TOTAL" && (
+                  <div className="mt-2 text-[11px] font-semibold opacity-70">
+                    {active ? "Seleccionado" : "Click para ver"}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ✅ PESTAÑAS (respeta tu idea actual, pero estilo Producción/Tareas) */}
+        <div className="mb-6">
+          <div className="flex flex-wrap gap-2 bg-slate-100 p-1.5 rounded-2xl w-fit">
+            {tabsSecundarias.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={[
+                  "px-6 py-2.5 text-sm font-bold rounded-xl transition-all",
+                  tab === t
+                    ? "bg-white shadow-sm text-slate-900"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/60",
+                ].join(" ")}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 border-b border-slate-100" />
+        </div>
+
+        {/* ✅ Chips Activos/Inactivos/Todos (suaves estilo Tareas.jsx) */}
+        {tab !== "Historial" && (
+          <div className="mb-6">
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+              <Chip
+                active={activosFiltro === "true"}
+                onClick={() => setActivosFiltro("true")}
+                label="Activos"
+                activeCls="bg-emerald-100 border-emerald-200 ring-2 ring-emerald-100"
+                idleCls="bg-emerald-50/40 border-emerald-100 text-emerald-800/70 hover:bg-emerald-50"
+                badgeActive="bg-emerald-200 text-emerald-900"
+                badgeIdle="bg-emerald-100 text-emerald-700"
+              />
+              <Chip
+                active={activosFiltro === "false"}
+                onClick={() => setActivosFiltro("false")}
+                label="Inactivos"
+                activeCls="bg-slate-100 border-slate-200 ring-2 ring-slate-100"
+                idleCls="bg-slate-50/40 border-slate-100 text-slate-800/70 hover:bg-slate-50"
+                badgeActive="bg-slate-200 text-slate-900"
+                badgeIdle="bg-slate-100 text-slate-700"
+              />
+              <Chip
+                active={activosFiltro === "all"}
+                onClick={() => setActivosFiltro("all")}
+                label="Todos"
+                activeCls="bg-indigo-100 border-indigo-200 ring-2 ring-indigo-100"
+                idleCls="bg-indigo-50/40 border-indigo-100 text-indigo-800/70 hover:bg-indigo-50"
+                badgeActive="bg-indigo-200 text-indigo-900"
+                badgeIdle="bg-indigo-100 text-indigo-700"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Alertas */}
+        {tab !== "Historial" && alertas.length > 0 && (
+          <div className="mb-6">
+            <AlertasStock alertas={alertas} />
+          </div>
+        )}
+
+        {/* Vistas */}
+        <div className="min-h-[420px]">
+          {tab === "Historial" ? (
+            <VistaHistorial />
+          ) : (
+            <VistaInventario
+              key={`${tab}-${refreshKey}-${activosFiltro}`}
+              categoria={tab}
+              activosFiltro={activosFiltro} // ✅ nuevo
+              onAjustar={abrirAjuste}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* MODAL: Crear */}
+      <VentanaModal
+        abierto={crearAbierto}
+        cerrar={() => setCrearAbierto(false)}
+        titulo="Registrar Nuevo Ítem"
+      >
+        <FormularioItem
+          unidades={unidades}
+          alCancelar={() => setCrearAbierto(false)}
+          alGuardar={() => {
+            setCrearAbierto(false);
+            recargarTodo();
+          }}
+        />
+      </VentanaModal>
+
+      {/* MODAL: Ajuste */}
+      <VentanaModal
+        abierto={ajustarAbierto}
+        cerrar={() => setAjustarAbierto(false)}
+        titulo={`Ajuste de Stock: ${itemSeleccionado?.nombre || ""}`}
+      >
+        <FormularioAjuste
+          item={itemSeleccionado}
+          unidades={unidades}
+          alCancelar={() => setAjustarAbierto(false)}
+          alGuardar={() => {
+            setAjustarAbierto(false);
+            recargarTodo();
+          }}
+        />
+      </VentanaModal>
+    </section>
+  );
+}
+
+function Chip({
+  active,
+  onClick,
+  label,
+  activeCls,
+  idleCls,
+  badgeActive,
+  badgeIdle,
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={[
+        "group flex items-center gap-2 px-5 py-3 rounded-2xl border text-sm font-bold transition-all whitespace-nowrap",
+        active ? activeCls : idleCls,
+      ].join(" ")}
+    >
+      <span>{label}</span>
+      <span
         className={[
-          "px-4 py-2 text-sm font-medium rounded-lg transition-colors",
-          tab === t
-            ? "bg-white text-slate-900 shadow-sm"
-            : "text-slate-600 hover:text-slate-800",
+          "text-[10px] px-2 py-0.5 rounded-full font-black",
+          active ? badgeActive : badgeIdle,
         ].join(" ")}
       >
-        {t}
-      </button>
-    ))}
-  </div>
-</div>
-
-
-        {/* Acciones / filtros (no en Historial) */}
-        {tab !== "Historial" && (
-          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                placeholder="Buscar por nombre…"
-                className={inputBase}
-              />
-              <select
-                value={filtroActivos}
-                onChange={(e) => setFiltroActivos(e.target.value)}
-                className={inputBase}
-                title="Estado"
-              >
-                <option value="all">Todos</option>
-                <option value="true">Activos</option>
-                <option value="false">Inactivos</option>
-              </select>
-            </div>
-          </div>
-        )}
-
-        {/* Alertas de stock bajo */}
-        {tab !== "Historial" && alertas.length > 0 && (
-          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <div className="mb-2 text-amber-800 font-semibold">
-              ⚠️ Alertas de stock bajo
-            </div>
-            <ul className="grid gap-1 text-sm text-amber-800 sm:grid-cols-2 lg:grid-cols-3">
-              {alertas.map((a) => (
-                <li key={a.id} className="flex items-center justify-between">
-                  <span className="truncate">
-                    {a.nombre}
-                    <span className="text-slate-500"> — mín {a.stock_minimo}</span>
-                  </span>
-                  <span className="ml-3 inline-flex items-center rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200">
-                    {a.stock_actual} {a.unidad}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Tablas */}
-        {tab === "Historial" ? (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium">Fecha</th>
-                  <th className="px-4 py-3 text-left font-medium">Tipo</th>
-                  <th className="px-4 py-3 text-left font-medium">Ítem</th>
-                  <th className="px-4 py-3 text-left font-medium">Cantidad</th>
-                  <th className="px-4 py-3 text-left font-medium">Unidad</th>
-                  <th className="px-4 py-3 text-left font-medium">Stock resultante</th>
-                  <th className="px-4 py-3 text-left font-medium">Motivo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {movimientos.map((m) => (
-                  <tr key={m.id} className="bg-white hover:bg-slate-50">
-                    <td className="px-4 py-3">{new Date(m.fecha).toLocaleString()}</td>
-                    <td className="px-4 py-3">{m.tipo}</td>
-                    <td className="px-4 py-3">{m.item}</td>
-                    <td className="px-4 py-3">{m.cantidad}</td>
-                    <td className="px-4 py-3">{m.unidad}</td>
-                    <td className="px-4 py-3">{m.stock_resultante}</td>
-                    <td className="px-4 py-3">{m.motivo || "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium">Nombre</th>
-                  <th className="px-4 py-3 text-left font-medium">Stock</th>
-                  <th className="px-4 py-3 text-left font-medium">Unidad</th>
-                  <th className="px-4 py-3 text-left font-medium">Mínimo</th>
-                  <th className="px-4 py-3 text-left font-medium">Estado</th>
-                  <th className="px-4 py-3 text-left font-medium">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {items.map((i) => {
-                  const low = Number(i.stock_actual) < Number(i.stock_minimo);
-                  return (
-                    <tr key={i.id} className="bg-white hover:bg-slate-50">
-                      <td className="px-4 py-3 text-slate-900">{i.nombre}</td>
-
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-800">{i.stock_actual}</span>
-                          {low && (
-                            <span className="inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
-                              Bajo stock
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-3 text-slate-700">{i.unidad}</td>
-                      <td className="px-4 py-3 text-slate-700">{i.stock_minimo}</td>
-
-                      <td className="px-4 py-3">
-                        <span
-                          className={[
-                            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                            i.activo ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700",
-                          ].join(" ")}
-                        >
-                          {i.activo ? "Activo" : "Inactivo"}
-                        </span>
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={() => {
-                              setSelectedItem(i);
-                              setShowAjustar(true);
-                            }}
-                            className={btnGhost}
-                          >
-                            Ajustar
-                          </button>
-
-                          <button
-                            onClick={() => toggleActivo(i)}
-                            className={[
-                              "inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium",
-                              i.activo
-                                ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                                : "bg-emerald-600 text-white hover:bg-emerald-700",
-                            ].join(" ")}
-                            title={i.activo ? "Desactivar" : "Activar"}
-                          >
-                            {i.activo ? "Desactivar" : "Activar"}
-                          </button>
-
-                          {tab === "Herramienta" && (
-                            <>
-                              <button
-                                onClick={() => toast("Abrir modal Prestar")}
-                                className="inline-flex items-center justify-center rounded-xl bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-200"
-                              >
-                                Prestar
-                              </button>
-                              <button
-                                onClick={() => toast("Abrir modal Devolver")}
-                                className="inline-flex items-center justify-center rounded-xl bg-violet-100 px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-200"
-                              >
-                                Devolver
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Modales */}
-        <CrearItemModal
-          open={showCrearItem}
-          onClose={() => setShowCrearItem(false)}
-          onCreated={cargar}
-          unidades={unidades}
-        />
-        <AjustarStockModal
-          open={showAjustar}
-          onClose={() => setShowAjustar(false)}
-          item={selectedItem}
-          unidades={unidades}
-          onAdjusted={cargar}
-        />
-      </div>
-    </section>
+        {active ? "ON" : "—"}
+      </span>
+    </button>
   );
 }

@@ -1,1132 +1,639 @@
-// src/pages/TaskDetailPage.jsx
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { io } from "socket.io-client";
 import toast from "react-hot-toast";
+import { 
+  ArrowLeft, Calendar, MapPin, Tag, 
+  CheckCircle, User, ShieldCheck, 
+  Package, Edit2, Play, Clock, Sprout, Tractor,
+  AlertTriangle, XCircle,
+  Link
+} from "lucide-react";
+
+import { obtenerTarea, listarNovedadesTarea, crearNovedadTarea, iniciarTarea, cancelarTarea} from "../api/apiClient";
 import useAuthStore from "../store/authStore";
-import {
-  obtenerTarea,
-  listarNovedadesTarea,
-  crearNovedadTarea,
-  iniciarTarea,
-} from "../api/apiClient";
-import TareasItemsModal from "../components/tareaItemsModal";
-import AsignacionesModal from "../components/AsignacionesModal";
+
+// --- Componentes ---
 import Avatar from "../components/Avatar";
-import TaskActionModal from "../components/TaskActionModal";
-import CosechaClasificacionModal from "../components/CosechaClasificacionModal";
+import TaskBadge from "../components/tareas/TaskBadge"; 
+import TaskSpecificDetails from "../components/tareas/TaskSpecificDetails"; 
+import Boton from "../components/ui/Boton"; 
 
-const fmtDT = (v) => (v ? new Date(v).toLocaleString() : "—");
+// --- Modales ---
+import CompletarVerificarTareaModal from "../components/CompletarVerificarTareaModal";
+import AsignarTrabajadoresModal from "../components/AsignarTrabajadoresModal"; 
+import TareaItemsModal from "../components/GestionarItemsTareaModal"; 
+import LinkVolver from "../components/ui/LinkVolver";
 
-function Chip({ children, color = "blue" }) {
-  const map = {
-    blue: "bg-sky-50 text-sky-700 border-sky-200",
-    green: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    yellow: "bg-amber-50 text-amber-700 border-amber-200",
-    purple: "bg-violet-50 text-violet-700 border-violet-200",
-    gray: "bg-slate-50 text-slate-700 border-slate-200",
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border ${
-        map[color] || map.blue
-      }`}
-    >
-      {children}
-    </span>
-  );
-}
+// --- Helpers de Formato ---
+const fmtDT = (v) => (v ? new Date(v).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' }) : "—");
+const fmtFechaHora = (v) => (v ? new Date(v).toLocaleString('es-EC', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true }) : "—");
 
-const textareaBase =
-  "w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200";
-const btnPrimary =
-  "inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 active:bg-emerald-700";
-const btnGhost =
-  "inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50";
+const formatQty = (val, unitName) => {
+    const num = Number(val);
+    if (isNaN(num)) return "0";
+    const u = unitName?.toLowerCase() || "";
+    if (u === "unidad" || u === "unidades" || u === "u") {
+        return `${num} ${num === 1 ? 'unidad' : 'unidades'}`;
+    }
+    return `${num} ${unitName}`;
+};
 
-export default function TaskDetailPage() {
+const nombreUsuario = (u) => {
+  if (!u) return "Usuario";
+  if (u.nombre) return u.nombre; // si backend manda "nombre"
+  const full = [u.nombres, u.apellidos].filter(Boolean).join(" ").trim();
+  return full || u.username || u.email || "Usuario";
+};
+
+
+const CONTAINER_STYLES = {
+  page: "mx-auto max-w-[1400px] p-2 sm:p-6 lg:p-3 bg-slate-50 min-h-screen",
+  card: "space-y-6"
+};
+
+export default function DetalleTarea() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const location = useLocation();
   const tareaId = Number(id);
 
-  // ====== AUTH / ROLE ======
-  const authStore = useAuthStore((s) => s);
-  const user = authStore.user;
+  const { user } = useAuthStore();
+  const role = (user?.role || "").toLowerCase();
+  const isOwnerOrTech = ["propietario", "tecnico"].includes(role);
+  const isWorker = role === "trabajador";
 
-  const role = (() => {
-    const raw =
-      authStore.getRole?.() ??
-      user?.role ??
-      user?.rol ??
-      user?.Role ??
-      "";
-
-    if (typeof raw === "string") return raw.trim();
-    if (raw && typeof raw === "object") {
-      return (raw.nombre || raw.name || "").trim();
-    }
-    return "";
-  })();
-
-  const currentUserId = user?.id || null;
-
-  const isOwner = role === "Propietario";
-  const isTech = role === "Tecnico";
-  const isWorker = role === "Trabajador";
-  const canEdit = isOwner || isTech;
-
-  // ====== STATE ======
   const [loading, setLoading] = useState(true);
   const [tarea, setTarea] = useState(null);
-  const [error, setError] = useState(null);
-
-  const [editInsumosOpen, setEditInsumosOpen] = useState(false);
-  const [asignModalOpen, setAsignModalOpen] = useState(false);
-
-  const [actionModal, setActionModal] = useState({ open: false, kind: null });
-
   const [novedades, setNovedades] = useState([]);
   const [textoNovedad, setTextoNovedad] = useState("");
-  const [cosechaModalOpen, setCosechaModalOpen] = useState(false);
+  
+  const [modals, setModals] = useState({ items: false, asign: false, cosecha: false, action: false, actionKind: null });
 
+  const toggleModal = (name, value = true, kind = null) => {
+    setModals(prev => ({ ...prev, [name]: value, actionKind: kind || prev.actionKind }));
+  };
 
-  // items unificados desde backend
-  const [items, setItems] = useState([]);
-
-  // ====== DETALLES ESPECÍFICOS POR TIPO ======
-  const detalles = useMemo(() => {
-    if (!tarea) return null;
-
-    switch (tarea.tipo_codigo) {
-      case "poda":
-        return tarea.poda;
-      case "maleza":
-        return tarea.manejoMaleza;
-      case "nutricion":
-        return tarea.nutricion;
-      case "fitosanitario":
-        return tarea.fitosanitario;
-      case "enfundado":
-        return tarea.enfundado;
-      case "cosecha":
-      default:
-        return null;
-    }
-  }, [tarea]);
-
-  // ====== ASIGNACIÓN DEL USUARIO ======
-  const isAssigned = useMemo(() => {
-    if (!tarea || !currentUserId) return false;
-
-    return (tarea.asignaciones || []).some((a) => {
-      const uid = a.usuario_id || a.usuario?.id;
-      return Number(uid) === Number(currentUserId);
-    });
-  }, [tarea, currentUserId]);
-
-  // Trabajador o Técnico ASIGNADO → puede iniciar/completar
-  const canStartOrComplete = (isWorker || isTech) && isAssigned;
-
-  // ====== LOAD / SOCKETS ======
-  const refreshAll = async () => {
+  const cargarDetalle = async () => {
     try {
-      setLoading(true);
-      const [tRes, nRes] = await Promise.all([
+      const [resTarea, resNov] = await Promise.all([
         obtenerTarea(tareaId),
-        listarNovedadesTarea(tareaId),
+        listarNovedadesTarea(tareaId)
       ]);
 
-      const t = tRes.data || null;
-      setTarea(t);
-      setItems(
-        (t?.items || []).map((i) => ({
-          ...i,
-          cantidad_planificada: Number(i.cantidad_planificada) || 0,
-          cantidad_real: Number(i.cantidad_real) || 0,
-        }))
-      );
-      setNovedades(nRes.data || t?.novedades || []);
-      setError(null);
+      if (!resTarea) throw new Error("Tarea no encontrada");
+      setTarea(resTarea.data || resTarea);
+      setNovedades(resNov.data || []);
+      setLoading(false);
     } catch (e) {
       console.error(e);
-      setError("No se pudo cargar el detalle.");
-    } finally {
-      setLoading(false);
+      toast.error("Error cargando tarea");
+      navigate(-1);
     }
   };
 
-  useEffect(() => {
-    const scrollEl = document.querySelector(".app-scroll");
+const handleCancelar = async () => {
+    if (!window.confirm("⚠️ ¿Estás seguro de que deseas CANCELAR esta tarea? Esta acción no se puede deshacer.")) return;
+    
+    // Pedimos motivo simple
+    const motivo = window.prompt("Por favor, ingresa el motivo de la cancelación:");
+    if (motivo === null) return; // Usuario canceló el prompt
 
-    if (scrollEl) {
-      scrollEl.scrollTo({ top: 0, behavior: "instant" });
-    } else {
-      window.scrollTo({ top: 0, behavior: "instant" });
+    try {
+      await cancelarTarea(tareaId, { motivo: motivo || "Sin motivo" });
+      toast.success("Tarea cancelada correctamente");
+      cargarDetalle();
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.response?.data?.message || "Error al cancelar");
     }
-  }, []);
+  };
 
+  // --- Lógica de Tiempo Real (Socket) ---
   useEffect(() => {
-    if (!Number.isNaN(tareaId)) refreshAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tareaId]);
+    setLoading(true);
+    cargarDetalle();
 
-  useEffect(() => {
-    const socket = io(
-      import.meta.env.VITE_API_BASE_URL || "http://localhost:3001",
-      { withCredentials: false }
-    );
+    const socket = io(import.meta.env.VITE_API_BASE_URL || "http://localhost:3001");
     socket.emit("join:tarea", tareaId);
+    
+    // Función centralizada de recarga
+    const refresh = () => {
+        console.log("🔄 Actualizando datos en tiempo real...");
+        cargarDetalle();
+    };
 
     const onNovedad = (payload) => {
-      if (!payload || String(payload.tareaId) !== String(tareaId)) return;
-      if (payload.novedad) {
-        setNovedades((prev) => [payload.novedad, ...prev]);
-      }
-      if (payload.estado) {
-        setTarea((prev) =>
-          prev
-            ? {
-                ...prev,
-                estados: [payload.estado, ...(prev.estados || [])],
-              }
-            : prev
-        );
-      }
+        if(payload.novedad) {
+            setNovedades(prev => {
+                if (prev.some(n => n.id === payload.novedad.id)) return prev;
+                return [payload.novedad, ...prev];
+            });
+        }
+        refresh(); // Refrescamos todo por si cambió el estado también
     };
 
-    const onAnyChange = () => {
-      refreshAll();
-    };
-
+    // Listeners
     socket.on("tarea:novedad", onNovedad);
-    socket.on("tarea:estado", onAnyChange);
-    socket.on("tarea:asignaciones", onAnyChange);
-    socket.on("tarea:insumos", onAnyChange);
-    socket.on("tareas:update", onAnyChange);
+    socket.on("tarea:estado", refresh);
+    socket.on("tareas:update", refresh);      
+    socket.on("tarea:actualizada", refresh);  
+    socket.on("tarea:detalles", refresh);     
+    socket.on("tarea:insumos", refresh);
+    socket.on("tarea:asignaciones", refresh);
 
     return () => {
       socket.emit("leave:tarea", tareaId);
       socket.off("tarea:novedad", onNovedad);
-      socket.off("tarea:estado", onAnyChange);
-      socket.off("tarea:asignaciones", onAnyChange);
-      socket.off("tarea:insumos", onAnyChange);
-      socket.off("tareas:update", onAnyChange);
+      socket.off("tarea:estado", refresh);
+      socket.off("tareas:update", refresh);
+      socket.off("tarea:actualizada", refresh);
+      socket.off("tarea:detalles", refresh);
+      socket.off("tarea:insumos", refresh);
+      socket.off("tarea:asignaciones", refresh);
       socket.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tareaId]);
 
-  // ====== ITEMS DERIVADOS ======
-  const insumos = useMemo(
-    () => items.filter((i) => i.categoria === "Insumo"),
-    [items]
-  );
-  const reqHerr = useMemo(
-    () => items.filter((i) => i.categoria === "Herramienta"),
-    [items]
-  );
-  const reqEq = useMemo(
-    () => items.filter((i) => i.categoria === "Equipo"),
-    [items]
-  );
-
-  // ====== ACCIONES ======
-  const addNovedad = async () => {
-    const text = textoNovedad.trim();
-    if (!text) return;
+  const handleIniciar = async () => {
     try {
-      setTextoNovedad("");
-      await crearNovedadTarea(tareaId, { texto: text });
-      toast.success("Novedad registrada ✅");
+      await iniciarTarea(tareaId);
+      toast.success("Tarea iniciada 🚀");
+      cargarDetalle();
     } catch (e) {
-      console.error(e);
-      toast.error(
-        e?.response?.data?.message || "No se pudo registrar la novedad"
-      );
+      toast.error(e?.response?.data?.message || "Error al iniciar");
     }
   };
 
-  const doStart = async () => {
-    try {
-      await iniciarTarea(tareaId, {});
-      toast.success("Tarea iniciada ✅");
-      await refreshAll();
-    } catch (e) {
-      console.error(e);
-      toast.error(
-        e?.response?.data?.message || "No se pudo iniciar la tarea"
-      );
+const handleEnviarNovedad = async () => {
+  if (!textoNovedad.trim()) return;
+
+  const texto = textoNovedad.trim();
+
+  // ✅ Optimistic: se ve de una, con el usuario logueado
+  const temp = {
+    id: `tmp-${Date.now()}`,
+    texto,
+    created_at: new Date().toISOString(),
+    usuario: user ? { ...user } : null,
+  };
+
+  setNovedades(prev => [temp, ...prev]);
+  setTextoNovedad("");
+
+  try {
+    const res = await crearNovedadTarea(tareaId, { texto });
+
+    // si backend devuelve la novedad real
+    if (res?.data) {
+      const real = {
+        ...res.data,
+        // ✅ si no viene usuario poblado, lo “pegamos” con el logueado
+        usuario: res.data.usuario ?? (user ? { ...user } : null),
+      };
+
+      setNovedades(prev => [real, ...prev.filter(n => n.id !== temp.id)]);
+    } else {
+      // fallback
+      await cargarDetalle();
     }
-  };
 
-  const humanBool = (value) => {
-    if (value === null || value === undefined) return "—";
-    return value ? "Sí" : "No";
-  };
-
-  const fmtPct = (v) =>
-    v === null || v === undefined ? "—" : `${Number(v).toFixed(1)} %`;
-
-  const faltanteHasta100 = (real) => {
-    if (real === null || real === undefined) return "—";
-    const diff = 100 - Number(real);
-    const val = diff < 0 ? 0 : diff;
-    return `${val.toFixed(1)} %`;
-  };
-
-  const box = (label, value) => (
-    <div className="flex justify-between py-1">
-      <span className="text-slate-600">{label}:</span>
-      <span className="font-medium text-slate-800">
-        {value !== undefined && value !== null && value !== "" ? value : "—"}
-      </span>
-    </div>
-  );
-
-  function renderTaskDetails() {
-    if (!tarea?.tipo_codigo) return null;
-
-    const d = detalles || {};
-
-    switch (tarea.tipo_codigo) {
-      // 🌿 PODA
-      case "poda":
-        return (
-          <>
-            {box("Tipo de poda", d.tipo)}
-            {box(
-              "Plantas intervenidas planificado (%)",
-              fmtPct(d.porcentaje_plantas_plan_pct)
-            )}
-            {box(
-              "Plantas intervenidas real (%)",
-              fmtPct(d.porcentaje_plantas_real_pct)
-            )}
-            {box(
-              "Porcentaje faltante hasta 100%",
-              faltanteHasta100(d.porcentaje_plantas_real_pct)
-            )}
-            {box(
-              "Herramientas desinfectadas",
-              humanBool(d.herramientas_desinfectadas)
-            )}
-            {/* {box(
-              "Inicio (ejecución)",
-              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
-            )}
-            {box(
-              "Fin (ejecución)",
-              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
-            )} */}
-          </>
-        );
-
-      // 🌱 MALEZA
-      case "maleza":
-        return (
-          <>
-            {box("Método de control", d.metodo)}
-            {box(
-              "Cobertura planificada (%)",
-              fmtPct(d.cobertura_planificada_pct)
-            )}
-            {box("Cobertura real (%)", fmtPct(d.cobertura_real_pct))}
-            {box(
-              "Área sin intervenir (aprox.)",
-              faltanteHasta100(d.cobertura_real_pct)
-            )}
-            {/* {box(
-              "Inicio (ejecución)",
-              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
-            )}
-            {box(
-              "Fin (ejecución)",
-              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
-            )} */}
-          </>
-        );
-
-      // 💧 NUTRICIÓN
-      case "nutricion":
-        return (
-          <>
-            {box("Método de aplicación", d.metodo_aplicacion)}
-            {box(
-              "% de plantas a tratar planificado",
-              fmtPct(d.porcentaje_plantas_plan_pct)
-            )}
-            {box(
-              "% de plantas tratadas real",
-              fmtPct(d.porcentaje_plantas_real_pct)
-            )}
-            {box(
-              "Plantas sin tratar (aprox.)",
-              faltanteHasta100(d.porcentaje_plantas_real_pct)
-            )}
-            {/* {box(
-              "Inicio (ejecución)",
-              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
-            )}
-            {box(
-              "Fin (ejecución)",
-              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
-            )} */}
-          </>
-        );
-
-      // 🐛 FITOSANITARIO
-      case "fitosanitario":
-        return (
-          <>
-            {box("Plaga/enfermedad", d.plaga_enfermedad)}
-            {box("Conteo umbral", d.conteo_umbral)}
-            {box("Periodo de carencia (días)", d.periodo_carencia_dias)}
-            {box(
-              "% de plantas/área a tratar planificado",
-              fmtPct(d.porcentaje_plantas_plan_pct)
-            )}
-            {box(
-              "% de plantas/área tratada real",
-              fmtPct(d.porcentaje_plantas_real_pct)
-            )}
-            {box(
-              "Área sin tratar (aprox.)",
-              faltanteHasta100(d.porcentaje_plantas_real_pct)
-            )}
-            {box(
-              "Volumen aplicado (L)",
-              d.volumen_aplicacion_lt != null
-                ? Number(d.volumen_aplicacion_lt).toFixed(2)
-                : "—"
-            )}
-            {box("Equipo de aplicación", d.equipo_aplicacion)}
-            {/* {box(
-              "Inicio (ejecución)",
-              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
-            )}
-            {box(
-              "Fin (ejecución)",
-              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
-            )} */}
-          </>
-        );
-
-      // 🎒 ENFUNDADO
-      case "enfundado":
-        return (
-          <>
-            {box(
-              "Frutos enfundados planificados (unidades)",
-              d.frutos_enfundados_plan
-            )}
-            {box(
-              "Frutos enfundados reales (unidades)",
-              d.frutos_enfundados_real
-            )}
-            {box(
-              "Frutos enfundados planificado (%)",
-              fmtPct(d.porcentaje_frutos_plan_pct)
-            )}
-            {box(
-              "Frutos enfundados real (%)",
-              fmtPct(d.porcentaje_frutos_real_pct)
-            )}
-            {box(
-              "Frutos sin enfundar (aprox.)",
-              faltanteHasta100(d.porcentaje_frutos_real_pct)
-            )}
-            {/* {box(
-              "Inicio (ejecución)",
-              d.fecha_hora_inicio && fmtDT(d.fecha_hora_inicio)
-            )}
-            {box(
-              "Fin (ejecución)",
-              d.fecha_hora_fin && fmtDT(d.fecha_hora_fin)
-            )} */}
-          </>
-        );
-
-      // 🍈 COSECHA / POSCOSECHA
-      case "cosecha": {
-        const c = tarea.tareaCosecha || {};
-        const kgPlan =
-          c.kg_planificados !== null && c.kg_planificados !== undefined
-            ? Number(c.kg_planificados)
-            : null;
-        const kgReal =
-          c.kg_cosechados !== null && c.kg_cosechados !== undefined
-            ? Number(c.kg_cosechados)
-            : null;
-        const pctCumpl =
-          kgPlan && kgPlan > 0 ? (kgReal * 100) / kgPlan : null;
-
-        const fmtKg = (v) =>
-          v === null || v === undefined
-            ? "—"
-            : `${Number(v).toFixed(2)} kg`;
-
-        return (
-          <>
-            {/* Botón para abrir modal de clasificación */}
-      {(isOwner || isTech) && tarea.estado !== "Pendiente" && tarea.tareaCosecha &&(
-        <div className="mb-3 flex justify-end">
-          <button
-            onClick={() => setCosechaModalOpen(true)}
-            className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
-          >
-            Registrar / editar clasificación y rechazos
-          </button>
-        </div>
-      )}
-
-
-
-
-            {box("Fecha de cosecha", c.fecha_cosecha && fmtDT(c.fecha_cosecha))}
-            {box("Kg planificados", fmtKg(kgPlan))}
-            {box("Kg cosechados", fmtKg(kgReal))}
-            {box("Cumplimiento estimado", pctCumpl != null ? fmtPct(pctCumpl) : "—")}
-            {box("Grado de madurez", c.grado_madurez)}
-            {box("Notas / observaciones", c.notas)}
-
-            {c.clasificacion && c.clasificacion.length > 0 && (
-              <div className="mt-3">
-                <div className="text-sm font-medium text-slate-700 mb-1">
-                  Clasificación por destino
-                </div>
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-xs md:text-sm">
-                    <thead className="bg-slate-50 text-slate-600">
-                      <tr>
-                        <th className="p-2 text-left font-medium">Destino</th>
-                        <th className="p-2 text-right font-medium">
-                          Gabetas
-                        </th>
-                        <th className="p-2 text-right font-medium">
-                          Peso prom. gabeta (kg)
-                        </th>
-                        <th className="p-2 text-right font-medium">Kg</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 bg-white">
-                      {c.clasificacion.map((cl) => (
-                        <tr key={cl.id}>
-                          <td className="p-2 text-slate-900">
-                            {cl.destino}
-                          </td>
-                          <td className="p-2 text-right text-slate-700">
-                            {cl.gabetas}
-                          </td>
-                          <td className="p-2 text-right text-slate-700">
-                            {cl.peso_promedio_gabeta_kg != null
-                              ? Number(
-                                  cl.peso_promedio_gabeta_kg
-                                ).toFixed(2)
-                              : "—"}
-                          </td>
-                          <td className="p-2 text-right text-slate-700">
-                            {cl.kg != null
-                              ? Number(cl.kg).toFixed(2)
-                              : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {c.rechazos && c.rechazos.length > 0 && (
-              <div className="mt-4">
-                <div className="text-sm font-medium text-slate-700 mb-1">
-                  Rechazos de fruta
-                </div>
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-xs md:text-sm">
-                    <thead className="bg-slate-50 text-slate-600">
-                      <tr>
-                        <th className="p-2 text-left font-medium">Causa</th>
-                        <th className="p-2 text-right font-medium">Kg</th>
-                        <th className="p-2 text-left font-medium">
-                          Observación
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 bg-white">
-                      {c.rechazos.map((r) => (
-                        <tr key={r.id}>
-                          <td className="p-2 text-slate-900">{r.causa}</td>
-                          <td className="p-2 text-right text-slate-700">
-                            {r.kg != null
-                              ? Number(r.kg).toFixed(2)
-                              : "—"}
-                          </td>
-                          <td className="p-2 text-slate-700">
-                            {r.observacion || "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </>
-        );
-      }
-
-      default:
-        return (
-          <div className="text-sm text-slate-500">
-            Sin detalles específicos.
-          </div>
-        );
-    }
+    toast.success("Comentario agregado");
+  } catch (e) {
+    // revertir optimistic
+    setNovedades(prev => prev.filter(n => n.id !== temp.id));
+    setTextoNovedad(texto);
+    toast.error("Error al enviar");
   }
+};
 
-  // ====== RENDER ======
-  return (
-    <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-[100dvh] p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-[1400px] rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
-        {/* header */}
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <button onClick={() => navigate(-1)} className={btnGhost}>
-            Regresar
-          </button>
 
-          {(isTech || isOwner) && tarea?.estado === "Completada" && (
-            <button
-              onClick={() => setActionModal({ open: true, kind: "verify" })}
-              className="inline-flex items-center justify-center rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700"
-            >
-              Verificar tarea
-            </button>
-          )}
-        </div>
+  if (loading) return <div className="min-h-screen grid place-content-center text-slate-400 animate-pulse">Cargando...</div>;
+  if (!tarea) return null;
 
-        {/* título */}
-        <div className="mb-4">
-          <div className="text-[11px] text-slate-500 font-mono">
-            #{tarea?.id}
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            {tarea?.titulo || tarea?.tipo || "Detalle de tarea"}
-          </h1>
-        </div>
+  // Lógica de permisos
+  const esAsignado = tarea.asignaciones?.some(a => Number(a.usuario?.id) === Number(user.id));
+  const puedeIniciar = (isWorker && esAsignado) || isOwnerOrTech;
+  const puedeCompletar = (isWorker && esAsignado) || isOwnerOrTech;
 
-        {loading && <p className="mt-6 text-slate-500">Cargando…</p>}
-        {error && <p className="mt-6 text-rose-600">{error}</p>}
+  // --- SUBCOMPONENTE: Panel de Acciones ---
+// --- SUBCOMPONENTE: Panel de Acciones ---
+  // --- SUBCOMPONENTE: Panel de Acciones ---
+  const PanelAcciones = () => (
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm h-fit">
+        <h4 className="text-xs font-bold text-slate-800 uppercase mb-4 tracking-wider">Acciones</h4>
 
-        {!loading && tarea && (
-          <div className="grid grid-cols-1 gap-10 lg:grid-cols-3">
-            {/* izquierda */}
-            <div className="lg:col-span-2 space-y-8">
-              {/* meta */}
-              <div className="grid grid-cols-1 gap-y-4 gap-x-12 md:grid-cols-2">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-600 inline-flex items-center gap-2">
-                      <span>🏷️</span>
-                      <span className="font-medium">Lote</span>
-                    </span>
-                    <Chip color="yellow">{tarea?.lote || "—"}</Chip>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-600 inline-flex items-center gap-2">
-                      <span>⚪</span>
-                      <span className="font-medium">Estado</span>
-                    </span>
-                    <Chip
-                      color={
-                        tarea.estado === "Asignada"
-                          ? "blue"
-                          : tarea.estado === "En progreso"
-                          ? "yellow"
-                          : tarea.estado === "Completada"
-                          ? "green"
-                          : tarea.estado === "Verificada"
-                          ? "purple"
-                          : "gray"
-                      }
-                    >
-                      {tarea.estado}
-                    </Chip>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-600 inline-flex items-center gap-2">
-                      <span>📂</span>
-                      <span className="font-medium">Tipo</span>
-                    </span>
-                    <Chip color="gray">{tarea?.tipo || "—"}</Chip>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {/* Creador */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-600 inline-flex items-center gap-2">
-                      <span>👤</span>
-                      <span className="font-medium">Creador</span>
-                    </span>
-                    <span className="font-medium text-slate-800">
-                      {tarea.creador?.nombre || "—"}
-                    </span>
-                  </div>
-
-                  {/* Asignados */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-600 inline-flex items-center gap-2">
-                      <span>👥</span>
-                      <span className="font-medium">Asignados</span>
-                    </span>
-                    <div className="flex -space-x-2">
-                      {(tarea.asignaciones || [])
-                        .slice(0, 3)
-                        .map((a) => (
-                          <Avatar
-                            key={a.id}
-                            user={a.usuario}
-                            name={a.usuario?.nombre || ""}
-                            size={32}
-                            className="border border-white"
-                          />
-                        ))}
-                      {(tarea.asignaciones || []).length === 0 && (
-                        <span className="text-slate-500">—</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Fecha programada */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-600 inline-flex items-center gap-2">
-                      <span>🕒</span>
-                      <span className="font-medium">Fecha programada</span>
-                    </span>
-                    <span className="font-medium">
-                      {fmtDT(tarea.fecha_programada)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-  {/* Separador entre filtros y contenido */}
-        <div className="mb-4 h-px w-full bg-slate-200" />
-              {/* descripción */}
-              <section>
-                <h3 className="font-semibold mb-1 text-slate-800">
-                  Descripción
-                </h3>
-                <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                  {tarea.descripcion || "—"}
-                </p>
-              </section>
-              {/* Separador entre filtros y contenido */}
-        <div className="mb-4 h-px w-full bg-slate-200" />
-              {/* recursos */}
-              <section className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-slate-800">
-                    Insumos y recursos de la tarea
-                  </h3>
-                  {canEdit && (
-                    <button
-                      onClick={() => setEditInsumosOpen(true)}
-                      className={btnPrimary}
-                    >
-                      Editar insumos / requerimientos
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                  {/* herramientas */}
-                  <div>
-                    <div className="text-sm font-medium mb-1">
-                      Herramientas requeridas
-                    </div>
-                    {reqHerr.length ? (
-                      <ul className="list-disc pl-5 text-sm text-slate-800">
-                        {reqHerr.map((h) => (
-                          <li key={h.id || `${h.item_id}-H`}>
-                            {h.nombre}
-                            {h.cantidad_planificada
-                              ? ` (${h.cantidad_planificada})`
-                              : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="text-sm text-slate-500">—</div>
-                    )}
-                  </div>
-
-                  {/* equipos */}
-                  <div>
-                    <div className="text-sm font-medium mb-1">
-                      Equipos requeridos
-                    </div>
-                    {reqEq.length ? (
-                      <ul className="list-disc pl-5 text-sm text-slate-800">
-                        {reqEq.map((e) => (
-                          <li key={e.id || `${e.item_id}-E`}>
-                            {e.nombre}
-                            {e.cantidad_planificada
-                              ? ` (${e.cantidad_planificada})`
-                              : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="text-sm text-slate-500">—</div>
-                    )}
-                  </div>
-                </div>
-
-                {/* insumos */}
-                <div>
-                  <div className="text-sm font-medium mb-1">
-                    Insumos planificados
-                  </div>
-                  {insumos.length ? (
-                    <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-50 text-slate-600">
-                          <tr>
-                            <th className="p-2 text-left font-medium">
-                              Insumo
-                            </th>
-                            <th className="p-2 text-right font-medium">
-                              Cant.
-                            </th>
-                            <th className="p-2 text-left font-medium">
-                              Unidad
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200">
-                          {insumos.map((i) => (
-                            <tr
-                              key={i.id || `${i.item_id}-I`}
-                              className="bg-white"
-                            >
-                              <td className="p-2 text-slate-900">
-                                {i.nombre}
-                              </td>
-                              <td className="p-2 text-right text-slate-700">
-                                {Number(
-                                  i.cantidad_planificada
-                                ).toLocaleString()}
-                              </td>
-                              <td className="p-2 text-slate-700">
-                                {i.unidad}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">—</div>
-                  )}
-                </div>
-              </section>
-  {/* Separador entre filtros y contenido */}
-        <div className="mb-4 h-px w-full bg-slate-200" />
-              {/* Detalles específicos + tiempos reales */}
-              <section className="space-y-3">
-                <h3 className="font-semibold text-slate-800">
-                  Detalles de la tarea
-                </h3>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
-                  {/* Tiempos reales generales de la tarea */}
-                  {box(
-                    "Inicio real de la tarea",
-                    tarea.fecha_hora_inicio_real &&
-                      fmtDT(tarea.fecha_hora_inicio_real)
-                  )}
-                  {box(
-                    "Fin real de la tarea",
-                    tarea.fecha_hora_fin_real &&
-                      fmtDT(tarea.fecha_hora_fin_real)
-                  )}
-                  {box(
-                    "Duración real (minutos)",
-                    tarea.duracion_real_min != null
-                      ? `${Number(tarea.duracion_real_min).toFixed(1)} min`
-                      : "—"
-                  )}
-
-                  <hr className="my-2 border-slate-200" />
-
-                  {renderTaskDetails()}
-                </div>
-              </section>
-  {/* Separador entre filtros y contenido */}
-        <div className="mb-4 h-px w-full bg-slate-200" />
-              {/* novedades */}
-              <section className="space-y-2">
-                <h3 className="font-semibold text-slate-800">Novedades</h3>
-                {novedades.length ? (
-                  <ul className="space-y-3">
-                    {novedades.map((n) => (
-                      <li
-                        key={n.id}
-                        className="rounded-2xl border border-slate-200 p-3 bg-white"
-                      >
-                        <div className="flex items-start gap-3">
-                          <Avatar
-                            user={n.autor}
-                            name={n.autor?.nombre || ""}
-                            size={36}
-                            className="h-9 w-9"
-                          />
-                          <div className="flex-1">
-                            <div className="text-sm text-slate-900">
-                              <span className="font-medium">
-                                {n.autor?.nombre || "—"}
-                              </span>
-                              <span className="text-slate-500">
-                                {" "}
-                                | {fmtDT(n.created_at)}
-                              </span>
-                            </div>
-                            <div className="text-sm mt-1 text-slate-800">
-                              {n.texto}
-                            </div>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-sm text-slate-500">Sin novedades</div>
-                )}
-
-                <div className="rounded-2xl border border-slate-200 bg-white">
-                  <textarea
-                    rows={3}
-                    value={textoNovedad}
-                    onChange={(e) => setTextoNovedad(e.target.value)}
-                    placeholder="Escribe una novedad…"
-                    className={`${textareaBase} rounded-2xl border-0`}
-                  />
-                </div>
-                  <div className="flex justify-end p-2">
-                    <button onClick={addNovedad} className={btnPrimary}>
-                      Enviar novedad
-                    </button>
-                  </div>
-              </section>
+        {/* CASO 1: TAREA VERIFICADA */}
+        {tarea.estado === "Verificada" && (
+            <div className="text-center p-6 bg-violet-50 border border-violet-100 rounded-xl">
+                <ShieldCheck size={32} className="mx-auto text-violet-500 mb-2"/>
+                <p className="font-bold text-violet-800">Tarea Verificada</p>
+                <p className="text-xs text-violet-600 mt-1">El técnico ha validado esta labor.</p>
             </div>
-
-            {/* derecha */}
-            <div className="space-y-6">
-              {/* acciones */}
-              {(canStartOrComplete || isTech || isOwner) && (
-                <section className="rounded-2xl border border-slate-200 p-4 bg-white">
-                  <h4 className="font-semibold mb-2 text-slate-800">
-                    Acciones
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {/* Iniciar / Completar para Trabajador o Técnico ASIGNADO */}
-                    {canStartOrComplete &&
-                      (tarea.estado === "Pendiente" ||
-                        tarea.estado === "Asignada") && (
-                        <button
-                          onClick={doStart}
-                          className="inline-flex items-center justify-center rounded-xl bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-700"
-                        >
-                          Iniciar tarea
-                        </button>
-                      )}
-
-                    {canStartOrComplete && tarea.estado === "En progreso" && (
-                      <button
-                        onClick={() =>
-                          setActionModal({
-                            open: true,
-                            kind: "complete",
-                          })
-                        }
-                        className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
-                      >
-                        Completar tarea
-                      </button>
-                    )}
-
-                    {/* Cancelar tarea para Técnico / Propietario */}
-                    {(isTech || isOwner) &&
-                      ["Pendiente", "Asignada", "En progreso"].includes(
-                        tarea.estado
-                      ) && (
-                        <button
-                          onClick={() =>
-                            setActionModal({
-                              open: true,
-                              kind: "cancel",
-                            })
-                          }
-                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700"
-                        >
-                          Cancelar tarea
-                        </button>
-                      )}
-                  </div>
-                </section>
-              )}
-
-              {/* asignados */}
-              <section className="rounded-2xl border border-slate-200 p-4 bg-white">
-                <div className="mb-2 flex items-center justify-between">
-                  <h4 className="font-semibold text-slate-800">
-                    Trabajadores asignados
-                  </h4>
-                  {canEdit && (
-                    <button
-                      onClick={() => setAsignModalOpen(true)}
-                      className={btnPrimary}
-                    >
-                      Editar
-                    </button>
-                  )}
-                </div>
-                {(tarea.asignaciones || []).length ? (
-                  <ul className="text-sm space-y-1 text-slate-800">
-                    {tarea.asignaciones.map((a) => (
-                      <li key={a.id}>
-                        • {a.usuario?.nombre}{" "}
-                        <span className="text-slate-500">
-                          ({a.rol_en_tarea})
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-sm text-slate-500">
-                    Sin asignaciones
-                  </div>
-                )}
-              </section>
-
-              {/* historial */}
-
-
-           {/* ================= HISTORIAL DE ACTIVIDAD (DISEÑO TIMELINE) ================= */}
-<section className="rounded-2xl border border-slate-200 bg-white p-6">
-  <h4 className="mb-6 text-lg font-bold text-slate-900">
-    Historial de actividad
-  </h4>
-
-  {tarea.estados?.length ? (
-    <div className="relative">
-      {/* Esta es la línea vertical gris que conecta todo. 
-          Se ajusta 'left-5' para centrarla con los avatares de 40px (size 10) */}
-      <div className="absolute left-5 top-2 bottom-2 w-0.5 bg-slate-200" />
-
-      <ul className="space-y-8">
-        {tarea.estados
-          .slice()
-          .sort((a, b) => new Date(b.fecha) - new Date(a.fecha)) // Ordenar: más reciente arriba
-          .map((e, idx) => {
-            const name = e.usuario?.nombre || "Usuario";
-            const isComment = !!e.comentario; // Si tiene comentario, lo destacamos diferente
-
-            return (
-              <li key={idx} className="relative pl-14">
-                {/* --- AVATAR (Izquierda) --- */}
-                <div className="absolute left-0 top-0 bg-white py-1">
-                  {/* El borde blanco alrededor del avatar ayuda a que se separe visualmente de la línea */}
-                  <Avatar
-                    user={e.usuario}
-                    name={name}
-                    size={40}
-                    className="h-10 w-10 border-2 border-white shadow-sm"
-                  />
-                </div>
-
-                {/* --- CONTENIDO (Derecha) --- */}
-                <div className="flex flex-col gap-1">
-                  {/* Encabezado: Nombre + Hora */}
-                  <div className="flex flex-wrap items-center gap-x-2 text-sm">
-                    <span className="font-bold text-slate-900">
-                      {name}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      {fmtDT(e.fecha)}
-                    </span>
-                  </div>
-
-                  {/* Acción: Qué hizo (Cambió estado) */}
-                  <div className="text-sm text-slate-600">
-                    Cambió el estado a{" "}
-                    <span
-                      className={`font-medium ${
-                        e.estado === "Completada"
-                          ? "text-emerald-600"
-                          : e.estado === "En progreso"
-                          ? "text-blue-600"
-                          : "text-slate-800"
-                      }`}
-                    >
-                      {e.estado}
-                    </span>
-                  </div>
-
-                  {/* --- CAJA DE COMENTARIO (Estilo Referencia) --- */}
-                  {isComment && (
-                    <div className="mt-2 rounded-xl bg-slate-50 p-4 border border-slate-100 text-slate-700 text-sm leading-relaxed shadow-sm">
-                      {e.comentario}
-                    </div>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-      </ul>
-    </div>
-  ) : (
-    <div className="flex flex-col items-center justify-center py-8 text-slate-400">
-      <span className="text-4xl mb-2">📝</span>
-      <p className="text-sm">No hay actividad registrada aún.</p>
-    </div>
-  )}
-</section>
-            </div>
-          </div>
         )}
 
-        {/* modales */}
-        <TareasItemsModal
-          tareaId={tareaId}
-          open={canEdit && editInsumosOpen}
-          onClose={() => setEditInsumosOpen(false)}
-          onSaved={refreshAll}
-        />
-        <AsignacionesModal
-          tareaId={tareaId}
-          open={canEdit && asignModalOpen}
-          onClose={() => setAsignModalOpen(false)}
-          onSaved={refreshAll}
-        />
-        <CosechaClasificacionModal
-  tareaId={tareaId}
-  open={cosechaModalOpen}
-  onClose={() => setCosechaModalOpen(false)}
-  onSaved={refreshAll}
-  cosecha={tarea?.tareaCosecha}
-/>
+        {/* CASO 2: TAREA CANCELADA */}
+        {tarea.estado === "Cancelada" && (
+            <div className="text-center p-6 bg-rose-50 border border-rose-100 rounded-xl">
+                <XCircle size={32} className="mx-auto text-rose-500 mb-2"/>
+                <p className="font-bold text-rose-800">Tarea Cancelada</p>
+                <p className="text-xs text-rose-600 mt-1">Esta labor fue suspendida.</p>
+                {/* Opcional: Mostrar motivo si viene en la data */}
+            </div>
+        )}
 
-        <TaskActionModal
-          open={actionModal.open}
-          kind={actionModal.kind}
-          tarea={tarea}
-          onClose={() => setActionModal({ open: false, kind: null })}
-          onDone={refreshAll}
-        />
+        {/* CASO 3: FLUJO ACTIVO */}
+        {tarea.estado !== "Verificada" && tarea.estado !== "Cancelada" && (
+            <div className="flex flex-col gap-3">
+                
+                {/* BOTÓN INICIAR */}
+                {(tarea.estado === "Pendiente" || tarea.estado === "Asignada") && puedeIniciar && (
+                    <Boton onClick={handleIniciar} className="w-full py-3 text-base shadow-md bg-amber-500 text-white hover:bg-amber-600 border-none">
+                        <Play size={20} fill="currentColor" className="mr-2" /> 
+                        {isOwnerOrTech ? "INICIAR JORNADA (SUPERVISOR)" : "INICIAR MI TAREA"}
+                    </Boton>
+                )}
+
+                {/* BOTÓN COMPLETAR */}
+                {tarea.estado === "En progreso" && puedeCompletar && (
+                    <Boton onClick={() => toggleModal("action", true, "completar")} variante="primario" className="w-full py-3 text-base shadow-md">
+                        <CheckCircle size={20} className="mr-2" /> 
+                        {isOwnerOrTech ? "REGISTRAR AVANCE Y CERRAR" : "COMPLETAR TAREA"}
+                    </Boton>
+                )}
+
+                {/* BOTÓN VERIFICAR (Solo Dueño/Técnico) */}
+                {tarea.estado === "Completada" && isOwnerOrTech && (
+                    <Boton onClick={() => toggleModal("action", true, "verificar")} className="w-full py-3 text-base shadow-md bg-violet-600 text-white hover:bg-violet-700 border-none">
+                        <ShieldCheck size={20} className="mr-2" /> VERIFICAR TAREA
+                    </Boton>
+                )}
+
+                {/* MENSAJE PARA TRABAJADOR ESPERANDO VERIFICACIÓN */}
+                {tarea.estado === "Completada" && isWorker && (
+                    <div className="text-center p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                        <Clock size={24} className="mx-auto text-amber-500 mb-2 animate-pulse"/>
+                        <p className="font-bold text-amber-800 text-sm">Esperando verificación</p>
+                        <p className="text-xs text-amber-600 mt-1">El técnico debe revisar tu trabajo.</p>
+                    </div>
+                )}
+                
+                
+                {/* ✅ BOTÓN CANCELAR (Visible y Sólido) */}
+                {isOwnerOrTech && (
+                    <Boton 
+                        onClick={handleCancelar} 
+                        className="w-full py-3 mt-1 bg-rose-600 text-white hover:bg-rose-700 shadow-md border-none"
+                    >
+                        <XCircle size={18} className="mr-2" /> Cancelar Tarea
+                    </Boton>
+                )}
+                
+                {/* Fallback */}
+                {!(puedeIniciar || puedeCompletar || (isOwnerOrTech && tarea.estado === "Completada") || (isWorker && tarea.estado === "Completada")) && !isOwnerOrTech && (
+                    <div className="text-center text-sm text-slate-400 italic py-2">
+                        Sin acciones pendientes.
+                    </div>
+                )}
+                
+            </div>
+        )}
+    </div>
+
+  );
+
+  return (
+    <section className={CONTAINER_STYLES.page}>
+      <div className={CONTAINER_STYLES.card}>
+        
+        {/* HEADER: Botón Regresar */}
+        <div className="flex items-center justify-between">
+          {/* <Boton variante="primario" onClick={() => navigate(location.state?.from || -1)}>
+             <ArrowLeft size={16} className="mr-2"/> Regresar
+          </Boton> */}
+          <LinkVolver  label="Volver a tareas" onClick={() => navigate(location.state?.from || -1)} />
+        </div>
+
+        {/* GRID PRINCIPAL */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-">
+            
+            {/* === COLUMNA IZQUIERDA (Info + Detalles + Insumos + Chat) === */}
+            <div className="lg:col-span-2 space-y-6">
+              
+              {/* 1. INFO CARD (2 Columnas) */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                  <div className="flex flex-wrap items-center gap-3 mb-4">
+                    <span className="text-xs font-mono text-slate-500 font-bold bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                      ID: #{tarea.id}
+                    </span>
+                    <TaskBadge status={tarea.estado} />
+                    <span className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1 border-l pl-3 border-slate-200">
+                      <Tag size={12}/> {(tarea.tipo_codigo || tarea.TipoActividad?.codigo || "N/A").toUpperCase()}
+                    </span>
+                  </div>
+
+                  <h1 className="text-3xl font-bold text-slate-900 tracking-tight mb-6">
+                    {tarea.titulo || tarea.tipo}
+                  </h1>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                      {/* Columna Izquierda: Ubicación y Tiempo */}
+                      <div className="space-y-4">
+                          <div className="flex items-start gap-3">
+                              <div className="bg-slate-100 p-2 rounded-lg text-slate-600"><Tractor size={18}/></div>
+                              <div>
+                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Finca</p>
+                                  <p className="font-bold text-slate-800 text-sm">{tarea.finca_nombre || "No definida"}</p>
+                              </div>
+                          </div>
+                          <div className="flex items-start gap-3">
+                              <div className="bg-emerald-50 p-2 rounded-lg text-emerald-600"><MapPin size={18}/></div>
+                              <div>
+                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lote / Ubicación</p>
+                                  <p className="font-medium text-slate-800 text-sm">{tarea.Lote?.nombre || tarea.lote}</p>
+                              </div>
+                          </div>
+                          <div className="flex items-start gap-3">
+                              <div className="bg-blue-50 p-2 rounded-lg text-blue-600"><Calendar size={18}/></div>
+                              <div>
+                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Fecha Programada</p>
+                                  <p className="font-medium text-slate-800 text-sm capitalize">
+                                      {fmtFechaHora(tarea.fecha_programada)}
+                                  </p>
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* Columna Derecha: Contexto Agronómico */}
+                      <div className="space-y-4">
+                          <div className="flex items-start gap-3">
+                              <div className="bg-amber-50 p-2 rounded-lg text-amber-600"><Sprout size={18}/></div>
+                              <div>
+                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cosecha</p>
+                                  <p className="font-medium text-slate-800 text-sm">{tarea.Cosecha?.nombre || "N/A"}</p>
+                              </div>
+                          </div>
+                          <div className="flex items-start gap-3">
+                              <div className="bg-sky-50 p-2 rounded-lg text-sky-600"><Clock size={18}/></div>
+                              <div>
+                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Etapa / Periodo</p>
+                                  <p className="font-medium text-slate-800 text-sm">{tarea.PeriodoCosecha?.nombre || "General"}</p>
+                              </div>
+                          </div>
+                          <div className="flex items-start gap-3">
+                              <div className="bg-slate-50 p-2 rounded-lg text-slate-400"><User size={18}/></div>
+                              <div>
+                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Creado por</p>
+                                  <p className="font-medium text-slate-800 text-sm">{tarea.creador?.nombre}</p>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  {tarea.descripcion && (
+                    <div className="mt-6 bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-600 text-sm leading-relaxed">
+                       <span className="block font-bold text-slate-700 mb-1 text-xs uppercase">Instrucciones:</span>
+                       {tarea.descripcion}
+                    </div>
+                  )}
+              </div>
+
+              {/* ✅ MÓVIL: Panel de Acciones (Entre Info y Detalles) */}
+              <div className="block lg:hidden">
+                 <PanelAcciones />
+              </div>
+                
+              {/* 2. DETALLES DE EJECUCIÓN */}
+              <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                  <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                      <h3 className="text-lg font-bold text-slate-800">Detalles de Ejecución</h3>
+                      <div className="flex gap-2">
+                          <div className="bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 text-xs flex items-center gap-2">
+                              <span className="text-slate-500 font-bold">INICIO</span>
+                              <span className="font-mono font-medium text-slate-700">{tarea.fecha_inicio_real ? new Date(tarea.fecha_inicio_real).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "—"}</span>
+                          </div>
+                          <div className="bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 text-xs flex items-center gap-2">
+                              <span className="text-slate-500 font-bold">FIN</span>
+                              <span className="font-mono font-medium text-slate-700">{tarea.fecha_fin_real ? new Date(tarea.fecha_fin_real).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "—"}</span>
+                          </div>
+                          <div className="bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-100 text-xs text-emerald-800 font-bold flex items-center gap-1">
+                              <Clock size={12}/> {tarea.duracion_real_min || 0} min
+                          </div>
+                      </div>
+                  </div>
+                  <TaskSpecificDetails tarea={tarea} onRefresh={cargarDetalle}/>
+              </section>
+
+              {/* 3. INSUMOS */}
+              <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-lg font-bold text-slate-800">Insumos y Recursos</h3>
+                      {isOwnerOrTech && tarea.estado !== "Verificada" && (
+                          <Boton variante="secundario" onClick={() => toggleModal("items", true)} className="!px-3 !py-1.5 !text-xs !bg-emerald-50 !text-emerald-700 !border-emerald-200 hover:!bg-emerald-100 border">
+                              Gestionar Recursos
+                          </Boton>
+                      )}
+                  </div>
+                  {(!tarea.items || tarea.items.length === 0) ? (
+                      <div className="text-center py-10 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                          <Package className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                          <p className="text-sm text-slate-400">No se registraron insumos para esta tarea.</p>
+                      </div>
+                  ) : (
+                      <div className="overflow-hidden rounded-xl border border-slate-200">
+                          <table className="w-full text-sm text-left">
+                              <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider font-bold">
+                                  <tr>
+                                      <th className="px-4 py-3">Ítem</th>
+                                      <th className="px-4 py-3 text-right">Plan</th>
+                                      <th className="px-4 py-3 text-right">Real</th>
+                                      <th className="px-4 py-3 font-bold">Lote</th>
+                                  </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                  {tarea.items.map((it) => (
+                                      <tr key={it.id} className="hover:bg-slate-50/50">
+                                          <td className="px-4 py-3">
+                                              <div className="font-medium text-slate-800">{it.nombre}</div>
+                                              <div className="text-[10px] text-slate-400 uppercase">{it.categoria}</div>
+                                          </td>
+                                          <td className="px-4 py-3 text-right text-slate-500 font-mono">
+                                              {formatQty(it.cantidad_planificada, it.unidad)}
+                                          </td>
+                                          <td className="px-4 py-3 text-right">
+                                              {(() => {
+                                                  const plan = Number(it.cantidad_planificada) || 0;
+                                                  const real = Number(it.cantidad_real) || 0;
+                                                  const isLow = real < plan; 
+                                                  const isZero = real === 0;
+                                                  let colorClass = "text-slate-800"; 
+                                                  if (isZero && tarea.estado !== 'Completada' && tarea.estado !== 'Verificada') colorClass = "text-slate-300";
+                                                  else if (isLow) colorClass = "text-rose-600 font-bold";
+                                                  else colorClass = "text-emerald-600 font-bold";
+
+                                                  return (
+                                                      <span className={`font-mono ${colorClass}`}>
+                                                          {formatQty(it.cantidad_real, it.unidad)}
+                                                          {isLow && !isZero && <span className="ml-1 text-[10px]">▼</span>}
+                                                      </span>
+                                                  );
+                                              })()}
+                                          </td>
+                                          <td className="px-4 py-3">
+                                              {it.lote_insumo_manual ? (
+                                                  <span className="bg-yellow-50 text-yellow-800 border border-yellow-200 text-[11px] px-2 py-0.5 rounded font-mono">{it.lote_insumo_manual}</span>
+                                              ) : <span className="text-slate-300 text-xs">-</span>}
+                                          </td>
+                                      </tr>
+                                  ))}
+                              </tbody>
+                          </table>
+                      </div>
+                  )}
+              </section>
+
+              {/* 4. COMENTARIOS */}
+              <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                  <h3 className="text-lg font-bold text-slate-800 mb-6">Comentarios y Novedades</h3>
+                  <div className="space-y-6 mb-8">
+                      {novedades.length === 0 && (
+                          <p className="text-center text-slate-400 text-sm italic py-4">No hay comentarios aún.</p>
+                      )}
+                      {novedades.map((n) => (
+                          <div key={n.id} className="flex gap-4 animate-in fade-in slide-in-from-bottom-2">
+<Avatar user={n.usuario} name={nombreUsuario(n.usuario)} size={40} className="shrink-0 mt-1 shadow-xs border border-white" />                              <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+<span className="text-sm font-bold text-slate-900">{nombreUsuario(n.usuario)}</span>                                      <span className="text-slate-300 text-xs">|</span>
+                                      <span className="text-xs text-slate-400">{fmtDT(n.created_at)}</span>
+                                  </div>
+                                  <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl rounded-tl-none inline-block">
+                                      {n.texto}
+                                  </div>
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+                  <div className="pt-4 border-t border-slate-100">
+                      <div className="flex gap-3">
+                          <textarea 
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-sm p-3 min-h-[50px] resize-none transition-all"
+                              placeholder="Escribe una novedad..."
+                              value={textoNovedad}
+                              onChange={(e) => setTextoNovedad(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleEnviarNovedad())}
+                          />
+                          <Boton 
+    onClick={handleEnviarNovedad} 
+    // Agregamos clases para forzar el verde esmeralda
+    className="h-fit self-end shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white border-none shadow-md shadow-emerald-100" 
+    disabled={!textoNovedad.trim()}
+>
+    Enviar
+</Boton>
+                      </div>
+                  </div>
+              </section>
+            </div>
+
+            {/* === COLUMNA DERECHA (Panel Lateral) === */}
+            <div className="space-y-6">
+                 {/* 1. Panel de Acciones (Solo Desktop) */}
+                 <div className="hidden lg:block">
+                     <PanelAcciones />
+                 </div>
+
+                 {/* EQUIPO ASIGNADO */}
+                <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+                    <div className="flex justify-between items-center mb-4">
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Equipo</h4>
+                        {isOwnerOrTech && tarea.estado !== "Verificada" && tarea.estado !== "Cancelada" && (
+                            <button onClick={() => toggleModal("asign", true)} className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 p-1.5 rounded-lg transition-colors">
+                                <Edit2 size={16} />
+                            </button>
+                        )}
+                    </div>
+                    <div className="flex flex-col gap-3">
+                        {tarea.asignaciones?.length > 0 ? (
+                            tarea.asignaciones.map(a => {
+                                // Construimos el texto del rol
+                                const tipo = a.usuario?.tipo || "";
+                                // Asumimos que si tiene tipo es Trabajador, sino usamos un genérico o el rol si viniera
+                                const descripcionRol = tipo ? `Trabajador ${tipo}` : "Técnico / Supervisor";
+
+                                return (
+                                    <div key={a.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg transition-colors">
+                                        <Avatar user={a.usuario} size={36} className="bg-slate-100 text-slate-600 border border-slate-200" />
+                                        <div className="flex-1">
+                                            <div className="flex flex-col">
+                                                <span className="text-s font-bold text-slate-800">{a.usuario?.nombre}</span>
+                                                {/* ✅ ROL VISIBLE */}
+                                                <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+                                                    {descripcionRol}
+                                                </span>
+                                            {a.rol_en_tarea && (
+                                                <div className="mt-1 text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded w-fit">
+                                                    {a.rol_en_tarea}
+                                                </div>
+                                            )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : <p className="text-sm text-slate-400 italic">Sin asignaciones.</p>}
+                    </div>
+                </div>
+
+                {/* 3. BITÁCORA */}
+<div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+  <h4 className="text-lg font-bold text-slate-800 mb-6">Bitácora</h4>
+  <div className="space-y-0">
+    {tarea.estados?.slice().reverse().map((e, idx) => {
+      const fechaObj = new Date(e.fecha);
+      
+      // ✅ Lógica de colores para el texto del estado
+      let colorEstado = "text-slate-800";
+      if (e.estado === "Completada") colorEstado = "text-emerald-700";
+      if (e.estado === "Verificada") colorEstado = "text-violet-700";
+      if (e.estado === "En progreso") colorEstado = "text-blue-700";
+      if (e.estado === "Cancelada") colorEstado = "text-rose-700";
+      if (e.estado === "Asignada") colorEstado = "text-amber-700";
+
+      return (
+        <div key={idx} className="relative pl-10 pb-6 last:pb-0">
+          {idx !== tarea.estados.length - 1 && <div className="absolute left-[1.1rem] top-3 bottom-0 w-px bg-slate-200" />}
+          <div className="absolute left-0 top-0">
+            <Avatar user={e.usuario} size={36} className="border-2 border-white shadow-sm" />
+          </div>
+          <div className="flex flex-col gap-1 pt-1">
+            <div>
+              <span className="block text-sm font-bold text-slate-900">{e.usuario?.nombre}</span>
+              <span className="block text-xs text-slate-400">{fechaObj.toLocaleDateString()} {fechaObj.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+            </div>
+            <div className="text-sm text-slate-600 mt-1">
+               Cambió estado a <span className={`font-bold ${colorEstado} uppercase tracking-wide text-xs`}>{e.estado}</span>
+            </div>
+            {e.comentario && (
+              <div className="mt-2 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 italic">
+                "{e.comentario}"
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    })}
+  </div>
+</div>
+            </div>
+
+        </div>
+
+        {/* --- MODALES --- */}
+        <CompletarVerificarTareaModal open={modals.action} modo={modals.actionKind} tarea={tarea} onClose={() => toggleModal("action", false)} onRefrescar={cargarDetalle} />
+        <AsignarTrabajadoresModal open={modals.asign} tareaId={tareaId} onClose={() => toggleModal("asign", false)} onSaved={cargarDetalle} />
+        <TareaItemsModal open={modals.items} tareaId={tareaId} onClose={() => toggleModal("items", false)} onSaved={cargarDetalle} />
+
       </div>
     </section>
   );

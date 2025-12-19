@@ -4,46 +4,34 @@ const controller = require('./tareas.controller');
 const { requireAuth } = require('../../middlewares/auth.middleware');
 const { requireRole } = require('../../middlewares/rbac.middleware');
 
-
 const router = Router();
 
-
-// resumen de tareas (para cards y dashboard)
+// 1. Consultas Generales
 router.get('/resumen', requireAuth, controller.resumenTareas);
-
-// listado y detalle de tareas
 router.get('/', requireAuth, controller.listarTareas);
 router.get('/:id', requireAuth, controller.obtenerTarea);
 
-
-// Crear tarea (Propietario/Tecnico)
+// 2. Gestión Principal (Solo Propietario/Técnico)
 router.post('/', requireAuth, requireRole('Propietario','Tecnico'), controller.crearTarea);
+router.post("/:id/cancelar", requireAuth, requireRole('Propietario','Tecnico'), controller.cancelarTarea);
 
-// Asignar responsables (Propietario/Tecnico)
+// 3. Flujo de Estados
+// Iniciar: Puede hacerlo el trabajador asignado
+router.post("/:id/iniciar", requireAuth, controller.iniciarTarea);
+// Completar: Puede hacerlo el trabajador asignado (registra datos reales)
+router.post('/:id/completar', requireAuth, controller.completarTarea);
+// Verificar: Solo técnico/propietario (Descuenta stock)
+router.post('/:id/verificar', requireAuth, requireRole('Propietario','Tecnico'), controller.verificarTarea);
+router.patch('/:id/detalles', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarDetalles);
+// 4. Gestión de Recursos (Asignaciones e Ítems)
 router.post('/:id/asignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.asignarUsuarios);
 router.patch('/:id/ActualizarAsignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarAsignaciones);
 
-// Items de tarea (unificado: Insumo / herramienta / equipo)
 router.post('/:id/items', requireAuth, requireRole('Propietario','Tecnico'), controller.configurarItems);
 router.get('/:id/items', requireAuth, controller.listarItems);
 
-// Iniciar / completar / verificar tarea
-router.post("/:id/iniciar", requireAuth, controller.iniciarTarea);
-router.post('/:id/completar', requireAuth, controller.completarTarea);
-router.post('/:id/verificar', requireAuth, requireRole('Propietario','Tecnico'), controller.verificarTarea);
-router.post("/:id/cancelar", requireAuth, requireRole('Propietario','Tecnico'), controller.cancelarTarea)
-
-// Novedades
+// 5. Novedades (Bitácora)
 router.post('/:id/novedades', requireAuth, controller.crearNovedad);
 router.get('/:id/novedades', requireAuth, controller.listarNovedades);
 
-router.patch(
-  "/:id/cosecha",
-  requireAuth,
-  controller.actualizarCosecha
-);
-
 module.exports = router;
-
-
-

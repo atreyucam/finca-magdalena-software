@@ -1,244 +1,293 @@
-import { useEffect, useState } from "react";
-import { listarUsuarios, desactivarUsuario, editarUsuario } from "../api/apiClient";
-import CrearUsuarioModal from "../components/CrearUsuarioModal";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { 
+  Plus, Users, UserX, UserCheck, Edit, Eye 
+} from "lucide-react";
+
+// API
+import { listarUsuarios, editarUsuario, desactivarUsuario, obtenerEstadisticas } from "../api/apiClient";
+
+// Hooks
+import useListado from "../hooks/useListado";
+
+// Componentes UI
+import { Tabla, TablaCabecera, TablaHead, TablaCuerpo, TablaFila, TablaCelda, TablaVacia } from "../components/ui/Tabla";
+import Paginador from "../components/ui/Paginador";
+import Boton from "../components/ui/Boton";
+
+// IMPORTAMOS TUS MODALES (Asegúrate de que las rutas sean correctas)
+import CrearUsuarioModal from "../components/usuarios/CrearUsuarioModal"; // El nuevo componente completo
+import ModalEditarUsuario from "../components/usuarios/ModalEditarUsuario"; // El modal de edición
 
 export default function Usuarios() {
-  const [usuarios, setUsuarios] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [busyId, setBusyId] = useState(null);
-  const [filtros, setFiltros] = useState({ q: "", estado: "", role: "" });
-  const [showModal, setShowModal] = useState(false);
-
   const navigate = useNavigate();
+  
+  // Estado para el Modal de Crear
+  const [crearModalOpen, setCrearModalOpen] = useState(false);
+  
+  // Estado para el Modal de Editar
+  const [usuarioAEditar, setUsuarioAEditar] = useState(null);
 
+  const [stats, setStats] = useState({ registrados: 0, activos: 0, inactivos: 0 });
 
-   const toggleEstado = async (u) => {
-   if (busyId) return;
-   const activar = u.estado !== "Activo";
-   const ok = window.confirm(
-     activar
-       ? `¿Activar a ${u.nombres} ${u.apellidos}?`
-       : `¿Desactivar a ${u.nombres} ${u.apellidos}?`
-   );
-   if (!ok) return;
-   try {
-     setBusyId(u.id);
-     if (activar) {
-       await editarUsuario(u.id, { estado: "Activo" }); // activar
-     } else {
-       await desactivarUsuario(u.id); // desactivar (endpoint dedicado)
-     }
-     await fetchUsuarios();
-   } catch (e) {
-     alert(e?.response?.data?.message || "No se pudo actualizar el estado");
-   } finally {
-     setBusyId(null);
-   }
- };
+  // Hook para la Tabla
+  const {
+    datos: usuarios,
+    cargando,
+    pagina,
+    setPagina,
+    totalPaginas,
+    totalRegistros,
+    filtros,
+    actualizarFiltro,
+    limpiarFiltros,
+    recargar
+  } = useListado(listarUsuarios, { q: "", estado: "Activo", role: "", tipo: "" });
 
-  // Cargar usuarios desde API
-  const fetchUsuarios = async () => {
+  const cargarStats = async () => {
     try {
-      setLoading(true);
-      const res = await listarUsuarios(filtros);
-      setUsuarios(res.data?.data || []);
-      setError(null);
-    } catch (err) {
-      console.error("Error cargando usuarios:", err);
-      setError("No se pudieron cargar los usuarios");
-    } finally {
-      setLoading(false);
+      const res = await obtenerEstadisticas();
+      // Aseguramos compatibilidad si viene directo o en .data
+      setStats(res.data || res);
+    } catch (e) {
+      console.error("Error cargando stats:", e);
     }
   };
 
-  useEffect(() => {
-    fetchUsuarios();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtros]);
+  useEffect(() => { cargarStats(); }, []);
 
-  // Métricas
-  const total = usuarios.length;
-  const activos = usuarios.filter((u) => u.estado === "Activo").length;
-  const inactivos = usuarios.filter((u) => u.estado === "Inactivo").length;
+  const toggleEstado = async (u) => {
+    const esActivo = u.estado === "Activo";
+    if (!window.confirm(`¿Deseas ${esActivo ? "desactivar" : "activar"} a ${u.nombres}?`)) return;
 
-  const handleFiltroChange = (e) => {
-    const { name, value } = e.target;
-    setFiltros((f) => ({ ...f, [name]: value }));
+    try {
+      if (esActivo) await desactivarUsuario(u.id);
+      else await editarUsuario(u.id, { estado: "Activo" });
+      recargar();
+      cargarStats();
+    } catch (e) {
+      alert("Error al cambiar estado");
+    }
   };
 
   return (
-    // Fondo gris de toda la vista + padding que “compensa” el padding del <main>
     <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
-      {/* Card contenedora */}
       <div className="mx-auto max-w-[1400px] rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
-        {/* Header */}
+        
+        {/* HEADER */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Usuarios</h1>
-            <p className="text-slate-500">Gestión de usuarios, pagos y tareas asignadas.</p>
+            <p className="text-slate-500">Gestión de personal fijo y esporádico.</p>
           </div>
-
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setShowModal(true)}
-              className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 active:bg-emerald-700"
-            >
+            {/* Abre el nuevo CrearUsuarioModal */}
+            <Boton onClick={() => setCrearModalOpen(true)} icono={Plus}>
               Crear usuario
-            </button>
+            </Boton>
           </div>
         </div>
 
-        {/* Cards métricas */}
+        {/* CARDS MÉTRICAS */}
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {/* Registrados (azul) */}
           <div className="rounded-2xl border border-slate-200 bg-sky-50 p-4 sm:p-5">
-            <div className="text-slate-600">Usuarios registrados</div>
-            <div className="mt-1 text-3xl font-bold text-slate-900">{total}</div>
+            <div className="text-slate-600 font-medium">Total Personal</div>
+            <div className="mt-1 text-3xl font-bold text-slate-900">{stats.registrados || 0}</div>
           </div>
-          {/* Activos (verde) */}
           <div className="rounded-2xl border border-slate-200 bg-emerald-50 p-4 sm:p-5">
-            <div className="text-slate-600">Usuarios activos</div>
-            <div className="mt-1 text-3xl font-bold text-emerald-700">{activos}</div>
+            <div className="text-slate-600 font-medium">Usuarios activos</div>
+            <div className="mt-1 text-3xl font-bold text-emerald-700">{stats.activos || 0}</div>
           </div>
-          {/* Inactivos (rojo) */}
           <div className="rounded-2xl border border-slate-200 bg-rose-50 p-4 sm:p-5">
-            <div className="text-slate-600">Usuarios inactivos</div>
-            <div className="mt-1 text-3xl font-bold text-rose-600">{inactivos}</div>
+            <div className="text-slate-600 font-medium">Inactivos / Bloqueados</div>
+            <div className="mt-1 text-3xl font-bold text-rose-600">{stats.inactivos || 0}</div>
           </div>
         </div>
 
-        {/* Filtros */}
-        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* FILTROS */}
+        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <input
             type="text"
-            name="q"
+            placeholder="Buscar..."
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
             value={filtros.q}
-            onChange={handleFiltroChange}
-            placeholder="Buscar por nombre, email o cédula"
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
+            onChange={(e) => actualizarFiltro("q", e.target.value)}
           />
-
           <select
-            name="estado"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
             value={filtros.estado}
-            onChange={handleFiltroChange}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
+            onChange={(e) => actualizarFiltro("estado", e.target.value)}
           >
             <option value="">Todos los estados</option>
             <option value="Activo">Activo</option>
             <option value="Inactivo">Inactivo</option>
             <option value="Bloqueado">Bloqueado</option>
           </select>
-
           <select
-            name="role"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
             value={filtros.role}
-            onChange={handleFiltroChange}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
+            onChange={(e) => actualizarFiltro("role", e.target.value)}
           >
             <option value="">Todos los roles</option>
             <option value="Propietario">Propietario</option>
             <option value="Tecnico">Técnico</option>
             <option value="Trabajador">Trabajador</option>
           </select>
-
+          <select
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+            value={filtros.tipo}
+            onChange={(e) => actualizarFiltro("tipo", e.target.value)}
+          >
+            <option value="">Todos los tipos</option>
+            <option value="Fijo">Fijo</option>
+            <option value="Esporadico">Esporádico</option>
+          </select>
           <button
-            onClick={() => setFiltros({ q: "", estado: "", role: "" })}
-            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            onClick={limpiarFiltros}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
           >
             Limpiar filtros
           </button>
         </div>
 
-        {/* Tabla */}
-        {loading && <p className="text-slate-500">Cargando usuarios…</p>}
-        {error && <p className="text-rose-600">{error}</p>}
-        {!loading && usuarios.length === 0 && (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-slate-500">
-            No hay usuarios registrados.
-          </div>
-        )}
+        {/* TABLA */}
+        <Tabla>
+          <TablaCabecera>
+            <TablaHead>ID</TablaHead>
+            <TablaHead>Nombres</TablaHead>
+            <TablaHead>Rol</TablaHead>
+            <TablaHead>Tipo</TablaHead>
+            <TablaHead>Email / Acceso</TablaHead>
+            <TablaHead>Estado</TablaHead>
+            <TablaHead>Acciones</TablaHead>
+          </TablaCabecera>
 
-        {!loading && usuarios.length > 0 && (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium">ID</th>
-                  <th className="px-4 py-3 text-left font-medium">Nombres</th>
-                  <th className="px-4 py-3 text-left font-medium">Rol</th>
-                  <th className="px-4 py-3 text-left font-medium">Email</th>
-                  <th className="px-4 py-3 text-left font-medium">Estado</th>
-                  <th className="px-4 py-3 text-left font-medium">Fecha ingreso</th>
-                  <th className="px-4 py-3 text-left font-medium">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {usuarios.map((u) => (
-                  <tr key={u.id} className="bg-white hover:bg-slate-50">
-                    <td className="px-4 py-3 text-slate-700">{u.id}</td>
-                    <td className="px-4 py-3 text-slate-900">
-                      {u.nombres} {u.apellidos}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{u.role}</td>
-                    <td className="px-4 py-3 text-slate-700">{u.email}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={[
-                          "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                          u.estado === "Activo"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : u.estado === "Inactivo"
-                            ? "bg-rose-100 text-rose-700"
-                            : "bg-slate-100 text-slate-700",
-                        ].join(" ")}
+          <TablaCuerpo>
+            {cargando ? (
+              [...Array(5)].map((_, i) => (
+                <TablaFila key={i}>
+                  <TablaCelda colSpan={7} className="py-6">
+                    <div className="h-4 w-full animate-pulse rounded bg-slate-100"></div>
+                  </TablaCelda>
+                </TablaFila>
+              ))
+            ) : usuarios.length === 0 ? (
+              <TablaVacia mensaje="No se encontraron usuarios." colSpan={7} />
+            ) : (
+              usuarios.map((u) => (
+                <TablaFila key={u.id}>
+                  <TablaCelda className="text-slate-500 font-mono text-xs">{u.id}</TablaCelda>
+                  
+                  <TablaCelda>
+                    <div className="font-bold text-slate-800">{u.nombres}</div>
+                    <div className="text-xs text-slate-500">{u.apellidos}</div>
+                  </TablaCelda>
+
+                  <TablaCelda>
+                    <div className="flex items-center gap-1.5">
+                       <Users size={14} className="text-slate-400"/> {u.role}
+                    </div>
+                  </TablaCelda>
+
+                  <TablaCelda>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border ${
+                        u.tipo === 'Fijo' 
+                          ? 'bg-blue-50 text-blue-700 border-blue-100' 
+                          : 'bg-amber-50 text-amber-700 border-amber-100'
+                    }`}>
+                      {u.tipo || 'Fijo'}
+                    </span>
+                  </TablaCelda>
+
+                  <TablaCelda className="text-slate-600">
+                    {u.email || <span className="italic text-slate-400 text-xs">Sin acceso</span>}
+                  </TablaCelda>
+
+                  <TablaCelda>
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        u.estado === "Activo" 
+                          ? "bg-emerald-100 text-emerald-700" 
+                          : "bg-rose-100 text-rose-700"
+                    }`}>
+                      {u.estado}
+                    </span>
+                  </TablaCelda>
+
+                  <TablaCelda>
+                    <div className="flex items-center gap-2">
+                      {/* 1. Botón Ver Detalle */}
+                      <button
+                        onClick={() => navigate(`/owner/usuarios/${u.id}`)}
+                        title="Ver Detalles"
+                        className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-sky-600 transition-colors shadow-sm"
                       >
-                        {u.estado}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {u.fecha_ingreso ? new Date(u.fecha_ingreso).toLocaleDateString() : "-"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() => navigate(`/owner/usuarios/${u.id}`)}
-                          className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          Ver
-                        </button>
-                        <button
-                        onClick={() => toggleEstado(u)}
-                          className={[
-                            "rounded-xl px-3 py-1.5 text-xs font-semibold",
-                            u.estado === "Activo"
-                              ? "bg-rose-100 text-rose-700 hover:bg-rose-200"
-                              : "bg-emerald-600 text-white hover:bg-emerald-700",
-                          ].join(" ")}
-                          disabled={busyId === u.id}
-                        >
-                          {busyId === u.id
-                           ? "Guardando…"
-                           : u.estado === "Activo" ? "Desactivar" : "Activar"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                        <Eye size={16} />
+                      </button>
 
-        {/* Modal Crear Usuario */}
-        <CrearUsuarioModal
-          open={showModal}
-          onClose={() => setShowModal(false)}
-          onCreated={() => fetchUsuarios()}
-        />
+                      {/* 2. Botón Editar (Abre el ModalEditarUsuario) */}
+                      <button
+                        onClick={() => setUsuarioAEditar(u)}
+                        title="Editar Rápido"
+                        className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-amber-600 transition-colors shadow-sm"
+                      >
+                        <Edit size={16} />
+                      </button>
+
+                      {/* 3. Botón Activar/Desactivar */}
+                      <button
+                        onClick={() => toggleEstado(u)}
+                        title={u.estado === "Activo" ? "Desactivar" : "Activar"}
+                        className={`p-1.5 rounded-xl border transition-all shadow-sm flex items-center justify-center ${
+                          u.estado === "Activo"
+                            ? "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100"
+                            : "bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100"
+                        }`}
+                      >
+                        {u.estado === "Activo" ? <UserX size={16} /> : <UserCheck size={16} />}
+                      </button>
+                    </div>
+                  </TablaCelda>
+                </TablaFila>
+              ))
+            )}
+          </TablaCuerpo>
+        </Tabla>
+
+        <div className="mt-4">
+          <Paginador 
+            paginaActual={pagina} 
+            totalPaginas={totalPaginas} 
+            onCambiarPagina={setPagina} 
+            totalRegistros={totalRegistros}
+          />
+        </div>
+
       </div>
+
+      {/* 1. MODAL DE CREACIÓN (El nuevo que mandaste) */}
+      <CrearUsuarioModal 
+        open={crearModalOpen}
+        onClose={() => setCrearModalOpen(false)}
+        onCreated={() => {
+            recargar();
+            cargarStats();
+        }}
+      />
+
+      {/* 2. MODAL DE EDICIÓN (El que mandaste antes) */}
+      {usuarioAEditar && (
+        <ModalEditarUsuario 
+           usuario={usuarioAEditar}
+           abierto={!!usuarioAEditar}
+           cerrar={() => setUsuarioAEditar(null)}
+           alGuardar={() => {
+               recargar();
+               cargarStats(); // Recargamos stats por si cambió estado o tipo
+               setUsuarioAEditar(null);
+           }}
+        />
+      )}
+
     </section>
   );
 }
