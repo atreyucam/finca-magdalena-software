@@ -17,3 +17,13 @@ export default function useToast() {
     close: (id) => remove(id),
   };
 }
+
+
+// import useToast from "../hooks/useToast";
+
+// const toast = useToast();
+
+// toast.success("Lote creado correctamente");
+// toast.error("No se pudo guardar el inventario");
+// toast.warning("Faltan campos por completar");
+// toast.info("Sincronizando datos...");

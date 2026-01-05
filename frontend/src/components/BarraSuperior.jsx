@@ -4,12 +4,20 @@ import { PiListBold, PiXBold } from "react-icons/pi";
 import useAuthStore from "../store/authStore";
 import Avatar from "./Avatar";
 import NotificationsBell from "./NotificationsBell";
+import useNotificacionesStore from "../store/notificacionesStore";
+
 
 // --- SUB-COMPONENTE: Menú de Usuario ---
 function MenuUsuario({ user, logout, onIrPerfil }) {
   const [abierto, setAbierto] = useState(false);   // 👈 FALTABA
   const ref = useRef(null);
+  const initializedNotifs = useNotificacionesStore((s) => s.initialized);
+  const cargarNotifs = useNotificacionesStore((s) => s.cargar);
 
+   useEffect(() => {
+    // ✅ cargar 1 sola vez al montar la barra
+    if (!initializedNotifs) cargarNotifs();
+  }, [initializedNotifs, cargarNotifs]);
   // Cerrar al hacer clic fuera
   useEffect(() => {
     function onClickOutside(e) {

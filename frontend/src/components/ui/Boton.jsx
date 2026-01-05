@@ -1,24 +1,37 @@
-import { Loader2 } from "lucide-react"; // npm i lucide-react
+import { Loader2 } from "lucide-react";
 
 export default function Boton({
   children,
   onClick,
-  tipo = "button", // button, submit, reset
-  variante = "primario", // primario, secundario, peligro, fantasma, exito
+  tipo = "button",
+  variante = "primario",
   cargando = false,
   disabled = false,
-  icono: Icono, // Componente de icono opcional
+  icono: Icono,
   className = "",
 }) {
-  const bases = "inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100";
+  const bases =
+    "inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100";
 
   const estilos = {
+    // sólidos
     primario: "bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800",
     secundario: "bg-sky-600 text-white hover:bg-sky-700 active:bg-sky-800",
+    ambar: "bg-amber-600 text-white hover:bg-amber-700 active:bg-amber-800",
+
+    // “soft”
     peligro: "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100",
-    fantasma: "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 shadow-none",
     exito: "bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200",
     neutro: "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200",
+
+    // outline/ghost base
+    fantasma: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-none",
+
+    // ✅ NUEVAS variantes outline por semántica
+    outline: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-none",
+    outlineExito: "bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 shadow-none",
+    outlineAlerta: "bg-white text-amber-700 border border-amber-200 hover:bg-amber-50 shadow-none",
+    outlinePeligro: "bg-white text-rose-700 border border-rose-200 hover:bg-rose-50 shadow-none",
   };
 
   return (

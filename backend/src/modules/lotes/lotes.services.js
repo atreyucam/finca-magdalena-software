@@ -1,11 +1,9 @@
 const { models, sequelize } = require('../../db');
 const { Op } = require('sequelize');
+const notifs = require('../notificaciones/notificaciones.service');
+const { badRequest } = require('../../utils/errors'); 
 
-function badRequest(message) {
-  const e = new Error(message);
-  e.status = 400;
-  return e;
-}
+
 
 exports.crearLote = async (data) => {
   const { nombre, superficie_ha, numero_plantas, fecha_siembra, estado, finca_id } = data;
@@ -31,6 +29,14 @@ exports.crearLote = async (data) => {
       fecha_siembra: fecha_siembra || null,
       estado: estado || 'Activo',
     });
+    await notifs.crearParaRoles(['Propietario', 'Tecnico'], {
+  tipo: 'General',
+  titulo: 'Nuevo lote creado',
+  mensaje: `Se creó el lote "${l.nombre}" en ${finca.nombre}.`,
+  referencia: { lote_id: l.id, finca_id: l.finca_id },
+  prioridad: 'Info',
+});
+
     return l.toJSON();
   } catch (err) {
     throw err;
@@ -54,7 +60,7 @@ exports.obtenerLote = async (id, opts = {}) => {
     include: [{ 
       model: models.Finca, 
       as: 'finca', 
-      attributes: ['id', 'nombre'],
+      attributes: ['id', 'nombre', 'ubicacion'],
     }]
   });
 
@@ -170,47 +176,93 @@ exports.obtenerLote = async (id, opts = {}) => {
   };
 };
 
-// 🔹 NUEVO: cambiar estado Activo / Inactivo
+
 exports.cambiarEstadoLote = async (id) => {
   const l = await models.Lote.findByPk(id);
-  if (!l) {
-    const e = new Error('Lote no encontrado');
-    e.status = 404;
-    throw e;
-  }
+  if (!l) throw badRequest("Lote no encontrado");
 
-  const nuevoEstado = l.estado === 'Activo' ? 'Inactivo' : 'Activo';
+  const nuevoEstado = l.estado === "Activo" ? "Inactivo" : "Activo";
   l.estado = nuevoEstado;
   await l.save();
+
+  if (nuevoEstado === "Inactivo") {
+    await notifs.crearParaRoles(["Propietario", "Tecnico"], {
+      tipo: "General",
+      titulo: "Lote deshabilitado",
+      mensaje: `El lote "${l.nombre}" fue marcado como Inactivo.`,
+      referencia: { lote_id: l.id, finca_id: l.finca_id },
+      prioridad: "Alerta",
+    });
+  } else {
+    await notifs.crearParaRoles(["Propietario", "Tecnico"], {
+      tipo: "General",
+      titulo: "Lote habilitado",
+      mensaje: `El lote "${l.nombre}" fue marcado como Activo.`,
+      referencia: { lote_id: l.id, finca_id: l.finca_id },
+      prioridad: "Info", // o "Normal" si usas ese nivel
+    });
+  }
 
   return l.toJSON();
 };
 
+
+
+
 exports.editarLote = async (id, data) => {
   const l = await models.Lote.findByPk(id);
   if (!l) {
-    const e = new Error('Lote no encontrado');
+    const e = new Error("Lote no encontrado");
     e.status = 404;
     throw e;
   }
 
-  const fields = [
-    'nombre',
-    'superficie_ha',
-    'numero_plantas',
-    'fecha_siembra',
-    'estado',
-  ];
+  const fields = ["nombre", "superficie_ha", "numero_plantas", "fecha_siembra", "estado"];
+
+  // Snapshot antes
+  const antes = {};
+  for (const f of fields) antes[f] = l[f];
+
+  // Aplicar cambios
   for (const f of fields) if (f in data) l[f] = data[f];
 
   try {
     await l.save();
+
+    // Detectar cambios reales
+    const cambios = fields.filter((f) => antes[f] !== l[f]);
+
+    if (cambios.length > 0) {
+      const listaCambios = cambios
+        .map((f) => {
+          const etiqueta =
+            ({
+              nombre: "Nombre",
+              superficie_ha: "Superficie (ha)",
+              numero_plantas: "N° Plantas",
+              fecha_siembra: "Fecha de siembra",
+              estado: "Estado",
+            }[f] || f);
+
+          return `${etiqueta}: "${antes[f] ?? "-"}" → "${l[f] ?? "-"}"`;
+        })
+        .join(" | ");
+
+      await notifs.crearParaRoles(["Propietario", "Tecnico"], {
+        tipo: "General",
+        titulo: "Lote actualizado",
+        mensaje: `Se modificó la información del lote "${l.nombre}". ${listaCambios}`,
+        referencia: { lote_id: l.id, finca_id: l.finca_id },
+        prioridad: "Info", // ajusta si tu enum no tiene Info
+      });
+    }
+
     return l.toJSON();
   } catch (err) {
-    if (err.name === 'SequelizeUniqueConstraintError') {
+    if (err.name === "SequelizeUniqueConstraintError") {
       err.status = 409;
-      err.code = 'DUPLICATE';
-      err.message = 'El nombre de lote ya existe';
+      err.code = "DUPLICATE";
+      err.message = "El nombre de lote ya existe";
     }
     throw err;
   }

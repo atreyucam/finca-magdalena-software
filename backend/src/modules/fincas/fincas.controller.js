@@ -30,7 +30,7 @@ exports.editarFinca = async (req, res, next) => {
 
 exports.cambiarEstadoFinca = async (req, res, next) => {
   try {
-    const out = await service.cambiarEstadoFinca(+req.params.id);
+    const out = await service.cambiarEstadoFinca(+req.params.id, req.body);
     res.json(out);
   } catch (err) { next(err); }
 };

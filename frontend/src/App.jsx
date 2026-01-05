@@ -1,12 +1,12 @@
 import { BrowserRouter } from "react-router-dom";
 import AppRouter from "./routes/AppRouter";
-import { Toaster } from "react-hot-toast"; // 👈
+import ToastContainer from "./components/ToastContainer";
 
 export default function App() {
   return (
     <BrowserRouter>
+      <ToastContainer />
       <AppRouter />
-      <Toaster position="top-right" reverseOrder={false} />
     </BrowserRouter>
   );
 }

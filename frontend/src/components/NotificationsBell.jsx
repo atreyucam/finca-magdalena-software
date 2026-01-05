@@ -1,5 +1,4 @@
-// frontend/src/components/NotificationsBell.jsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PiBellRingingBold } from "react-icons/pi";
 import useNotificaciones from "../hooks/useNotificaciones";
@@ -20,24 +19,32 @@ function formatRelative(dateStr) {
 
 export default function NotificationsBell() {
   const [open, setOpen] = useState(false);
-  const [filtro, setFiltro] = useState("todas"); // 'todas' | 'noLeidas'
+  const [filtro, setFiltro] = useState("todas");
   const { items, noLeidas, loading, marcarLeida, marcarTodas, cargar } =
-    useNotificaciones(); // 👈 ahora también traemos cargar
+    useNotificaciones();
+
   const navigate = useNavigate();
   const location = useLocation();
   const ref = useRef(null);
 
-  const base = `/${location.pathname.split("/")[1] || "owner"}`;
+  const base = useMemo(
+    () => `/${location.pathname.split("/")[1] || "owner"}`,
+    [location.pathname]
+  );
 
-  const filtradas =
-    filtro === "noLeidas" ? items.filter((n) => !n.leida) : items;
+  const filtradas = useMemo(() => {
+    return filtro === "noLeidas" ? items.filter((n) => !n.leida) : items;
+  }, [filtro, items]);
 
-  // Cerrar al hacer click fuera (para escritorio)
+  // ✅ Cargar SOLO cuando se abre (en efecto, no en setState)
+  useEffect(() => {
+    if (open) cargar();
+  }, [open, cargar]);
+
+  // Cerrar al hacer click fuera
   useEffect(() => {
     function onClickOutside(e) {
-      if (ref.current && !ref.current.contains(e.target)) {
-        setOpen(false);
-      }
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     }
     if (open) document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
@@ -51,32 +58,24 @@ export default function NotificationsBell() {
     } else {
       navigate(`${base}/notificaciones`);
     }
-
     setOpen(false);
   }
 
-  // Tarjeta flotante reutilizable
   const card = (
     <div className="w-[360px] max-w-[calc(100vw-2rem)] max-h-[420px] origin-top rounded-2xl bg-white shadow-xl ring-1 ring-black/5 text-sm flex flex-col">
-      {/* Header */}
       <div className="flex items-start justify-between px-4 py-3 border-b border-slate-100">
         <div>
-          <p className="text-sm font-semibold text-slate-900">
-            Notificaciones
-          </p>
+          <p className="text-sm font-semibold text-slate-900">Notificaciones</p>
           <p className="text-xs text-slate-500">Avisos del sistema.</p>
         </div>
         <button
           className="text-[11px] text-emerald-600 hover:text-emerald-700"
-          onClick={async () => {
-            await marcarTodas();
-          }}
+          onClick={marcarTodas}
         >
           Marcar todas como leídas
         </button>
       </div>
 
-      {/* Filtros */}
       <div className="px-4 pt-2 pb-1 flex gap-2 text-xs">
         {["todas", "noLeidas"].map((op) => (
           <button
@@ -94,7 +93,6 @@ export default function NotificationsBell() {
         ))}
       </div>
 
-      {/* Lista */}
       <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-2">
         {loading && (
           <p className="text-xs text-center text-slate-400 py-3">
@@ -156,17 +154,9 @@ export default function NotificationsBell() {
 
   return (
     <div className="relative" ref={ref}>
-      {/* Botón de campana */}
       <button
         className="relative p-2 rounded-full text-slate-500 hover:bg-slate-100 hover:text-emerald-600 transition-colors"
-        onClick={async () => {
-          const next = !open;
-          setOpen(next);
-          // 👇 cada vez que se abre, recargamos del backend
-          if (!open) {
-            cargar();
-          }
-        }}
+        onClick={() => setOpen((prev) => !prev)}
       >
         <PiBellRingingBold size={20} />
         {noLeidas > 0 && (
@@ -176,7 +166,6 @@ export default function NotificationsBell() {
 
       {open && (
         <>
-          {/* 📱 Móvil: modal centrado */}
           <div
             className="fixed inset-0 z-40 flex items-start justify-center pt-20 bg-black/5 sm:hidden"
             onClick={() => setOpen(false)}
@@ -189,7 +178,6 @@ export default function NotificationsBell() {
             </div>
           </div>
 
-          {/* 💻 Escritorio: dropdown pegado a la campana */}
           <div className="hidden sm:block absolute right-0 mt-2 z-40 animate-in fade-in zoom-in-95 duration-100">
             {card}
           </div>

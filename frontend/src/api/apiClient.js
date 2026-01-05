@@ -221,7 +221,18 @@ export const cerrarCosecha = (id, payload) =>
 
 export const listarFincas = () => api.get("/fincas");
 export const crearFinca = (data) => api.post("/fincas", data);
+export const editarFinca = (id, data) => api.patch(`/fincas/${id}`, data);
 export const obtenerContextoFinca = (id) => api.get(`/fincas/${id}/contexto`);
+export const cambiarEstadoFinca = (id, data) =>
+  api.patch(`/fincas/${id}/estado`, data);
+
+// ✅ NUEVO: preview del siguiente secuencial + código (para el formulario)
+export const previewSiguienteCosecha = (params = {}) =>
+  api.get("/cosechas/next", { params });
+
+// ✅ (Opcional pero útil) Listar cosechas por finca (si luego quieres filtros)
+export const listarCosechasPorFinca = (fincaId) =>
+  api.get("/cosechas", { params: { finca_id: fincaId } });
 
 
 
@@ -275,6 +286,7 @@ export const obtenerMisTareas   = () => api.get('/usuarios/me/tareas');
 
 
 export const crearLote = (payload) => api.post("/lotes", payload);
+export const editarLote = (id, payload) => api.patch(`/lotes/${id}`, payload);
 
 export const crearCosecha = (payload) => api.post("/cosechas", payload);
 

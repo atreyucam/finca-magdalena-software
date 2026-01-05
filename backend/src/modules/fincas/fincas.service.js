@@ -1,14 +1,23 @@
 const { models } = require('../../db');
+const notifs = require('../notificaciones/notificaciones.service');
+const { badRequest } = require('../../utils/errors'); 
 
-function badRequest(message) {
-  const e = new Error(message);
-  e.status = 400;
-  return e;
-}
+
 
 exports.crearFinca = async (data) => {
   if (!data.nombre) throw badRequest('El nombre de la finca es obligatorio');
-  return await models.Finca.create(data);
+
+  const finca = await models.Finca.create(data);
+
+  await notifs.crearParaRoles(['Propietario', 'Tecnico'], {
+    tipo: 'General',
+    titulo: 'Nueva finca registrada',
+    mensaje: `Se creó "${finca.nombre}".`,
+    referencia: { finca_id: finca.id },
+    prioridad: 'Info',
+  });
+
+  return finca;
 };
 
 exports.listarFincas = async () => {
@@ -32,23 +41,100 @@ exports.obtenerFinca = async (id) => {
 
 exports.editarFinca = async (id, data) => {
   const finca = await models.Finca.findByPk(id);
-  if (!finca) throw badRequest('Finca no encontrada');
-  
-  const fields = ['nombre', 'hectareas_totales', 'ubicacion', 'estado'];
-  fields.forEach(f => {
+  if (!finca) throw badRequest("Finca no encontrada");
+
+  const fields = ["nombre", "hectareas_totales", "ubicacion", "estado"];
+
+  // Snapshot antes (para detectar cambios)
+  const antes = {};
+  fields.forEach((f) => (antes[f] = finca[f]));
+
+  // Aplicar cambios
+  fields.forEach((f) => {
     if (f in data) finca[f] = data[f];
   });
 
-  return await finca.save();
+  await finca.save();
+
+  // Detectar qué cambió realmente
+  const cambios = fields.filter((f) => antes[f] !== finca[f]);
+
+  // Si hubo cambios, notificar
+  if (cambios.length > 0) {
+    const listaCambios = cambios
+      .map((f) => {
+        const etiqueta = {
+          nombre: "Nombre",
+          hectareas_totales: "Hectáreas",
+          ubicacion: "Ubicación",
+          estado: "Estado",
+        }[f] || f;
+
+        return `${etiqueta}: "${antes[f] ?? "-"}" → "${finca[f] ?? "-"}"`;
+      })
+      .join(" | ");
+
+    await notifs.crearParaRoles(["Propietario", "Tecnico"], {
+      tipo: "General",
+      titulo: "Finca actualizada",
+      mensaje: `Se modificó la información de la finca "${finca.nombre}". ${listaCambios}`,
+      referencia: { finca_id: finca.id },
+      prioridad: "Info", // ajusta si tu enum no tiene Info
+    });
+  }
+
+  return finca.toJSON ? finca.toJSON() : finca;
 };
 
-exports.cambiarEstadoFinca = async (id) => {
+
+exports.cambiarEstadoFinca = async (id, data = {}) => {
   const finca = await models.Finca.findByPk(id);
-  if (!finca) throw badRequest('Finca no encontrada');
-  
-  finca.estado = finca.estado === 'Activo' ? 'Inactivo' : 'Activo';
-  return await finca.save();
+  if (!finca) throw badRequest("Finca no encontrada");
+
+  const permitido = ["Activo", "Inactivo"];
+  const nuevo = data.estado;
+
+  // Determinar estado final
+  let nuevoEstadoFinal = finca.estado;
+
+  if (nuevo) {
+    if (!permitido.includes(nuevo)) throw badRequest("estado inválido");
+    nuevoEstadoFinal = nuevo;
+  } else {
+    // fallback: toggle
+    nuevoEstadoFinal = finca.estado === "Activo" ? "Inactivo" : "Activo";
+  }
+
+  // Si no hay cambio, solo guarda (o retorna sin notificar)
+  if (nuevoEstadoFinal === finca.estado) {
+    return await finca.save();
+  }
+
+  finca.estado = nuevoEstadoFinal;
+  await finca.save();
+
+  // Notificaciones según estado
+  if (nuevoEstadoFinal === "Inactivo") {
+    await notifs.crearParaRoles(["Propietario", "Tecnico"], {
+      tipo: "General",
+      titulo: "Finca deshabilitada",
+      mensaje: `La finca "${finca.nombre}" fue marcada como Inactiva.`,
+      referencia: { finca_id: finca.id },
+      prioridad: "Alerta",
+    });
+  } else {
+    await notifs.crearParaRoles(["Propietario", "Tecnico"], {
+      tipo: "General",
+      titulo: "Finca habilitada",
+      mensaje: `La finca "${finca.nombre}" fue marcada como Activa.`,
+      referencia: { finca_id: finca.id },
+      prioridad: "Info", // ajusta a tu enum si no existe
+    });
+  }
+
+  return finca.toJSON ? finca.toJSON() : finca;
 };
+
 
 
 // backend/src/modules/fincas/fincas.service.js

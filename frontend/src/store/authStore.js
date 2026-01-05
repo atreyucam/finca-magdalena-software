@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { toast } from "sonner";
+import { toastApi } from "../utils/toastApi";
+
 import { getExp, isExpired } from "../utils/jwt";
 import api from "../api/apiClient";
 
@@ -69,16 +70,15 @@ login: async (email, password) => {
   set({ user, accessToken: access, refreshToken: refresh || null });
   persist(get());
   get().scheduleProactiveRefresh();
-  toast.success(`Bienvenido, ${user?.nombres || user?.name || "usuario"}`);
+  // toastApi.success(`Bienvenido, ${user?.nombres || user?.name || "usuario"}`);
   return user;
 },
 
   logout: () => {
     clearTimeout(refreshTimerId);
     set({ user: null, accessToken: null, refreshToken: null });
-    persist(loadPersisted()); // limpia
     localStorage.removeItem(STORAGE_KEY);
-    toast.info("Sesión cerrada");
+    toastApi.info("Sesión cerrada");
   },
 
  refresh: async () => {
