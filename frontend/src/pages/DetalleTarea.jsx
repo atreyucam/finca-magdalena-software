@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { io } from "socket.io-client";
-import toast from "react-hot-toast";
+import useToast from "../hooks/useToast";
+
 import { 
   ArrowLeft, Calendar, MapPin, Tag, 
   CheckCircle, User, ShieldCheck, 
@@ -48,9 +49,10 @@ const nombreUsuario = (u) => {
 
 
 const CONTAINER_STYLES = {
-  page: "mx-auto max-w-[1400px] p-2 sm:p-6 lg:p-3 bg-slate-50 min-h-screen",
+  page: "mx-auto max-w-[1400px] px-3 sm:px-6 lg:px-8 py-4 sm:py-6 bg-slate-50 min-h-screen",
   card: "space-y-6"
 };
+
 
 export default function DetalleTarea() {
   const navigate = useNavigate();
@@ -67,6 +69,9 @@ export default function DetalleTarea() {
   const [tarea, setTarea] = useState(null);
   const [novedades, setNovedades] = useState([]);
   const [textoNovedad, setTextoNovedad] = useState("");
+
+  const notify = useToast();
+
   
   const [modals, setModals] = useState({ items: false, asign: false, cosecha: false, action: false, actionKind: null });
 
@@ -87,7 +92,7 @@ export default function DetalleTarea() {
       setLoading(false);
     } catch (e) {
       console.error(e);
-      toast.error("Error cargando tarea");
+      notify.error("Error cargando tarea");
       navigate(-1);
     }
   };
@@ -101,11 +106,11 @@ const handleCancelar = async () => {
 
     try {
       await cancelarTarea(tareaId, { motivo: motivo || "Sin motivo" });
-      toast.success("Tarea cancelada correctamente");
+      notify.success("Tarea cancelada correctamente");
       cargarDetalle();
     } catch (e) {
       console.error(e);
-      toast.error(e?.response?.data?.message || "Error al cancelar");
+      notify.error(e?.response?.data?.message || "Error al cancelar");
     }
   };
 
@@ -159,10 +164,10 @@ const handleCancelar = async () => {
   const handleIniciar = async () => {
     try {
       await iniciarTarea(tareaId);
-      toast.success("Tarea iniciada 🚀");
+      notify.success("Tarea iniciada 🚀");
       cargarDetalle();
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Error al iniciar");
+      notify.error(e?.response?.data?.message || "Error al iniciar");
     }
   };
 
@@ -199,12 +204,12 @@ const handleEnviarNovedad = async () => {
       await cargarDetalle();
     }
 
-    toast.success("Comentario agregado");
+    notify.success("Comentario agregado");
   } catch (e) {
     // revertir optimistic
     setNovedades(prev => prev.filter(n => n.id !== temp.id));
     setTextoNovedad(texto);
-    toast.error("Error al enviar");
+    notify.error("Error al enviar");
   }
 };
 
@@ -316,7 +321,7 @@ const handleEnviarNovedad = async () => {
         </div>
 
         {/* GRID PRINCIPAL */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-6">
             
             {/* === COLUMNA IZQUIERDA (Info + Detalles + Insumos + Chat) === */}
             <div className="lg:col-span-2 space-y-6">
@@ -405,25 +410,66 @@ const handleEnviarNovedad = async () => {
               </div>
                 
               {/* 2. DETALLES DE EJECUCIÓN */}
-              <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
-                  <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                      <h3 className="text-lg font-bold text-slate-800">Detalles de Ejecución</h3>
-                      <div className="flex gap-2">
-                          <div className="bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 text-xs flex items-center gap-2">
-                              <span className="text-slate-500 font-bold">INICIO</span>
-                              <span className="font-mono font-medium text-slate-700">{tarea.fecha_inicio_real ? new Date(tarea.fecha_inicio_real).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "—"}</span>
-                          </div>
-                          <div className="bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 text-xs flex items-center gap-2">
-                              <span className="text-slate-500 font-bold">FIN</span>
-                              <span className="font-mono font-medium text-slate-700">{tarea.fecha_fin_real ? new Date(tarea.fecha_fin_real).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "—"}</span>
-                          </div>
-                          <div className="bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-100 text-xs text-emerald-800 font-bold flex items-center gap-1">
-                              <Clock size={12}/> {tarea.duracion_real_min || 0} min
-                          </div>
-                      </div>
-                  </div>
-                  <TaskSpecificDetails tarea={tarea} onRefresh={cargarDetalle}/>
-              </section>
+              {/* 2. DETALLES DE EJECUCIÓN */}
+<section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+
+  {/* HEADER tipo MODAL */}
+  <div className="px-6 pt-6 pb-4 border-b border-slate-100">
+    <div className="flex items-center gap-3">
+      <div className="bg-emerald-100 text-emerald-700 p-2 rounded-xl">
+        <CheckCircle size={18} />
+      </div>
+      <div>
+        <h3 className="text-lg font-bold text-slate-800">
+          Detalles de Ejecución
+        </h3>
+        <p className="text-xs text-slate-500">
+          Registro real de avance, controles y validaciones en campo
+        </p>
+      </div>
+    </div>
+
+    {/* Banda informativa (igual al modal) */}
+    {isOwnerOrTech && (
+      <div className="mt-4 flex items-center gap-2 bg-blue-50 border border-blue-100 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold">
+        <ShieldCheck size={14} />
+        MODO SUPERVISOR
+      </div>
+    )}
+  </div>
+
+  {/* CONTENIDO con padding REAL */}
+  <div className="px-6 py-6">
+    {/* Metadatos rápidos */}
+    <div className="flex flex-wrap gap-2 mb-6">
+      <div className="bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 text-xs flex items-center gap-2">
+        <span className="text-slate-500 font-bold">INICIO</span>
+        <span className="font-mono text-slate-700">
+          {tarea.fecha_inicio_real
+            ? new Date(tarea.fecha_inicio_real).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            : "—"}
+        </span>
+      </div>
+
+      <div className="bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 text-xs flex items-center gap-2">
+        <span className="text-slate-500 font-bold">FIN</span>
+        <span className="font-mono text-slate-700">
+          {tarea.fecha_fin_real
+            ? new Date(tarea.fecha_fin_real).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            : "—"}
+        </span>
+      </div>
+
+      <div className="bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-100 text-xs text-emerald-800 font-bold flex items-center gap-1">
+        <Clock size={12} /> {tarea.duracion_real_min || 0} min
+      </div>
+    </div>
+
+    {/* 🔹 CONTENIDO REAL */}
+    <TaskSpecificDetails tarea={tarea} onRefresh={cargarDetalle} />
+  </div>
+</section>
+
 
               {/* 3. INSUMOS */}
               <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
@@ -539,9 +585,10 @@ const handleEnviarNovedad = async () => {
             {/* === COLUMNA DERECHA (Panel Lateral) === */}
             <div className="space-y-6">
                  {/* 1. Panel de Acciones (Solo Desktop) */}
-                 <div className="hidden lg:block">
-                     <PanelAcciones />
-                 </div>
+                 <div className="hidden lg:block lg:sticky lg:top-6">
+  <PanelAcciones />
+</div>
+
 
                  {/* EQUIPO ASIGNADO */}
                 <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">

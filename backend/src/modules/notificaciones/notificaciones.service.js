@@ -20,6 +20,17 @@ exports.crear = async (usuario_id, {
   return notif.toJSON();
 };
 
+// ✅ NUEVO: crear + emitir socket
+exports.crearYEmitir = async (io, usuario_id, payload) => {
+  const notif = await exports.crear(usuario_id, payload);
+  if (io && notif) {
+    io.to(`user:${usuario_id}`).emit("notif:nueva", notif);
+    io.to(`user:${usuario_id}`).emit("notif:refresh"); // opcional para que el front recargue lista/contador
+  }
+  return notif;
+};
+
+
 exports.crearParaRoles = async (roles = [], payload = {}) => {
   if (!Array.isArray(roles) || roles.length === 0) return [];
   const users = await models.Usuario.findAll({

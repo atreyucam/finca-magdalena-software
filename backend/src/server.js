@@ -33,30 +33,42 @@ const { Server } = require('socket.io');
   const server = http.createServer(app);
 
   // 🔌 socket.io
-  const io = new Server(server, {
-    cors: {
-      origin: "http://localhost:5173",
-      credentials: true,
-    },
-  });
+const io = new Server(server, {
+  cors: {
+    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    credentials: true,
+    methods: ["GET", "POST"],
+  },
+});
 
   app.set("io", io);
 
-  io.on("connection", (socket) => {
-    console.log("Cliente conectado:", socket.id);
+io.on("connection", (socket) => {
+  console.log("Cliente conectado:", socket.id);
 
-    socket.on("join:tarea", (tareaId) => {
-      socket.join(`tarea:${tareaId}`);
-    });
-
-    socket.on("leave:tarea", (tareaId) => {
-      socket.leave(`tarea:${tareaId}`);
-    });
-
-    socket.on("disconnect", () => {
-      console.log("Cliente desconectado:", socket.id);
-    });
+  socket.on("join:user", (userId) => {
+    if (!userId) return;
+    socket.join(`user:${userId}`);
   });
+
+  socket.on("leave:user", (userId) => {
+    if (!userId) return;
+    socket.leave(`user:${userId}`);
+  });
+
+  socket.on("join:tarea", (tareaId) => {
+    socket.join(`tarea:${tareaId}`);
+  });
+
+  socket.on("leave:tarea", (tareaId) => {
+    socket.leave(`tarea:${tareaId}`);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Cliente desconectado:", socket.id);
+  });
+});
+
 
   // 🚀 Levantar servidor
   server.listen(config.port, () => {

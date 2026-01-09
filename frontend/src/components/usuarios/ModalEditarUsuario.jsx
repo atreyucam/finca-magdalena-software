@@ -1,12 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Input from "../ui/Input";
 import Boton from "../ui/Boton";
-import { Save, AlertTriangle } from "lucide-react"; // Importamos icono de alerta
+import { Save, AlertTriangle, X, UserCog, KeyRound } from "lucide-react"; // Nuevos iconos
 import api from "../../api/apiClient";
 import { toast } from "sonner";
-import VentanaModal from "../ui/VentanaModal";
 
 export default function ModalEditarUsuario({ usuario, abierto, cerrar, alGuardar }) {
+  const panelRef = useRef(null); // Referencia para el click outside
   const [cargando, setCargando] = useState(false);
   const [form, setForm] = useState({});
 
@@ -27,6 +27,28 @@ export default function ModalEditarUsuario({ usuario, abierto, cerrar, alGuardar
       });
     }
   }, [usuario, abierto]);
+
+  // ✅ Manejadores de cierre (Esc, click outside) - IGUAL QUE CREAR USUARIO
+  useEffect(() => {
+    if (!abierto) return;
+    const onKey = (e) => e.key === "Escape" && !cargando && cerrar?.();
+    const onClick = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target) && !cargando) cerrar?.();
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onClick);
+    
+    // Bloquear scroll
+    const html = document.documentElement;
+    const prevOverflow = html.style.overflow;
+    html.style.overflow = "hidden";
+    
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onClick);
+      html.style.overflow = prevOverflow;
+    };
+  }, [abierto, cerrar, cargando]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -87,113 +109,149 @@ export default function ModalEditarUsuario({ usuario, abierto, cerrar, alGuardar
     }
   };
 
+  if (!abierto) return null;
+
   return (
-    <VentanaModal abierto={abierto} cerrar={cerrar} titulo={`Editar: ${usuario?.nombres}`}>
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="fixed inset-0 z-[1000] bg-black/50 backdrop-blur-[1px] p-0 sm:p-4 flex sm:items-center sm:justify-center">
+      <div ref={panelRef} className="w-full max-w-none sm:max-w-3xl h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-2rem)] bg-white shadow-[0_24px_60px_rgba(0,0,0,.18)] sm:rounded-2xl border border-slate-200 flex flex-col overflow-hidden">
         
-        {/* SELECCIÓN DE TIPO DE VINCULACIÓN */}
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tipo de Vinculación</label>
-            <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm w-full hover:border-emerald-300 transition-colors">
-                    <input 
-                        type="radio" 
-                        name="tipo" 
-                        value="Fijo" 
-                        checked={form.tipo === 'Fijo'} 
-                        onChange={handleChange} 
-                        className="text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <div>
-                        <span className="block text-sm font-semibold text-slate-700">Fijo</span>
-                        <span className="block text-[10px] text-slate-500">Usa la App</span>
-                    </div>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm w-full hover:border-emerald-300 transition-colors">
-                    <input 
-                        type="radio" 
-                        name="tipo" 
-                        value="Esporadico" 
-                        checked={form.tipo === 'Esporadico'} 
-                        onChange={handleChange} 
-                        className="text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <div>
-                        <span className="block text-sm font-semibold text-slate-700">Esporádico</span>
-                        <span className="block text-[10px] text-slate-500">Sin acceso</span>
-                    </div>
-                </label>
+        {/* ✅ HEADER PERSONALIZADO (Estilo Ámbar para Editar) */}
+        <div className="flex-none px-4 sm:px-6 lg:px-8 py-4 border-b border-slate-200 flex items-start justify-between bg-slate-50/30">
+          <div className="flex items-center gap-3">
+            {/* Icono con fondo Ámbar */}
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
+               <UserCog size={22} strokeWidth={2.5} />
             </div>
-        </div>
-
-        {/* CAMPOS BASICOS */}
-        <div className="grid grid-cols-2 gap-4">
-           <Input label="Nombres" name="nombres" value={form.nombres || ''} onChange={handleChange} required />
-           <Input label="Apellidos" name="apellidos" value={form.apellidos || ''} onChange={handleChange} required />
-        </div>
-        
-        <div className="grid grid-cols-2 gap-4">
-            <Input label="Cédula" name="cedula" value={form.cedula || ''} onChange={handleChange} required />
             <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Rol</label>
-                <select 
-                    name="role" 
-                    value={form.role || 'Trabajador'} 
-                    onChange={handleChange} 
-                    disabled={form.tipo === 'Esporadico'} // Deshabilitado si es Esporádico
-                    className={`w-full rounded-xl border p-2.5 text-sm ${form.tipo === 'Esporadico' ? 'bg-slate-100 text-slate-400' : 'bg-white border-slate-300'}`}
-                >
-                    <option value="Trabajador">Trabajador</option>
-                    <option value="Tecnico">Técnico</option>
-                    <option value="Propietario">Propietario</option>
-                </select>
-                {form.tipo === 'Esporadico' && <p className="text-[10px] text-slate-500 mt-1">Solo puede ser Trabajador</p>}
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-snug">
+                Editar Usuario
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500">
+                Modificar datos de {usuario?.nombres}
+              </p>
             </div>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => !cargando && cerrar?.()} 
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <X size={20} />
+          </button>
         </div>
 
-        <Input label="Teléfono" name="telefono" value={form.telefono || ''} onChange={handleChange} />
-        <Input label="Dirección" name="direccion" value={form.direccion || ''} onChange={handleChange} />
-
-        {/* Fecha de ingreso: SOLO LECTURA */}
-        <div className="flex flex-col gap-1 opacity-75">
-            <label className="text-xs font-bold text-slate-500 uppercase">Fecha Ingreso</label>
-            <div className="p-2.5 bg-slate-100 text-slate-500 rounded-xl text-sm border border-slate-200 cursor-not-allowed">
-                {usuario?.fecha_ingreso} (No editable)
-            </div>
-        </div>
-
-        <div className="border-t border-slate-100 my-2"></div>
-
-        {/* SECCIÓN CREDENCIALES (Solo visible si es Fijo) */}
-        {form.tipo === 'Fijo' && (
-            <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 animate-in fade-in zoom-in-95">
-                <h4 className="text-sm font-bold text-orange-800 mb-2 flex items-center gap-2">
-                    Seguridad y Acceso
-                    {usuario.tipo === 'Esporadico' && <span className="text-[10px] bg-orange-200 text-orange-800 px-2 py-0.5 rounded-full">Requiere Configuración</span>}
-                </h4>
-                
-                <Input label="Email" name="email" value={form.email || ''} onChange={handleChange} required placeholder="usuario@sistema.com" />
-                
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                    <div className="col-span-2">
-                        <label className="text-xs font-bold text-slate-600 mb-1 block">
-                            {usuario.tipo === 'Esporadico' ? 'Crear Contraseña (Obligatorio)' : 'Cambiar Contraseña (Opcional)'}
-                        </label>
-                        {usuario.tipo !== 'Esporadico' && (
-                             <p className="text-[10px] text-slate-400 mb-2">Deja vacío para mantener la actual.</p>
-                        )}
-                    </div>
-                    <Input placeholder="Nueva contraseña" type="password" name="password" value={form.password || ''} onChange={handleChange} />
-                    <Input placeholder="Confirmar nueva" type="password" name="confirmPassword" value={form.confirmPassword || ''} onChange={handleChange} />
+        {/* ✅ BODY SCROLLABLE */}
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-5">
+          <form id="editarUsuarioForm" onSubmit={handleSubmit} className="space-y-5">
+            
+            {/* SELECCIÓN DE TIPO DE VINCULACIÓN */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-3">Tipo de Vinculación</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <label className={`flex items-center gap-3 cursor-pointer px-4 py-3 rounded-xl border shadow-sm transition-all ${form.tipo === 'Fijo' ? 'bg-white border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
+                        <input 
+                            type="radio" 
+                            name="tipo" 
+                            value="Fijo" 
+                            checked={form.tipo === 'Fijo'} 
+                            onChange={handleChange} 
+                            className="text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <div>
+                            <span className="block text-sm font-bold text-slate-700">Personal Fijo</span>
+                            <span className="block text-[10px] text-slate-500">Usa la App Móvil</span>
+                        </div>
+                    </label>
+                    <label className={`flex items-center gap-3 cursor-pointer px-4 py-3 rounded-xl border shadow-sm transition-all ${form.tipo === 'Esporadico' ? 'bg-white border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
+                        <input 
+                            type="radio" 
+                            name="tipo" 
+                            value="Esporadico" 
+                            checked={form.tipo === 'Esporadico'} 
+                            onChange={handleChange} 
+                            className="text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <div>
+                            <span className="block text-sm font-bold text-slate-700">Esporádico</span>
+                            <span className="block text-[10px] text-slate-500">Sin acceso al sistema</span>
+                        </div>
+                    </label>
                 </div>
             </div>
-        )}
 
-        <div className="flex justify-end gap-3 pt-4">
-            <Boton variante="fantasma" onClick={cerrar} type="button">Cancelar</Boton>
-            <Boton tipo="submit" cargando={cargando} icono={Save}>Guardar Cambios</Boton>
+            {/* CAMPOS PERSONALES */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input label="Nombres" name="nombres" value={form.nombres || ''} onChange={handleChange} required />
+                <Input label="Apellidos" name="apellidos" value={form.apellidos || ''} onChange={handleChange} required />
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input label="Cédula" name="cedula" value={form.cedula || ''} onChange={handleChange} required />
+                <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Rol</label>
+                    <select 
+                        name="role" 
+                        value={form.role || 'Trabajador'} 
+                        onChange={handleChange} 
+                        disabled={form.tipo === 'Esporadico'}
+                        className={`w-full rounded-xl border p-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500 ${form.tipo === 'Esporadico' ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-white border-slate-300'}`}
+                    >
+                        <option value="Trabajador">Trabajador</option>
+                        <option value="Tecnico">Técnico</option>
+                        <option value="Propietario">Propietario</option>
+                    </select>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input label="Teléfono" name="telefono" value={form.telefono || ''} onChange={handleChange} />
+                <Input label="Dirección" name="direccion" value={form.direccion || ''} onChange={handleChange} />
+            </div>
+
+            {/* SECCIÓN CREDENCIALES (Solo visible si es Fijo) */}
+            {form.tipo === 'Fijo' && (
+                <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 animate-in fade-in zoom-in-95">
+                    <h4 className="text-sm font-bold text-amber-800 mb-3 flex items-center gap-2">
+                        <KeyRound size={16} />
+                        Seguridad y Acceso
+                        {usuario.tipo === 'Esporadico' && <span className="ml-auto text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-bold">Requiere Configuración</span>}
+                    </h4>
+                    
+                    <div className="space-y-4">
+                        <Input label="Email" name="email" value={form.email || ''} onChange={handleChange} required placeholder="usuario@sistema.com" />
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="sm:col-span-2">
+                                <label className="text-xs font-bold text-slate-600 block mb-1">
+                                    {usuario.tipo === 'Esporadico' ? 'Crear Contraseña (Obligatorio)' : 'Cambiar Contraseña (Opcional)'}
+                                </label>
+                                {usuario.tipo !== 'Esporadico' && (
+                                     <p className="text-[10px] text-slate-400 mb-2">Deja los campos vacíos si no deseas cambiarla.</p>
+                                )}
+                            </div>
+                            <Input placeholder="Nueva contraseña" type="password" name="password" value={form.password || ''} onChange={handleChange} />
+                            <Input placeholder="Confirmar nueva" type="password" name="confirmPassword" value={form.confirmPassword || ''} onChange={handleChange} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+          </form>
         </div>
-      </form>
-    </VentanaModal>
+
+        {/* ✅ FOOTER FIJO */}
+        <div className="flex-none px-4 sm:px-6 lg:px-8 py-4 border-t border-slate-200 bg-slate-50/50">
+          <div className="flex justify-end gap-3">
+            <Boton variante="fantasma" onClick={cerrar} type="button" disabled={cargando} className="bg-white border-slate-300">
+                Cancelar
+            </Boton>
+            <Boton tipo="submit" form="editarUsuarioForm" cargando={cargando} icono={Save}>
+                Guardar Cambios
+            </Boton>
+          </div>
+        </div>
+
+      </div>
+    </div>
   );
 }

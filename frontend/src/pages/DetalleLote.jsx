@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { Tractor, Layout, Pencil, AlertTriangle } from "lucide-react";
+import { Tractor, Layout, Pencil, AlertTriangle, X } from "lucide-react";
 import { obtenerLote, toggleEstadoLote } from "../api/apiClient";
 
 import TablaTareas from "../components/tareas/TablaTareas";
@@ -281,10 +281,7 @@ export default function DetalleLote() {
       <VentanaModal
         abierto={modalEditar}
         cerrar={() => setModalEditar(false)}
-        titulo={
-          <div className="flex items-center gap-3 font-black">
-            <Pencil className="text-emerald-600" /> Editar Lote
-          </div>
+        titulo={null
         }
       >
         <FormularioLote
@@ -299,48 +296,75 @@ export default function DetalleLote() {
       </VentanaModal>
 
       {/* ✅ Confirmación bonita (si tu VentanaModal permite className para posición) */}
-      <VentanaModal
-        abierto={confirmOpen}
-        cerrar={() => (confirmLoading ? null : setConfirmOpen(false))}
-        titulo={
-          <div className="flex items-center gap-3 font-black">
-            <AlertTriangle className="text-amber-600" />
-            Confirmación
-          </div>
-        }
-        // 👇 Si VentanaModal soporta className o modalClassName, úsalo:
-        // className="items-start pt-24"
-        // modalClassName="items-start pt-24"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-slate-600">
-            {activar
-              ? `¿Deseas activar el lote "${lote.nombre}"?`
-              : `¿Deseas desactivar el lote "${lote.nombre}"?`}
-          </p>
-
-          <div className="flex justify-end gap-3 pt-2">
-            <Boton
-              variante="outline"
-              type="button"
-              onClick={() => setConfirmOpen(false)}
-              disabled={confirmLoading}
-            >
-              Cancelar
-            </Boton>
-
-            <Boton
-              type="button"
-              cargando={confirmLoading}
-              onClick={confirmarToggle}
-              variante={activar ? "primario" : "secundario"}
-              className={activar ? "" : "bg-amber-500 hover:bg-amber-600 active:bg-amber-700"}
-            >
-              {activar ? "Activar" : "Desactivar"}
-            </Boton>
-          </div>
+      {/* ✅ Confirmación (bonita, mismo estilo que tus formularios) */}
+<VentanaModal
+  abierto={confirmOpen}
+  cerrar={() => (confirmLoading ? null : setConfirmOpen(false))}
+  titulo={null}
+>
+  <div className="flex flex-col">
+    {/* Header estilo pro */}
+    <div className="px-4 sm:px-6 lg:px-8 py-4 border-b border-slate-200 flex items-start justify-between bg-slate-50/50">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+          <AlertTriangle size={22} strokeWidth={2.5} />
         </div>
-      </VentanaModal>
+
+        <div>
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">
+            Confirmación
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500">
+            {activar
+              ? "Vas a reactivar este lote para que vuelva a operar en el sistema."
+              : "Vas a desactivar este lote. No se mostrará en la lista principal."}
+          </p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => (confirmLoading ? null : setConfirmOpen(false))}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors"
+        aria-label="Cerrar"
+        title="Cerrar"
+        disabled={confirmLoading}
+      >
+        <X size={20} />
+      </button>
+    </div>
+
+    {/* Body */}
+    <div className="px-4 sm:px-6 lg:px-8 py-5 space-y-4">
+      <p className="text-sm text-slate-700">
+        {activar
+          ? `¿Deseas activar el lote "${lote.nombre}"?`
+          : `¿Deseas desactivar el lote "${lote.nombre}"?`}
+      </p>
+
+      <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+        <Boton
+          variante="outline"
+          type="button"
+          onClick={() => setConfirmOpen(false)}
+          disabled={confirmLoading}
+        >
+          Cancelar
+        </Boton>
+
+        <Boton
+          type="button"
+          cargando={confirmLoading}
+          onClick={confirmarToggle}
+          variante={activar ? "primario" : "ambar"}
+        >
+          {activar ? "Activar" : "Desactivar"}
+        </Boton>
+      </div>
+    </div>
+  </div>
+</VentanaModal>
+
     </section>
   );
 }

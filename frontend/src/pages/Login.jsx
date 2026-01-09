@@ -3,13 +3,11 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate, useLocation } from "react-router-dom";
-import { toast } from "sonner";
+import useToast from "../hooks/useToast";
 import { Mail, Lock, Eye, EyeOff, LogIn } from "lucide-react";
 import useAuthStore from "../store/authStore";
 import logoFM from "../assets/Logo-FM.png";
 import heroImg from "../assets/pitahaya.png";
-
-// UI
 import Input from "../components/ui/Input";
 import Boton from "../components/ui/Boton";
 
@@ -30,25 +28,43 @@ export default function Login() {
     defaultValues: { email: "", password: "" }
   });
 
-  const onSubmit = async (values) => {
+// En login.jsx
+
+  const notify = useToast();
+
+
+const onSubmit = async (values) => {
     try {
       const user = await login(values.email, values.password);
-      const role = (user?.role || user?.rol || "").toLowerCase();
       
-      // Redirección inteligente
-      const from = location.state?.from?.pathname;
-      if (from) return navigate(from, { replace: true });
+      // 1. Obtener y normalizar rol
+      const rawRole = user?.role || user?.Role?.nombre || "";
+      const role = rawRole
+        .toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .trim();
 
+      // --- SECCIÓN ELIMINADA ---
+      // El código que causaba el problema era este:
+      // const from = location.state?.from?.pathname;
+      // if (from) return navigate(from, { replace: true });
+      // -------------------------
+
+      // 2. Definir rutas forzadas
       const rutas = {
         propietario: "/owner/dashboard",
-        tecnico: "/tech/dashboard",
-        trabajador: "/worker/mis-tareas"
+        tecnico:     "/tech/dashboard",
+        trabajador:  "/worker/mis-tareas" // Ojo: Trabajador va a mis-tareas, no tiene dashboard según tu router
       };
       
-      navigate(rutas[role] || "/", { replace: true });
+      // 3. Redirigir SIEMPRE a la ruta base del rol
+      // Esto ignora cualquier historial previo
+      const rutaDestino = rutas[role] || "/login";
+      navigate(rutaDestino, { replace: true });
       
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Credenciales incorrectas");
+      console.error(err);
+      notify.error(err?.response?.data?.message || "Credenciales incorrectas");
     }
   };
 

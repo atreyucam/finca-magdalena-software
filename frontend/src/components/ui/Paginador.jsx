@@ -1,64 +1,77 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import Boton from "./Boton"; // Usamos el botón de la Fase 1
 
-export default function Paginador({ 
-  paginaActual, 
-  totalPaginas, 
-  onCambiarPagina, 
-  totalRegistros, // Opcional, para mostrar "X resultados"
-  className = "" 
+export default function Paginador({
+  paginaActual,
+  totalPaginas,
+  onCambiarPagina,
+  totalRegistros,
+  className = "",
 }) {
   if (totalPaginas <= 1) return null;
 
+  const irAnterior = () => onCambiarPagina(Math.max(1, paginaActual - 1));
+  const irSiguiente = () => onCambiarPagina(Math.min(totalPaginas, paginaActual + 1));
+
+  const btnBase =
+    "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors " +
+    "hover:bg-slate-50 hover:text-slate-900 " +
+    "disabled:opacity-40 disabled:cursor-not-allowed";
+
   return (
-    <div className={`flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-3 ${className}`}>
-      {/* Texto informativo móvil/desktop */}
+    <div
+      className={[
+        "flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-3",
+        "rounded-b-2xl", // 👈 redondeo abajo
+        className,
+      ].join(" ")}
+    >
+      {/* Desktop */}
       <div className="hidden sm:flex flex-1 items-center justify-between">
-        <div>
-          <p className="text-xs text-slate-500">
-            Página <span className="font-medium text-slate-900">{paginaActual}</span> de{" "}
-            <span className="font-medium text-slate-900">{totalPaginas}</span>
-            {totalRegistros && (
-              <> · Total: <span className="font-medium">{totalRegistros}</span> registros</>
-            )}
-          </p>
-        </div>
-        
+        <p className="text-xs text-slate-500">
+          Página <span className="font-medium text-slate-900">{paginaActual}</span> de{" "}
+          <span className="font-medium text-slate-900">{totalPaginas}</span>
+          {typeof totalRegistros === "number" && (
+            <>
+              {" "}
+              · Total: <span className="font-medium text-slate-900">{totalRegistros}</span> registros
+            </>
+          )}
+        </p>
+
         <div className="flex gap-2">
-          <Boton
-            variante="fantasma"
-            onClick={() => onCambiarPagina(paginaActual - 1)}
-            disabled={paginaActual === 1}
-            className="px-2 py-1 h-8 w-8 !rounded-lg" // Ajuste manual para hacerlo cuadrado pequeño
-          >
-            <ChevronLeft size={16} />
-          </Boton>
-          
-          <Boton
-            variante="fantasma"
-            onClick={() => onCambiarPagina(paginaActual + 1)}
+          <button onClick={irAnterior} disabled={paginaActual === 1} className={btnBase} aria-label="Anterior">
+            <ChevronLeft size={18} />
+          </button>
+
+          <button
+            onClick={irSiguiente}
             disabled={paginaActual === totalPaginas}
-            className="px-2 py-1 h-8 w-8 !rounded-lg"
+            className={btnBase}
+            aria-label="Siguiente"
           >
-            <ChevronRight size={16} />
-          </Boton>
+            <ChevronRight size={18} />
+          </button>
         </div>
       </div>
 
-      {/* Versión Móvil Simplificada */}
+      {/* Móvil */}
       <div className="flex sm:hidden w-full justify-between items-center text-xs">
-        <button 
-          onClick={() => onCambiarPagina(paginaActual - 1)}
+        <button
+          onClick={irAnterior}
           disabled={paginaActual === 1}
-          className="disabled:opacity-50 font-medium text-slate-600"
+          className="font-medium text-slate-700 disabled:opacity-40"
         >
           Anterior
         </button>
-        <span>{paginaActual} / {totalPaginas}</span>
-        <button 
-          onClick={() => onCambiarPagina(paginaActual + 1)}
+
+        <span className="text-slate-600">
+          {paginaActual} / {totalPaginas}
+        </span>
+
+        <button
+          onClick={irSiguiente}
           disabled={paginaActual === totalPaginas}
-          className="disabled:opacity-50 font-medium text-slate-600"
+          className="font-medium text-slate-700 disabled:opacity-40"
         >
           Siguiente
         </button>

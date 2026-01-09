@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { io } from "socket.io-client";
+
 import { useNavigate, useLocation } from "react-router-dom";
 import { 
   Plus, Filter, Calendar, MapPin, 
@@ -45,10 +47,31 @@ export default function Tareas() {
     fecha_rango: "" 
   });
 
-  const recargarTodo = () => {
-      recargar();
-      resumenTareas().then(res => setResumen(res.data)).catch(console.error);
+const recargarTodo = useCallback(() => {
+  recargar();
+  resumenTareas().then(res => setResumen(res.data)).catch(console.error);
+}, [recargar]);
+
+
+  useEffect(() => {
+  const socket = io(import.meta.env.VITE_API_BASE_URL || "http://localhost:3000", {
+    transports: ["websocket", "polling"], // opcional pero ayuda
+  });
+
+  const onUpdate = () => {
+    // refresca tabla + cards/tabs
+    recargarTodo();
   };
+
+  socket.on("tareas:update", onUpdate);
+
+  return () => {
+    socket.off("tareas:update", onUpdate);
+    socket.disconnect();
+  };
+  // 👇 importante: recargarTodo debe existir antes (como ya lo tienes)
+}, [recargarTodo]);
+
 
   useEffect(() => {
     const cargarAuxiliares = async () => {

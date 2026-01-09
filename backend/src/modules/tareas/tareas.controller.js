@@ -72,16 +72,16 @@ exports.cancelarTarea = async (req, res, next) => {
 
 // --- ASIGNACIONES E ITEMS ---
 
-exports.asignarUsuarios = async (req, res, next) => {
+exports.actualizarAsignaciones = async (req, res, next) => {
   try {
     const io = req.app.get("io");
-    const out = await service.asignarUsuarios(req.user, +req.params.id, req.body, io);
+    const out = await service.actualizarAsignaciones(req.user, +req.params.id, req.body, io);
     res.json(out);
   } catch (err) { next(err); }
 };
 
-// Alias para actualizar asignaciones (mismo endpoint lógico)
-exports.actualizarAsignaciones = exports.asignarUsuarios;
+// (Opcional) compat con nombre anterior
+exports.asignarUsuarios = exports.actualizarAsignaciones;
 
 exports.configurarItems = async (req, res, next) => {
   try {

@@ -34,12 +34,8 @@ export default function AppRouter() {
 
   return (
     <>
-      {/* 👇 Esto resetea el scroll SIEMPRE en cada cambio de ruta */}
       <ScrollToTop />
-
-      {/* 👇 Tu sistema de rutas permanece igual */}
       <Routes>
-        {/* Público */}
         <Route path="/login" element={<Login />} />
 
         {/* Protegido */}

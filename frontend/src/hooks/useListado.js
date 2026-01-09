@@ -20,36 +20,68 @@ export default function useListado(apiFunction, estadoInicialFiltros = {}) {
   const [filtros, setFiltros] = useState(estadoInicialFiltros);
 
   // Función de carga memoizada para poder llamarla manualmente (recargar)
-  const cargarDatos = useCallback(async () => {
-    setCargando(true);
-    setError(null);
-    try {
-      // Preparamos params mezclando paginación y filtros
-      const params = {
-        page: pagina,
-        pageSize: 20, // O pasarlo como config
-        ...filtros,
-      };
+const cargarDatos = useCallback(async () => {
+  setCargando(true);
+  setError(null);
 
-      const respuesta = await apiFunction(params);
-      
-      // Adaptador flexible según cómo venga tu API
-      const lista = respuesta.data?.data || respuesta.data || [];
-      const meta = respuesta.data; // Asumiendo que meta data viene en la raíz o data
+  try {
+    const params = {
+  page: pagina,
+  ...filtros,
+  pageSize: filtros?.pageSize ?? 20,
+  limit: filtros?.limit ?? 20,
+};
 
-      setDatos(lista);
-      setTotalPaginas(meta?.totalPages || 1);
-      setTotalRegistros(meta?.totalItems || meta?.count || lista.length);
 
-    } catch (err) {
-      console.error("Error en useListado:", err);
-      const msg = err?.response?.data?.message || "Error al cargar datos.";
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setCargando(false);
-    }
-  }, [apiFunction, pagina, filtros]);
+    const respuesta = await apiFunction(params);
+    console.log("📥 respuesta listar:", respuesta);
+console.log("📥 respuesta.data:", respuesta?.data);
+
+
+  const payload = respuesta?.data;
+
+// ✅ Si el backend devuelve array directo: [{...}, {...}]
+if (Array.isArray(payload)) {
+  setDatos(payload);
+  setTotalRegistros(payload.length);
+  setTotalPaginas(1);
+  setCargando(false);
+  return; // 👈 salimos porque ya resolvimos
+}
+
+// ✅ Caso normal: objeto paginado { data: [], totalItems, totalPages... }
+const lista =
+  payload?.data ??
+  payload?.rows ??
+  payload?.items ??
+  [];
+
+const totalItems =
+  payload?.totalItems ??
+  payload?.total ??
+  payload?.count ??
+  (Array.isArray(lista) ? lista.length : 0);
+
+const pageSizeResp = payload?.pageSize ?? params.pageSize;
+
+const totalPages =
+  payload?.totalPages ??
+  Math.max(1, Math.ceil((totalItems || 0) / (pageSizeResp || 20)));
+
+setDatos(Array.isArray(lista) ? lista : []);
+setTotalPaginas(totalPages);
+setTotalRegistros(totalItems);
+
+  } catch (err) {
+    console.error("Error en useListado:", err);
+    const msg = err?.response?.data?.message || "Error al cargar datos.";
+    setError(msg);
+    toast.error(msg);
+  } finally {
+    setCargando(false);
+  }
+}, [apiFunction, pagina, filtros]);
+
 
   // Efecto principal: Cargar cuando cambia página o filtros
   useEffect(() => {

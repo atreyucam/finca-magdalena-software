@@ -2,7 +2,7 @@
 const { Op } = require("sequelize");
 const { models, sequelize } = require("../../db");
 const invService = require("../inventario/inventario.service"); // Se actualizará en Sección 3
-const notif = require("../notificaciones/notificaciones.service");
+const notifs = require('../notificaciones/notificaciones.service');
 const { formatoFechaHoraCorta } = require("../../utils/fechas");
 const { convertir } = require("../../utils/units"); // ✅ Usamos la nueva utilidad
 
@@ -74,8 +74,108 @@ const diffEntrega = (oldObj = {}, newObj = {}) => {
 };
 
 
+async function getPropietariosIds() {
+  const owners = await models.Usuario.findAll({
+    include: [{ model: models.Role, where: { nombre: 'Propietario' } }],
+    where: { estado: 'Activo' },
+    attributes: ['id'],
+  });
+  return owners.map(o => o.id);
+}
 
-exports.actualizarAsignaciones = exports.asignarUsuarios; // Alias por ahora
+async function getAsignadosIds(tareaId) {
+  const rows = await models.TareaAsignacion.findAll({
+    where: { tarea_id: tareaId },
+    attributes: ['usuario_id'],
+  });
+  return rows.map(r => r.usuario_id);
+}
+
+function uniqIds(arr = []) {
+  return [...new Set(arr.map(String))].map(Number);
+}
+
+async function getNombreUsuario(usuarioId) {
+  const u = await models.Usuario.findByPk(usuarioId, { attributes: ['nombres','apellidos'] });
+  if (!u) return "Usuario";
+  return `${u.nombres || ""} ${u.apellidos || ""}`.trim() || "Usuario";
+}
+
+
+exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
+  if (!["Propietario", "Tecnico"].includes(currentUser.role)) throw forbidden();
+
+  const { usuarios = [] } = body;
+  const tarea = await models.Tarea.findByPk(tareaId);
+  if (!tarea) throw notFound();
+  if (["Verificada", "Cancelada"].includes(tarea.estado)) throw badRequest("No se puede reasignar en este estado.");
+
+  const nuevos = uniqIds(usuarios);
+
+  const existentesRows = await models.TareaAsignacion.findAll({
+    where: { tarea_id: tareaId },
+    attributes: ["usuario_id"],
+  });
+  const existentes = existentesRows.map(r => Number(r.usuario_id));
+
+  const aAgregar = nuevos.filter(id => !existentes.includes(id));
+  const aRemover = existentes.filter(id => !nuevos.includes(id));
+
+  await sequelize.transaction(async (t) => {
+    if (aRemover.length) {
+      await models.TareaAsignacion.destroy({
+        where: { tarea_id: tareaId, usuario_id: aRemover },
+        transaction: t
+      });
+    }
+
+    if (aAgregar.length) {
+      const bulk = aAgregar.map(uid => ({
+        tarea_id: tareaId,
+        usuario_id: uid,
+        rol_en_tarea: 'Ejecutor',
+        asignado_por_id: currentUser.sub
+      }));
+      await models.TareaAsignacion.bulkCreate(bulk, { transaction: t });
+    }
+
+    if (tarea.estado === 'Pendiente' && nuevos.length > 0) {
+      tarea.estado = 'Asignada';
+      await tarea.save({ transaction: t });
+    }
+  });
+
+  // ✅ SOCKET refresh
+  if (io) emitTarea(io, tareaId, "asignaciones", { tareaId });
+
+  // ✅ NOTIFICAR REMOVIDOS (Regla 3)
+  const quien = await getNombreUsuario(currentUser.sub);
+  const ref = { tarea_id: tareaId, lote_id: tarea.lote_id, cosecha_id: tarea.cosecha_id };
+
+  for (const uid of aRemover) {
+    await notifs.crearYEmitir(io, uid, {
+      tipo: "Tarea",
+      titulo: "Removido de una tarea",
+      mensaje: `Fuiste removido de la tarea "${tarea.titulo}" por ${quien}.`,
+      referencia: ref,
+      prioridad: "Alerta",
+    });
+  }
+
+  // (Opcional) también notificar a los nuevos asignados
+  for (const uid of aAgregar) {
+    await notifs.crearYEmitir(io, uid, {
+      tipo: "Tarea",
+      titulo: "Nueva tarea asignada",
+      mensaje: `Se te asignó la tarea "${tarea.titulo}".`,
+      referencia: ref,
+      prioridad: "Alerta",
+    });
+  }
+
+  return await exports.obtenerTarea(currentUser, tareaId);
+};
+
 
 // =====================================================================
 // 🧠 MOTOR DE REGLAS DE NEGOCIO (BPA - Buenas Prácticas Agrícolas)
@@ -215,9 +315,9 @@ function validarDetalles(tipoCodigo, detallesRaw) {
 exports.crearTarea = async (currentUser, data, io) => {
   if (!["Propietario", "Tecnico"].includes(currentUser.role)) throw forbidden();
 
-  const { 
-    titulo, fecha_programada, lote_id, cosecha_id, periodo_id, 
-    tipo_codigo, tipo_id, descripcion, asignados = [], detalle = {}, items = [] 
+  const {
+    titulo, fecha_programada, lote_id, cosecha_id, periodo_id,
+    tipo_codigo, tipo_id, descripcion, asignados = [], detalle = {}, items = []
   } = data;
 
   if (!lote_id || !fecha_programada || !cosecha_id) {
@@ -225,25 +325,24 @@ exports.crearTarea = async (currentUser, data, io) => {
   }
 
   // --- 🛡️ VALIDACIÓN DE INTEGRIDAD FINCA-LOTE-COSECHA ---
-  // Buscamos el lote para conocer su finca_id
   const lote = await models.Lote.findByPk(lote_id);
   if (!lote) throw badRequest("El lote seleccionado no existe.");
 
-  // Buscamos la cosecha para conocer su finca_id y estado
   const cosecha = await models.Cosecha.findByPk(cosecha_id);
   if (!cosecha) throw badRequest("La cosecha seleccionada no existe.");
   if (cosecha.estado !== "Activa") throw badRequest("La cosecha seleccionada no está activa.");
 
-  // VALIDACIÓN CRUCIAL: Comparar finca_id de ambos
   if (String(lote.finca_id) !== String(cosecha.finca_id)) {
-    throw badRequest(`Conflicto de ubicación: El lote pertenece a la finca ID ${lote.finca_id} pero la cosecha seleccionada es de la finca ID ${cosecha.finca_id}. No se pueden cruzar datos entre fincas.`);
+    throw badRequest(
+      `Conflicto de ubicación: El lote pertenece a la finca ID ${lote.finca_id} pero la cosecha seleccionada es de la finca ID ${cosecha.finca_id}. No se pueden cruzar datos entre fincas.`
+    );
   }
   // -------------------------------------------------------
 
   // Resolver Tipo Actividad
   let finalTipoCodigo = tipo_codigo;
   let finalTipoId = tipo_id;
-  
+
   if (!finalTipoId && finalTipoCodigo) {
     const t = await models.TipoActividad.findOne({ where: { codigo: finalTipoCodigo } });
     if (!t) throw badRequest("Tipo de actividad inválido");
@@ -254,11 +353,10 @@ exports.crearTarea = async (currentUser, data, io) => {
     finalTipoCodigo = t.codigo;
   }
 
-  // Validar reglas BPA según el tipo (JSONB)
   const detallesJSON = validarDetalles(finalTipoCodigo, detalle);
 
-  return await sequelize.transaction(async (t) => {
-    // A. Crear Tarea
+  // 1) Crear dentro de TX
+  const result = await sequelize.transaction(async (t) => {
     const tarea = await models.Tarea.create({
       titulo,
       tipo_id: finalTipoId,
@@ -269,41 +367,38 @@ exports.crearTarea = async (currentUser, data, io) => {
       descripcion,
       creador_id: currentUser.sub,
       estado: "Pendiente",
-      detalles: detallesJSON
+      detalles: detallesJSON,
     }, { transaction: t });
 
-    // B. Crear Items planificados
     if (items.length > 0) {
       await crearItemsTarea(t, tarea.id, items);
     }
 
-    // C. Registro de estado inicial
     await models.TareaEstado.create({
       tarea_id: tarea.id,
       estado: "Pendiente",
       usuario_id: currentUser.sub,
       comentario: "Tarea creada en el sistema",
-      fecha: new Date()
+      fecha: new Date(),
     }, { transaction: t });
 
-    // D. Asignación de personal (Pool compartido)
     let asignadosIds = [];
     if (asignados.length > 0) {
-      const validUsers = await models.Usuario.findAll({ 
-        where: { id: asignados, estado: 'Activo' }, 
-        attributes: ['id'] 
+      const validUsers = await models.Usuario.findAll({
+        where: { id: asignados, estado: "Activo" },
+        attributes: ["id"],
+        transaction: t
       });
-      
+
       const bulk = validUsers.map(u => ({
         tarea_id: tarea.id,
         usuario_id: u.id,
-        rol_en_tarea: 'Ejecutor',
+        rol_en_tarea: "Ejecutor",
         asignado_por_id: currentUser.sub
       }));
-      
+
       await models.TareaAsignacion.bulkCreate(bulk, { transaction: t });
-      
-      // Auto-avanzar estado si hay personal
+
       tarea.estado = "Asignada";
       await tarea.save({ transaction: t });
 
@@ -312,16 +407,79 @@ exports.crearTarea = async (currentUser, data, io) => {
         estado: "Asignada",
         usuario_id: currentUser.sub,
         comentario: "Personal asignado automáticamente al pool compartido",
-        fecha: new Date()
+        fecha: new Date(),
       }, { transaction: t });
 
       asignadosIds = validUsers.map(u => u.id);
     }
 
-    return { tareaId: tarea.id, asignadosIds };
+    // devolvemos datos para notificar fuera
+    return {
+      tareaId: tarea.id,
+      titulo: tarea.titulo,
+      fecha_programada: tarea.fecha_programada,
+      lote_id: tarea.lote_id,
+      cosecha_id: tarea.cosecha_id,
+      creador_id: tarea.creador_id,
+      asignadosIds
+    };
   });
-};
 
+  // 2) Notificar FUERA de TX (seguro)
+  const {
+    tareaId, asignadosIds, creador_id,
+  } = result;
+
+  // (Opcional) si quieres datos “bonitos” en el mensaje
+  // - evita includes pesados, solo nombres puntuales
+  const loteInfo = await models.Lote.findByPk(result.lote_id, { attributes: ["id", "nombre"] });
+  const fechaTxt = new Date(result.fecha_programada).toLocaleDateString("es-EC");
+
+  const ref = { tarea_id: tareaId, lote_id: result.lote_id, cosecha_id: result.cosecha_id };
+
+  const asignadosSet = new Set(asignadosIds.map(String));
+  const creadorEstaAsignado = asignadosSet.has(String(creador_id));
+
+  // A) notif al creador
+  if (creadorEstaAsignado) {
+    await notifs.crearYEmitir(io, creador_id, {
+      tipo: "Tareas",
+      titulo: "Tarea creada y asignada",
+      mensaje: `Se creó y se te asignó la tarea "${result.titulo}" para el ${fechaTxt}${loteInfo?.nombre ? ` (Lote: ${loteInfo.nombre})` : ""}.`,
+      referencia: ref,
+      prioridad: "Info",
+    });
+  } else {
+    await notifs.crearYEmitir(io, creador_id, {
+      tipo: "Tarea",
+      titulo: "Tarea creada",
+      mensaje: `Creaste la tarea "${result.titulo}" para el ${fechaTxt}${loteInfo?.nombre ? ` (Lote: ${loteInfo.nombre})` : ""}.`,
+      referencia: ref,
+      prioridad: "Info",
+    });
+  }
+
+  // B) notif a asignados (excepto creador si ya se notificó arriba como “creada y asignada”)
+  const destinatarios = asignadosIds
+    .map(String)
+    .filter(uid => !(creadorEstaAsignado && uid === String(creador_id)));
+
+  for (const uid of destinatarios) {
+    await notifs.crearYEmitir(io, uid, {
+      tipo: "Tarea",
+      titulo: "Nueva tarea asignada",
+      mensaje: `Se te asignó la tarea "${result.titulo}" para el ${fechaTxt}${loteInfo?.nombre ? ` (Lote: ${loteInfo.nombre})` : ""}.`,
+      referencia: ref,
+      prioridad: "Alerta",
+    });
+  }
+
+  // (Opcional) sockets si ya estás usando io para refrescar UI en tiempo real
+  // io?.to(`user:${creador_id}`)?.emit("notif:nueva");
+  // for (const uid of destinatarios) io?.to(`user:${uid}`)?.emit("notif:nueva");
+
+  return result; // { tareaId, asignadosIds, ... }
+};
 
 
 // ... Iniciar Tarea (Similar a antes, solo control de estado)
@@ -423,6 +581,19 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
     }, { transaction: t });
   });
 
+    // ✅ NOTIFICAR AL CREADOR cuando se completa
+  const quien = await getNombreUsuario(currentUser.sub);
+  const ref = { tarea_id: tareaId, lote_id: tarea.lote_id, cosecha_id: tarea.cosecha_id };
+
+  await notifs.crearYEmitir(io, tarea.creador_id, {
+    tipo: "Tarea",
+    titulo: "Tarea completada",
+    mensaje: `La tarea "${tarea.titulo}" fue marcada como COMPLETADA por ${quien}.`,
+    referencia: ref,
+    prioridad: "Info",
+  });
+
+
   emitTarea(io, tareaId, "estado", { estado: "Completada" });
   return await exports.obtenerTarea(currentUser, tareaId);
 };
@@ -498,6 +669,22 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
       fecha: new Date()
     }, { transaction: t });
   });
+    const asignados = await getAsignadosIds(tareaId);
+  const destinatarios = uniqIds([tarea.creador_id, ...asignados]);
+
+  const quien = await getNombreUsuario(currentUser.sub);
+  const ref = { tarea_id: tareaId, lote_id: tarea.lote_id, cosecha_id: tarea.cosecha_id };
+
+  for (const uid of destinatarios) {
+    await notifs.crearYEmitir(io, uid, {
+      tipo: "Tarea",
+      titulo: "Tarea verificada",
+      mensaje: `La tarea "${tarea.titulo}" fue VERIFICADA por ${quien}.`,
+      referencia: ref,
+      prioridad: "Info",
+    });
+  }
+
 
   emitTarea(io, tareaId, "estado", { estado: "Verificada" });
   return await exports.obtenerTarea(currentUser, tareaId);
@@ -747,52 +934,55 @@ exports.resumenTareas = async (currentUser, query) => {
 exports.cancelarTarea = async (currentUser, id, body, io) => {
   const tarea = await models.Tarea.findByPk(id);
   if (!tarea) throw notFound();
-  
-  // Opcional: Evitar cancelar si ya está finalizada del todo
   if (tarea.estado === "Verificada") throw badRequest("No se puede cancelar una tarea ya verificada.");
 
   await sequelize.transaction(async (t) => {
-      // 1. Cambiar estado principal
-      tarea.estado = "Cancelada";
-      await tarea.save({ transaction: t });
+    tarea.estado = "Cancelada";
+    await tarea.save({ transaction: t });
 
-      // ✅ 2. AGREGAR A LA BITÁCORA (Esto faltaba)
-      await models.TareaEstado.create({
-        tarea_id: tarea.id,
-        estado: "Cancelada",
-        usuario_id: currentUser.sub,
-        comentario: body.motivo || "Cancelada manualmente", // Aquí guardamos el motivo que escribiste en el prompt
-        fecha: new Date()
-      }, { transaction: t });
+    await models.TareaEstado.create({
+      tarea_id: tarea.id,
+      estado: "Cancelada",
+      usuario_id: currentUser.sub,
+      comentario: body.motivo || "Cancelada manualmente",
+      fecha: new Date()
+    }, { transaction: t });
   });
-  
-  // 3. Notificar en tiempo real
+
   if (io) emitTarea(io, id, "estado", { estado: "Cancelada" });
-  
+
+  // ✅ NOTIFICACIONES
+  const propietarios = await getPropietariosIds();
+  const asignados = await getAsignadosIds(id);
+
+  const destinatarios = uniqIds([
+    ...propietarios,
+    tarea.creador_id,
+    ...asignados
+  ]);
+
+  const quien = await getNombreUsuario(currentUser.sub);
+  const ref = { tarea_id: id, lote_id: tarea.lote_id, cosecha_id: tarea.cosecha_id };
+
+  for (const uid of destinatarios) {
+    await notifs.crearYEmitir(io, uid, {
+      tipo: "Tarea",
+      titulo: "Tarea cancelada",
+      mensaje: `La tarea "${tarea.titulo}" fue cancelada por ${quien}. Motivo: ${body.motivo || "Sin motivo"}.`,
+      referencia: ref,
+      prioridad: "Alerta",
+    });
+  }
+
   return { ok: true, id };
 };
 
 
 
 exports.asignarUsuarios = async (currentUser, tareaId, body, io) => {
-    const { usuarios = [] } = body;
-    const tarea = await models.Tarea.findByPk(tareaId);
-    if (!tarea) throw notFound();
-
-    const bulk = usuarios.map(uid => ({
-        tarea_id: tareaId,
-        usuario_id: uid,
-        rol_en_tarea: 'Ejecutor',
-        asignado_por_id: currentUser.sub
-    }));
-    await models.TareaAsignacion.bulkCreate(bulk, { ignoreDuplicates: true });
-    
-    if (tarea.estado === 'Pendiente') {
-        tarea.estado = 'Asignada';
-        await tarea.save();
-    }
-    return await exports.obtenerTarea(currentUser, tareaId);
+  return await exports.actualizarAsignaciones(currentUser, tareaId, body, io);
 };
+
 
 
 

@@ -70,35 +70,41 @@ exports.crearUsuario = async (currentUser, data) => {
 
 exports.listarUsuarios = async ({ q, estado, role, tipo, page = 1, pageSize = 20 }) => {
   const where = {};
-  
+
   if (role) where['$Role.nombre$'] = role;
   if (estado) where.estado = estado;
-  if (tipo) where.tipo = tipo; // Nuevo filtro
+  if (tipo) where.tipo = tipo;
 
   if (q) {
     where[Op.or] = [
       { nombres: { [Op.iLike]: `%${q}%` } },
       { apellidos: { [Op.iLike]: `%${q}%` } },
       { cedula: { [Op.iLike]: `%${q}%` } },
-      // Solo buscamos por email si q no es vacío, para evitar problemas con NULLs
       { email: { [Op.iLike]: `%${q}%` } },
     ];
   }
 
-  const offset = (page - 1) * pageSize;
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safePageSize = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
+
+  const offset = (safePage - 1) * safePageSize;
+
   const { rows, count } = await models.Usuario.findAndCountAll({
     where,
-    include: [{ model: models.Role, attributes: ['nombre'] }],
-    order: [['created_at','DESC']],
-    limit: pageSize,
+    include: [{ model: models.Role, attributes: ["nombre"] }],
+    order: [["id", "DESC"]], // recomendado si no tienes created_at
+    limit: safePageSize,
     offset,
   });
 
+  const totalPages = Math.max(1, Math.ceil(count / safePageSize));
+
   return {
-    total: count,
-    page,
-    pageSize,
-    data: rows.map(u => ({
+    page: safePage,
+    pageSize: safePageSize,
+    totalItems: count,
+    totalPages,
+    data: rows.map((u) => ({
       id: u.id,
       cedula: u.cedula,
       nombres: u.nombres,
@@ -108,11 +114,12 @@ exports.listarUsuarios = async ({ q, estado, role, tipo, page = 1, pageSize = 20
       direccion: u.direccion,
       fecha_ingreso: u.fecha_ingreso,
       estado: u.estado,
-      tipo: u.tipo, // Retornamos el tipo
+      tipo: u.tipo,
       role: u.Role?.nombre,
-    }))
+    })),
   };
 };
+
 
 exports.obtenerUsuario = async (id) => {
 const u = await models.Usuario.findByPk(id, { include: [{ model: models.Role, attributes: ['nombre'] }] });

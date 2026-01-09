@@ -275,7 +275,9 @@ const ClassificationManager = ({ clasificacion = [], rechazos = [], kgBascula = 
     };
 
     return (
-        <div className="mb-8 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="mb-6 bg-slate-50/60 p-5 rounded-2xl border border-blue-100">
+
+
             <SectionHeader icon={Scale} title="Clasificación y Rechazo" onEdit={isEditing ? handleSave : () => setIsEditing(true)} isEditing={isEditing} loading={loading} canEdit={canEdit} />
             
             {(isEditing || localClasif.length > 0 || localRechazos.length > 0) && <BalanceHeader />}

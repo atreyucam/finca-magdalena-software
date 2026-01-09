@@ -17,11 +17,16 @@ router.get('/alertas/stock-bajo', requireAuth, requireRole('Propietario','Tecnic
 router.post('/items', requireAuth, requireRole('Propietario','Tecnico'), controller.crearItem);
 router.patch('/items/:id', requireAuth, requireRole('Propietario','Tecnico'), controller.editarItem);
 router.post('/items/:id/ajustes', requireAuth, requireRole('Propietario','Tecnico'), controller.ajustarStock);
+router.patch('/lotes/:loteId', requireAuth, requireRole('Propietario','Tecnico'), controller.editarLote);
 
 // Préstamos
 router.post('/herramientas/:id/prestar', requireAuth, requireRole('Propietario','Tecnico'), controller.prestarHerramienta);
 router.post('/herramientas/:id/devolver', requireAuth, requireRole('Propietario','Tecnico'), controller.devolverHerramienta);
 
 router.get('/', requireAuth, controller.listar);
+
+
+// ✅ Validación / Autocomplete de lote (ANTES de rutas dinámicas de /lotes/:loteId)
+router.get('/items/:id/lotes/buscar', requireAuth, requireRole('Propietario','Tecnico'), controller.buscarLote);
 
 module.exports = router;

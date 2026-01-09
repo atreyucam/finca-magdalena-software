@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Save } from "lucide-react";
+import { Save, Sprout, X } from "lucide-react";
 
 import Input from "../ui/Input";
 import Select from "../ui/Select";
@@ -22,7 +22,7 @@ function getApiError(err) {
   };
 }
 
-export default function FormularioCosecha({ fincas, alGuardar, alCancelar }) {
+export default function FormularioCosecha({ fincas = [], alGuardar, alCancelar }) {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState("");
   const [activa, setActiva] = useState(null);
@@ -35,7 +35,7 @@ export default function FormularioCosecha({ fincas, alGuardar, alCancelar }) {
   const [form, setForm] = useState({
     nombre: "",
     finca_id: "",
-    fecha_inicio: "", // OJO: tu Input está poniendo DD/MM/YYYY, backend ya lo soporta
+    fecha_inicio: "",
   });
 
   const notify = useToast();
@@ -63,13 +63,6 @@ export default function FormularioCosecha({ fincas, alGuardar, alCancelar }) {
         return;
       }
 
-      console.log("[PREVIEW INPUT]", {
-  finca_id: form.finca_id,
-  fecha_inicio: form.fecha_inicio,
-  tipo_fecha: typeof form.fecha_inicio,
-});
-
-
       try {
         setPreview((p) => ({ ...p, loading: true }));
 
@@ -84,12 +77,12 @@ export default function FormularioCosecha({ fincas, alGuardar, alCancelar }) {
           loading: false,
           codigoPreview: res?.data?.codigoPreview ?? "",
         });
-      } catch (err) {
+      } catch {
         if (!alive) return;
         setPreview({ loading: false, codigoPreview: "" });
       }
     }
-    
+
     load();
     return () => {
       alive = false;
@@ -131,95 +124,124 @@ export default function FormularioCosecha({ fincas, alGuardar, alCancelar }) {
     cargando || !form.finca_id || !form.nombre || !form.fecha_inicio;
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-rose-800">
-                No se pudo iniciar la cosecha
-              </p>
-              <p className="text-sm text-rose-700 break-words">{error}</p>
-
-              {activa?.id && (
-                <button
-                  type="button"
-                  onClick={() => navigate(`${base}/detalleCosecha/${activa.id}`)}
-                  className="mt-2 inline-flex text-sm font-semibold text-rose-800 underline underline-offset-2 hover:text-rose-900"
-                >
-                  Ver cosecha activa {activa.codigo ? `(${activa.codigo})` : ""}
-                </button>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setError("");
-                setActiva(null);
-              }}
-              className="h-8 w-8 shrink-0 grid place-items-center rounded-full hover:bg-rose-100 text-rose-700"
-              aria-label="Cerrar"
-              title="Cerrar"
-            >
-              ✕
-            </button>
+    <div className="flex flex-col">
+      {/* ✅ HEADER BONITO */}
+      <div className="px-4 sm:px-6 lg:px-8 py-4 border-b border-slate-200 flex items-start justify-between bg-slate-50/50">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+            <Sprout size={22} strokeWidth={2.5} />
+          </div>
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">
+              Iniciar cosecha
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500">
+              Crea un ciclo agrícola para registrar producción y seguimiento de la finca.
+            </p>
           </div>
         </div>
-      )}
 
-      <Select
-        label="Finca Destino"
-        value={form.finca_id}
-        onChange={onChangeField("finca_id")}
-        required
-      >
-        <option value="">Seleccione finca...</option>
-        {fincas.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.nombre}
-          </option>
-        ))}
-      </Select>
-
-      <Input
-        label="Nombre"
-        value={form.nombre}
-        onChange={onChangeField("nombre")}
-        required
-        placeholder="Ej: Cosecha 2026-1"
-      />
-
-      <Input
-        label="Fecha Inicio"
-        type="date"
-        value={form.fecha_inicio}
-        onChange={onChangeField("fecha_inicio")}
-        required
-      />
-
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-        <p className="text-xs text-slate-500">
-          Código estimado (se confirma al guardar)
-        </p>
-        <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
-          {preview.loading ? "Calculando..." : preview.codigoPreview || "—"}
-        </p>
-      </div>
-
-      <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-        <Boton variante="fantasma" onClick={alCancelar} type="button">
-          Cancelar
-        </Boton>
-        <Boton
-          tipo="submit"
-          cargando={cargando}
-          icono={Save}
-          disabled={disabledSubmit}
+        <button
+          type="button"
+          onClick={alCancelar}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors"
+          aria-label="Cerrar"
+          title="Cerrar"
         >
-          Iniciar Cosecha
-        </Boton>
+          <X size={20} />
+        </button>
       </div>
-    </form>
+
+      {/* ✅ BODY */}
+      <form onSubmit={handleSubmit} className="space-y-4 px-4 sm:px-6 lg:px-8 py-5">
+        {error && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-rose-800">
+                  No se pudo iniciar la cosecha
+                </p>
+                <p className="text-sm text-rose-700 break-words">{error}</p>
+
+                {activa?.id && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`${base}/detalleCosecha/${activa.id}`)}
+                    className="mt-2 inline-flex text-sm font-semibold text-rose-800 underline underline-offset-2 hover:text-rose-900"
+                  >
+                    Ver cosecha activa {activa.codigo ? `(${activa.codigo})` : ""}
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setActiva(null);
+                }}
+                className="h-8 w-8 shrink-0 grid place-items-center rounded-full hover:bg-rose-100 text-rose-700"
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ GRID para que no se “encojan” */}
+        <div className="grid grid-cols-1 gap-4">
+          <Select
+            label="Finca destino"
+            value={form.finca_id}
+            onChange={onChangeField("finca_id")}
+            required
+          >
+            <option value="">Seleccione finca...</option>
+            {fincas.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.nombre}
+              </option>
+            ))}
+          </Select>
+
+          <Input
+            label="Nombre"
+            value={form.nombre}
+            onChange={onChangeField("nombre")}
+            required
+            placeholder="Ej: Cosecha 2026-1"
+          />
+
+          <Input
+            label="Fecha inicio"
+            type="date"
+            value={form.fecha_inicio}
+            onChange={onChangeField("fecha_inicio")}
+            required
+          />
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-xs text-slate-500">
+              Código estimado (se confirma al guardar)
+            </p>
+            <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
+              {preview.loading ? "Calculando..." : preview.codigoPreview || "—"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+          <Boton variante="fantasma" onClick={alCancelar} type="button">
+            Cancelar
+          </Boton>
+
+          <Boton tipo="submit" cargando={cargando} icono={Save} disabled={disabledSubmit}>
+            Iniciar Cosecha
+          </Boton>
+        </div>
+      </form>
+    </div>
   );
 }

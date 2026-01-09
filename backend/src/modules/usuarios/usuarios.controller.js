@@ -11,8 +11,8 @@ res.status(201).json(result);
 
 exports.listarUsuarios = async (req, res, next) => {
 try {
-const { q, estado,role, page = 1, pageSize = 20 } = req.query;
-const result = await service.listarUsuarios({ q, estado, role, page: +page, pageSize: +pageSize });
+const { q, estado, role, tipo, page = 1, pageSize = 20 } = req.query;
+const result = await service.listarUsuarios({ q, estado, role, tipo, page: +page, pageSize: +pageSize });
 res.json(result);
 } catch (err) { next(err); }
 };

@@ -24,8 +24,11 @@ router.post('/:id/completar', requireAuth, controller.completarTarea);
 router.post('/:id/verificar', requireAuth, requireRole('Propietario','Tecnico'), controller.verificarTarea);
 router.patch('/:id/detalles', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarDetalles);
 // 4. Gestión de Recursos (Asignaciones e Ítems)
-router.post('/:id/asignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.asignarUsuarios);
-router.patch('/:id/ActualizarAsignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarAsignaciones);
+// ✅ Endpoint único oficial
+router.patch('/:id/asignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarAsignaciones);
+
+// (Opcional) compatibilidad con frontend viejo
+router.post('/:id/asignaciones', requireAuth, requireRole('Propietario','Tecnico'), controller.actualizarAsignaciones);
 
 router.post('/:id/items', requireAuth, requireRole('Propietario','Tecnico'), controller.configurarItems);
 router.get('/:id/items', requireAuth, controller.listarItems);

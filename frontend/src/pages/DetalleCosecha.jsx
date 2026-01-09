@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { obtenerCosecha, cerrarCosecha } from "../api/apiClient";
 import { Calendar, Tractor, CheckCircle2, Lock, ArrowLeft, Info, Sprout } from "lucide-react";
-import { toast } from "sonner";
+import useToast from "../hooks/useToast";
 
 // UI Components
 import Boton from "../components/ui/Boton";
@@ -14,13 +14,15 @@ export default function DetalleCosecha() {
   const [cosecha, setCosecha] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const notify = useToast();
+
   const cargarCosecha = async () => {
     setLoading(true);
     try {
       const res = await obtenerCosecha(id);
       setCosecha(res.data || res);
     } catch (e) {
-      toast.error("Error al cargar el ciclo de cosecha");
+      notify.error("Error al cargar el ciclo de cosecha");
     } finally {
       setLoading(false);
     }
@@ -34,9 +36,9 @@ export default function DetalleCosecha() {
     if (!fecha) return;
     try {
       await cerrarCosecha(id, { fecha_fin: fecha });
-      toast.success("Ciclo cerrado exitosamente");
+      notify.success("Ciclo cerrado exitosamente");
       cargarCosecha();
-    } catch (e) { toast.error("Error al cerrar ciclo"); }
+    } catch (e) { notify.error("Error al cerrar ciclo"); }
   };
 
   if (loading) return <div className="py-20 text-center text-slate-400 animate-pulse">Cargando panel...</div>;

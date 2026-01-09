@@ -1,8 +1,18 @@
-// frontend/src/pages/Inventario.jsx
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Layers, Package, Wrench, Monitor, History } from "lucide-react";
+import { 
+  Plus, 
+  Layers, 
+  Package, 
+  Wrench, 
+  Monitor, 
+  History 
+} from "lucide-react";
 
-import { alertasStockBajo, getResumenInventario } from "../api/apiClient";
+import {
+  alertasStockBajo,
+  getResumenInventario,
+  listarItemsInventario,
+} from "../api/apiClient";
 import useUnidades from "../hooks/useUnidades";
 
 import VentanaModal from "../components/ui/VentanaModal";
@@ -13,13 +23,15 @@ import VistaHistorial from "../components/inventario/VistaHistorial";
 import AlertasStock from "../components/inventario/AlertasStock";
 
 // Formularios
-import FormularioItem from "../components/inventario/FormularioItem";
+import FormularioItem from "../components/inventario/FormularioItem"; // ✅ Asumimos que este ya es el modal autónomo refactored
 import FormularioAjuste from "../components/inventario/FormularioAjuste";
-
+import FormularioEditarLote from "../components/inventario/FormularioEditarLote";
 import Boton from "../components/ui/Boton";
 
 export default function Inventario() {
-  const [tab, setTab] = useState(() => localStorage.getItem("inventarioTab") || "Insumo");
+  const [tab, setTab] = useState(
+    () => localStorage.getItem("inventarioTab") || "Insumo"
+  );
   const [alertas, setAlertas] = useState([]);
 
   // Cards
@@ -28,9 +40,10 @@ export default function Inventario() {
     insumos: 0,
     herramientas: 0,
     equipos: 0,
+    movimientos: 0, 
   });
 
-  // ✅ chips Activos / Inactivos / Todos (suaves)
+  // Filtro Activos
   const [activosFiltro, setActivosFiltro] = useState(
     () => localStorage.getItem("inventarioActivos") || "true"
   );
@@ -40,7 +53,11 @@ export default function Inventario() {
   const [ajustarAbierto, setAjustarAbierto] = useState(false);
   const [itemSeleccionado, setItemSeleccionado] = useState(null);
 
-  // ✅ Clave para forzar recarga de listados (sin recargar página)
+  // Modales extra
+  const [editarLoteAbierto, setEditarLoteAbierto] = useState(false);
+  const [loteSeleccionado, setLoteSeleccionado] = useState(null);
+
+  // Clave para recargar
   const [refreshKey, setRefreshKey] = useState(0);
 
   const { unidades } = useUnidades();
@@ -54,7 +71,7 @@ export default function Inventario() {
 
       setAlertas(resAlertas.data || []);
       setResumen(
-        resResumen.data || { total: 0, insumos: 0, herramientas: 0, equipos: 0 }
+        resResumen.data || { total: 0, insumos: 0, herramientas: 0, equipos: 0, movimientos: 0 }
       );
     } catch (e) {
       console.error(e);
@@ -62,8 +79,14 @@ export default function Inventario() {
   };
 
   const recargarTodo = () => {
+    console.log("🔁 recargarTodo() -> refreshKey++");
     setRefreshKey((prev) => prev + 1);
     cargarDatos();
+  };
+
+  const abrirEditarLote = (lote) => {
+    setLoteSeleccionado(lote);
+    setEditarLoteAbierto(true);
   };
 
   useEffect(() => {
@@ -83,29 +106,72 @@ export default function Inventario() {
     setAjustarAbierto(true);
   };
 
-  // ✅ Cards suaves (misma lógica de Tareas.jsx: tintes, ring, no sólido)
+  // Traer item completo
+  const obtenerItemCompletoPorId = async (id) => {
+    const res = await listarItemsInventario({
+      q: "",
+      categoria: "all",
+      activos: "all",
+      page: 1,
+      pageSize: 20,
+      limit: 200,
+    });
+
+    const lista = res?.data?.data || res?.data?.rows || res?.data?.items || [];
+    return lista.find((x) => String(x.id) === String(id)) || null;
+  };
+
+  // Handler alertas
+  const abrirAjusteDesdeAlerta = async (a) => {
+    try {
+      if (
+        a?.categoria &&
+        ["Insumo", "Herramienta", "Equipo"].includes(a.categoria)
+      ) {
+        setTab(a.categoria);
+      }
+
+      const completo = await obtenerItemCompletoPorId(a.id);
+
+      const fallback = {
+        ...a,
+        categoria: a?.categoria || "Insumo",
+        unidad: a?.unidad || "",
+        stock_actual: a?.stock_actual ?? 0,
+        stock_minimo: a?.stock_minimo ?? 0,
+      };
+
+      abrirAjuste(completo || fallback);
+    } catch (e) {
+      console.error(e);
+      abrirAjuste({
+        ...a,
+        categoria: a?.categoria || "Insumo",
+        unidad: a?.unidad || "",
+        stock_actual: a?.stock_actual ?? 0,
+        stock_minimo: a?.stock_minimo ?? 0,
+      });
+    }
+  };
+
+  // CARDS CONFIG
   const cards = useMemo(() => {
     const baseCard =
       "rounded-2xl border p-4 cursor-pointer hover:shadow-md transition-all";
-
-    const activeBase = "ring-2";
-
+    
     return [
       {
         key: "TOTAL",
         titulo: "Total Ítems",
         valor: resumen.total,
         icono: Layers,
-        // Activo = oscuro como “Total” en Tareas.jsx
         cls: (active) =>
           [
             baseCard,
-            active
-              ? "bg-slate-800 text-white border-slate-800 shadow-lg shadow-slate-200"
-              : "bg-white border-slate-100 text-slate-700 hover:bg-slate-50",
+            "bg-slate-800 text-white border-slate-800 shadow-lg shadow-slate-200",
           ].join(" "),
-        iconCls: (active) => (active ? "text-slate-200" : "text-slate-500"),
-        onClick: () => setTab("Insumo"), // opcional: al click te manda a Insumo
+        iconCls: (active) => "text-slate-200 opacity-80",
+        onClick: () => setTab("Insumo"),
       },
       {
         key: "Insumo",
@@ -116,7 +182,7 @@ export default function Inventario() {
           [
             baseCard,
             active
-              ? `bg-emerald-100 border-emerald-200 ${activeBase} ring-emerald-100`
+              ? "bg-emerald-100 border-emerald-200 ring-2 ring-emerald-100"
               : "bg-emerald-50/50 border-emerald-100 text-emerald-900/60 hover:bg-emerald-50",
           ].join(" "),
         iconCls: () => "text-emerald-600",
@@ -131,7 +197,7 @@ export default function Inventario() {
           [
             baseCard,
             active
-              ? `bg-amber-100 border-amber-200 ${activeBase} ring-amber-100`
+              ? "bg-amber-100 border-amber-200 ring-2 ring-amber-100"
               : "bg-amber-50/50 border-amber-100 text-amber-900/60 hover:bg-amber-50",
           ].join(" "),
         iconCls: () => "text-amber-600",
@@ -146,7 +212,7 @@ export default function Inventario() {
           [
             baseCard,
             active
-              ? `bg-violet-100 border-violet-200 ${activeBase} ring-violet-100`
+              ? "bg-violet-100 border-violet-200 ring-2 ring-violet-100"
               : "bg-violet-50/50 border-violet-100 text-violet-900/60 hover:bg-violet-50",
           ].join(" "),
         iconCls: () => "text-violet-600",
@@ -155,16 +221,16 @@ export default function Inventario() {
       {
         key: "Historial",
         titulo: "Historial",
-        valor: "—",
+        valor: resumen.movimientos,
         icono: History,
         cls: (active) =>
           [
             baseCard,
             active
-              ? `bg-slate-100 border-slate-200 ${activeBase} ring-slate-100`
-              : "bg-slate-50/50 border-slate-100 text-slate-900/60 hover:bg-slate-50",
+              ? "bg-sky-100 border-sky-200 ring-2 ring-sky-100"
+              : "bg-sky-50/50 border-sky-100 text-sky-900/60 hover:bg-sky-50",
           ].join(" "),
-        iconCls: () => "text-slate-600",
+        iconCls: () => "text-sky-600",
         onClick: () => setTab("Historial"),
       },
     ];
@@ -175,6 +241,7 @@ export default function Inventario() {
   return (
     <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-[1400px] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
+        
         {/* HEADER */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -188,19 +255,24 @@ export default function Inventario() {
 
           {tab !== "Historial" && (
             <div className="flex gap-2">
-              <Boton onClick={() => setCrearAbierto(true)} icono={Plus}>
+              <Boton
+                onClick={() => {
+                  setItemSeleccionado(null);
+                  setCrearAbierto(true);
+                }}
+                icono={Plus}
+              >
                 Nuevo Ítem
               </Boton>
             </div>
           )}
         </div>
 
-        {/* ✅ CARDS (suaves estilo Tareas.jsx) */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+        {/* CARDS */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
           {cards.map((c) => {
             const Icon = c.icono;
             const active = tab === c.key;
-
             return (
               <div key={c.key} onClick={c.onClick} className={c.cls(active)}>
                 <div className="flex items-center gap-2 mb-1">
@@ -209,22 +281,13 @@ export default function Inventario() {
                     {c.titulo}
                   </span>
                 </div>
-                <div className={`text-2xl font-black ${active && c.key === "TOTAL" ? "text-white" : ""}`}>
-                  {c.valor ?? 0}
-                </div>
-
-                {/* Tabs mini (opcional): se siente pro como “chips” internos */}
-                {c.key !== "TOTAL" && (
-                  <div className="mt-2 text-[11px] font-semibold opacity-70">
-                    {active ? "Seleccionado" : "Click para ver"}
-                  </div>
-                )}
+                <div className="text-2xl font-black">{c.valor ?? 0}</div>
               </div>
             );
           })}
         </div>
 
-        {/* ✅ PESTAÑAS (respeta tu idea actual, pero estilo Producción/Tareas) */}
+        {/* PESTAÑAS */}
         <div className="mb-6">
           <div className="flex flex-wrap gap-2 bg-slate-100 p-1.5 rounded-2xl w-fit">
             {tabsSecundarias.map((t) => (
@@ -245,7 +308,7 @@ export default function Inventario() {
           <div className="mt-4 border-b border-slate-100" />
         </div>
 
-        {/* ✅ Chips Activos/Inactivos/Todos (suaves estilo Tareas.jsx) */}
+        {/* Chips Filtros */}
         {tab !== "Historial" && (
           <div className="mb-6">
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
@@ -283,11 +346,11 @@ export default function Inventario() {
         {/* Alertas */}
         {tab !== "Historial" && alertas.length > 0 && (
           <div className="mb-6">
-            <AlertasStock alertas={alertas} />
+            <AlertasStock alertas={alertas} onAjustar={abrirAjusteDesdeAlerta} />
           </div>
         )}
 
-        {/* Vistas */}
+        {/* VISTAS */}
         <div className="min-h-[420px]">
           {tab === "Historial" ? (
             <VistaHistorial />
@@ -295,34 +358,68 @@ export default function Inventario() {
             <VistaInventario
               key={`${tab}-${refreshKey}-${activosFiltro}`}
               categoria={tab}
-              activosFiltro={activosFiltro} // ✅ nuevo
+              activosFiltro={activosFiltro}
               onAjustar={abrirAjuste}
+              onEditar={(item) => {
+                setItemSeleccionado(item);
+                setCrearAbierto(true);
+              }}
+              onEditarLote={(lote) => abrirEditarLote(lote)}
+              modalEdicionAbierto={editarLoteAbierto} 
             />
           )}
         </div>
       </div>
 
-      {/* MODAL: Crear */}
+      {/* ✅ MODAL CREAR/EDITAR ITEM (Autónomo - Sin VentanaModal) */}
       <VentanaModal
-        abierto={crearAbierto}
-        cerrar={() => setCrearAbierto(false)}
-        titulo="Registrar Nuevo Ítem"
+  abierto={crearAbierto}
+  cerrar={() => {
+    setCrearAbierto(false);
+    setItemSeleccionado(null);
+  }}
+  titulo={null}
+>
+  <FormularioItem
+    item={itemSeleccionado}
+    unidades={unidades}
+    alCancelar={() => {
+      setCrearAbierto(false);
+      setItemSeleccionado(null);
+    }}
+    alGuardar={() => {
+      setCrearAbierto(false);
+      setItemSeleccionado(null);
+      recargarTodo();
+    }}
+  />
+</VentanaModal>
+
+      {/* Modales Secundarios (Usan VentanaModal clásico) */}
+      <VentanaModal
+        abierto={editarLoteAbierto}
+        cerrar={() => setEditarLoteAbierto(false)}
+        titulo={null}
       >
-        <FormularioItem
-          unidades={unidades}
-          alCancelar={() => setCrearAbierto(false)}
+        <FormularioEditarLote
+          lote={loteSeleccionado?.lote}
+          item={loteSeleccionado?.item}
+          alCancelar={() => {
+            setEditarLoteAbierto(false);
+            setLoteSeleccionado(null);
+          }}
           alGuardar={() => {
-            setCrearAbierto(false);
+            setEditarLoteAbierto(false);
+            setLoteSeleccionado(null);
             recargarTodo();
           }}
         />
       </VentanaModal>
 
-      {/* MODAL: Ajuste */}
       <VentanaModal
         abierto={ajustarAbierto}
         cerrar={() => setAjustarAbierto(false)}
-        titulo={`Ajuste de Stock: ${itemSeleccionado?.nombre || ""}`}
+        titulo={null}
       >
         <FormularioAjuste
           item={itemSeleccionado}
@@ -338,15 +435,7 @@ export default function Inventario() {
   );
 }
 
-function Chip({
-  active,
-  onClick,
-  label,
-  activeCls,
-  idleCls,
-  badgeActive,
-  badgeIdle,
-}) {
+function Chip({ active, onClick, label, activeCls, idleCls, badgeActive, badgeIdle }) {
   return (
     <button
       onClick={onClick}

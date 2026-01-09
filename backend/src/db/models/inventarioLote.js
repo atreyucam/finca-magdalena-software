@@ -33,9 +33,19 @@ module.exports = (sequelize) => {
     createdAt: 'created_at',
     updatedAt: 'updated_at',
     indexes: [
-      { fields: ['item_id', 'activo'] }, // Para búsquedas rápidas de stock disponible
-      { fields: ['fecha_vencimiento'] }  // Para ordenamiento FEFO
-    ]
+  // ✅ Para búsquedas rápidas
+  { fields: ['item_id', 'activo'] },
+  { fields: ['fecha_vencimiento'] },
+
+  // ✅ Regla Opción B: un lote "único" por (item + codigo_lote + vencimiento)
+  // Nota: en Postgres, NULL en fecha_vencimiento permite duplicados (bien para herramientas).
+  {
+    unique: true,
+    fields: ['item_id', 'codigo_lote_proveedor', 'fecha_vencimiento'],
+    name: 'uq_inventario_lotes_item_codigo_venc'
+  }
+]
+
   });
 
   return InventarioLote;

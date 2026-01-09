@@ -261,21 +261,16 @@ const fincasVisibles = mostrarArchivadas
       </div>
 
       {/* Modales */}
-      <VentanaModal
+<VentanaModal
   abierto={modalFinca}
   cerrar={() => {
     setModalFinca(false);
     setFincaEdit(null);
   }}
-  titulo={
-    <div className="flex items-center gap-3 font-black">
-      <Map className="text-emerald-600" />
-      {fincaEdit ? "Editar Finca" : "Registro de Finca"}
-    </div>
-  }
+  titulo={null}
 >
   <FormularioFinca
-    finca={fincaEdit} // 👈 si viene, es editar
+    finca={fincaEdit}
     alCancelar={() => {
       setModalFinca(false);
       setFincaEdit(null);
@@ -289,22 +284,40 @@ const fincasVisibles = mostrarArchivadas
   />
 </VentanaModal>
 
-      <VentanaModal abierto={modalLote} cerrar={() => setModalLote(false)} titulo={<div className="flex items-center gap-3 font-black"><Layout className="text-emerald-600" /> Nuevo Lote</div>}>
-         <FormularioLote fincas={fincas} 
-         alCancelar={() => setModalLote(false)}
-          alGuardar={async() => {
-             setModalLote(false); 
-             await cargarDatos(); 
-             await cargarNotifs();}} />
-      </VentanaModal>
-      <VentanaModal abierto={modalCosecha} cerrar={() => setModalCosecha(false)} titulo={<div className="flex items-center gap-3 font-black"><Sprout className="text-emerald-600" /> Iniciar Cosecha</div>}>
-         <FormularioCosecha fincas={fincas} 
-         alCancelar={() => setModalCosecha(false)}
-          alGuardar={ async() => { 
-            setModalCosecha(false); 
-            await cargarDatos(); 
-            await cargarNotifs();}} />
-      </VentanaModal>
+
+      <VentanaModal
+  abierto={modalLote}
+  cerrar={() => setModalLote(false)}
+  titulo={null
+  }
+>
+  <FormularioLote
+    fincas={fincas}
+    alCancelar={() => setModalLote(false)}
+    alGuardar={async () => {
+      setModalLote(false);
+      await cargarDatos();
+      await cargarNotifs();
+    }}
+  />
+</VentanaModal>
+
+  <VentanaModal
+  abierto={modalCosecha}
+  cerrar={() => setModalCosecha(false)}
+  titulo={null}
+>
+  <FormularioCosecha
+    fincas={fincas}
+    alCancelar={() => setModalCosecha(false)}
+    alGuardar={async () => {
+      setModalCosecha(false);
+      await cargarDatos();
+      await cargarNotifs();
+    }}
+  />
+</VentanaModal>
+
     </section>
   );
 }

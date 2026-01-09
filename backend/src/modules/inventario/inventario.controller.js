@@ -34,3 +34,21 @@ exports.getResumen = async (req, res, next) => {
     res.json({ total, insumos, herramientas, equipos });
   } catch (e) { next(e); }
 };
+
+exports.editarLote = async (req, res, next) => {
+  try {
+    res.json(await service.editarLote(+req.params.loteId, req.body));
+  } catch (e) {
+    next(e);
+  }
+};
+
+exports.buscarLote = async (req, res, next) => {
+  try {
+    const itemId = +req.params.id;
+    const { codigo, fecha_vencimiento } = req.query;
+    res.json(await service.buscarLote(itemId, { codigo, fecha_vencimiento }));
+  } catch (e) {
+    next(e);
+  }
+};

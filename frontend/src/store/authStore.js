@@ -110,7 +110,12 @@ login: async (email, password) => {
     return !!accessToken && !isExpired(accessToken, 5000);
   },
 
-  getRole: () => get().user?.role || get().user?.rol || get().user?.Role || null,
+  getRole: () =>
+  get().user?.role ||
+  get().user?.rol ||
+  get().user?.Role?.nombre ||
+  null,
+
 }));
 
 export default useAuthStore;
