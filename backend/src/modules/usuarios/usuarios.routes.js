@@ -25,5 +25,11 @@ router.get('/:id/pagos', requireAuth, requireRole('Propietario','Tecnico'), cont
 router.get('/:id/tareas', requireAuth, requireRole('Propietario','Tecnico'), controller.obtenerTareasUsuario);
 
 
+// “me”
+router.get("/me/tareas-semanas", requireAuth, controller.obtenerMisTareasPorSemana);
+
+// admin
+router.get("/:id/tareas-semanas", requireAuth, requireRole("Propietario","Tecnico"), controller.obtenerTareasUsuarioPorSemana);
+
 
 module.exports = router;

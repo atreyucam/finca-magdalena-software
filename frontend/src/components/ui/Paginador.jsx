@@ -1,3 +1,4 @@
+// frontend/src/components/ui/Paginador.jsx
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function Paginador({
@@ -6,11 +7,17 @@ export default function Paginador({
   onCambiarPagina,
   totalRegistros,
   className = "",
+  mostrarSiempre = false,   // ✅ nuevo
 }) {
-  if (totalPaginas <= 1) return null;
+  const noHayPaginas = !totalPaginas || totalPaginas <= 0;
+  const paginas = noHayPaginas ? 1 : totalPaginas;
+  const pagina = paginaActual || 1;
 
-  const irAnterior = () => onCambiarPagina(Math.max(1, paginaActual - 1));
-  const irSiguiente = () => onCambiarPagina(Math.min(totalPaginas, paginaActual + 1));
+  // ✅ antes retornabas null. Ahora solo ocultas si NO quieres mostrarSiempre.
+  if (!mostrarSiempre && paginas <= 1) return null;
+
+  const irAnterior = () => onCambiarPagina(Math.max(1, pagina - 1));
+  const irSiguiente = () => onCambiarPagina(Math.min(paginas, pagina + 1));
 
   const btnBase =
     "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors " +
@@ -21,15 +28,15 @@ export default function Paginador({
     <div
       className={[
         "flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-3",
-        "rounded-b-2xl", // 👈 redondeo abajo
+        "rounded-b-2xl",
         className,
       ].join(" ")}
     >
       {/* Desktop */}
       <div className="hidden sm:flex flex-1 items-center justify-between">
         <p className="text-xs text-slate-500">
-          Página <span className="font-medium text-slate-900">{paginaActual}</span> de{" "}
-          <span className="font-medium text-slate-900">{totalPaginas}</span>
+          Página <span className="font-medium text-slate-900">{pagina}</span> de{" "}
+          <span className="font-medium text-slate-900">{paginas}</span>
           {typeof totalRegistros === "number" && (
             <>
               {" "}
@@ -39,16 +46,11 @@ export default function Paginador({
         </p>
 
         <div className="flex gap-2">
-          <button onClick={irAnterior} disabled={paginaActual === 1} className={btnBase} aria-label="Anterior">
+          <button onClick={irAnterior} disabled={pagina <= 1} className={btnBase} aria-label="Anterior">
             <ChevronLeft size={18} />
           </button>
 
-          <button
-            onClick={irSiguiente}
-            disabled={paginaActual === totalPaginas}
-            className={btnBase}
-            aria-label="Siguiente"
-          >
+          <button onClick={irSiguiente} disabled={pagina >= paginas} className={btnBase} aria-label="Siguiente">
             <ChevronRight size={18} />
           </button>
         </div>
@@ -56,21 +58,17 @@ export default function Paginador({
 
       {/* Móvil */}
       <div className="flex sm:hidden w-full justify-between items-center text-xs">
-        <button
-          onClick={irAnterior}
-          disabled={paginaActual === 1}
-          className="font-medium text-slate-700 disabled:opacity-40"
-        >
+        <button onClick={irAnterior} disabled={pagina <= 1} className="font-medium text-slate-700 disabled:opacity-40">
           Anterior
         </button>
 
         <span className="text-slate-600">
-          {paginaActual} / {totalPaginas}
+          {pagina} / {paginas}
         </span>
 
         <button
           onClick={irSiguiente}
-          disabled={paginaActual === totalPaginas}
+          disabled={pagina >= paginas}
           className="font-medium text-slate-700 disabled:opacity-40"
         >
           Siguiente

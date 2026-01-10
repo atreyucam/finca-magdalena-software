@@ -1,106 +1,93 @@
-import { useState, useEffect } from 'react';
-import * as api from '../api/apiClient'; 
+// src/hooks/useReportes.js
+import { useEffect, useState } from "react";
+import { reporteTareas } from "../api/apiClient";
 
 export default function useReportes() {
-  const [tab, setTab] = useState("alta"); // alta | produccion | tareas | inventario | pagos
+  // ✅ desde cero: solo tareas
+  const [tab, setTab] = useState("tareas");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
   const [data, setData] = useState({
-    alta: null,
-    produccion: null,
-    tareas: null,
-    pagos: null
+    tareas: null, // aquí guardamos el payload del backend
   });
-  
-  // Filtros
-  const [filtros, setFiltrosState] = useState({
-    cosecha_id: "",
-    lote_id: "",
+
+  // ✅ filtros compatibles con tu backend
+  const [filtros, setFiltros] = useState({
+    finca_id: "",        // puedes dejarlo fijo por ahora
+    cosecha_id: "",     // si vacío => backend usa activa (default)
+    lote_ids: [],       // array de ids, se enviará como csv
+    tipo_codigo: "",    // "PODA" | "MALEZA" | ...
+    estado: "",         // "Pendiente" | ...
     desde: "",
     hasta: "",
-    finca_id: 1, // ⚠️ TODO: Esto debería venir de un Contexto Global o Selector de Fincas
+    page: 1,
+    pageSize: 20,
   });
 
   const setFiltro = (key, value) => {
-    setFiltrosState(prev => ({ ...prev, [key]: value }));
+    setFiltros((prev) => ({ ...prev, [key]: value }));
   };
 
-  const generar = async () => {
-    setLoading(true);
-    setError(null);
-    
-    console.log(`📡 [useReportes] Generando reporte: ${tab}`, filtros);
+const generar = async (override = {}) => {
+  setLoading(true);
+  setError(null);
 
-    try {
-      const params = { ...filtros }; 
-      let responseData = null;
+  try {
+    console.log("🧪 [useReportes.generar] override:", override);
+    console.log("🧪 [useReportes.generar] filtros (state):", filtros);
 
-      switch (tab) {
-        case "alta":
-          // Dashboard Integral
-          const resAlta = await api.getDashboardIntegral(params);
-          console.log("✅ [API] Alta Dirección:", resAlta.data);
-          responseData = { alta: resAlta.data };
-          break;
+    const f = { ...filtros, ...override };
+    console.log("🧪 [useReportes.generar] merged f:", f);
 
-        case "produccion":
-          // Cosecha Rendimiento
-          const resProd = await api.getReporteRendimiento(params);
-          console.log("✅ [API] Producción:", resProd.data);
-          responseData = { produccion: resProd.data };
-          break;
+    const params = {
+      finca_id: f.finca_id,
+      page: f.page,
+      pageSize: f.pageSize,
+    };
 
-        case "tareas":
-          // Operaciones + Fito (Llamada paralela)
-          const [resOps, resFito] = await Promise.all([
-            api.getReporteOperaciones(params),
-            api.getReporteFitosanitario(params)
-          ]);
-          console.log("✅ [API] Tareas:", resOps.data);
-          console.log("✅ [API] Fitosanitario:", resFito.data);
-          
-          responseData = { 
-            tareas: {
-                operaciones: resOps.data,
-                fitosanitario: resFito.data
-            }
-          };
-          break;
+    if (f.cosecha_id) params.cosecha_id = f.cosecha_id;
+    if (f.lote_ids?.length) params.lote_ids = f.lote_ids.join(",");
+    if (f.tipo_codigo) params.tipo_codigo = f.tipo_codigo;
+    if (f.estado) params.estado = f.estado;
+    if (f.desde) params.desde = f.desde;
+    if (f.hasta) params.hasta = f.hasta;
 
-        case "pagos": 
-          // Costos
-          const resCostos = await api.getReporteCostos(params);
-          console.log("✅ [API] Costos:", resCostos.data);
-          responseData = { pagos: resCostos.data };
-          break;
-          
-        default:
-          break;
-      }
+    console.log("🧪 [useReportes.generar] params final:", params);
 
-      if (responseData) {
-        setData(prev => ({ ...prev, ...responseData }));
-      }
+    const payload = await reporteTareas(params);
 
-    } catch (err) {
-      console.error("❌ [useReportes] Error:", err);
-      setError(err.response?.data?.message || "Error al conectar con el servidor.");
-    } finally {
-      setLoading(false);
-    }
-  };
+    console.log("✅ [useReportes.generar] payload recibido:", payload);
+    console.log("✅ [useReportes.generar] payload.data.length:", payload?.data?.length);
+    console.log("✅ [useReportes.generar] payload.total:", payload?.total);
 
-  // Cargar automáticamente al entrar (opcional)
+    setData({ tareas: payload });
+  } catch (err) {
+    console.error("❌ [useReportes] Error:", err);
+    setError(err?.response?.data?.message || err?.message || "Error al conectar con el servidor.");
+    setData({ tareas: null });
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+  // ✅ desde cero: NO autogeneramos por tab (porque tab ya no importa)
   useEffect(() => {
-    generar();
+    if (tab === "tareas") {
+      // opcional: si quieres que cargue una vez al entrar
+      // generar();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]); // Recarga si cambia el tab
+  }, [tab]);
 
   return {
     tab,
     setTab,
     filtros,
     setFiltro,
+    setFiltros, // por si en tareas panel quieres setear varios de golpe
     generar,
     loading,
     error,

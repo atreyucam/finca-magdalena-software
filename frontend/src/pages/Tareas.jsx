@@ -334,7 +334,7 @@ const recargarTodo = useCallback(() => {
             </TablaCuerpo>
         </Tabla>
 
-        {tareas.length > 0 && <Paginador paginaActual={pagina} totalPaginas={totalPaginas} totalRegistros={totalRegistros} onCambiarPagina={setPagina} />}
+        {tareas.length > 0 && <Paginador paginaActual={pagina} totalPaginas={totalPaginas} totalRegistros={totalRegistros} onCambiarPagina={setPagina} mostrarSiempre />}
       </div>
 
       <CrearTareaModal open={modalCrearAbierto} onClose={() => setModalCrearAbierto(false)} onCreated={recargarTodo} />

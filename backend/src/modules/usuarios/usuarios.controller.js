@@ -98,3 +98,15 @@ exports.obtenerEstadisticas = async (req, res, next) => {
     res.json(stats);
   } catch (err) { next(err); }
 };
+
+exports.obtenerTareasUsuarioPorSemana = async (req, res, next) => {
+  try {
+    res.json(await service.obtenerTareasUsuarioPorSemana(+req.params.id));
+  } catch (err) { next(err); }
+};
+
+exports.obtenerMisTareasPorSemana = async (req, res, next) => {
+  try {
+    res.json(await service.obtenerTareasUsuarioPorSemana(+req.user.sub));
+  } catch (err) { next(err); }
+};

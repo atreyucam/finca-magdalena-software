@@ -117,6 +117,8 @@ export const login = (data) => api.post("/auth/login", data);
 export const refreshToken = () => api.post("/auth/refresh");
 export const logoutApi = () => api.post("/auth/logout");
 
+
+
 // ================= USUARIOS =================
 export const listarUsuarios = (params = {}) => api.get("/usuarios", { params });
 export const obtenerUsuario = (id) => api.get(`/usuarios/${id}`);
@@ -130,6 +132,16 @@ export const obtenerPagosUsuario = (id) => api.get(`/usuarios/${id}/pagos`);
 export const obtenerMiUsuario = () => api.get("/usuarios/me");
 export const obtenerMisPagos = () => api.get("/usuarios/me/pagos"); // o /pagos/mios
 export const obtenerMisTareas = () => api.get("/usuarios/me/tareas");
+// ✅ Historial por semanas ISO (usuario logueado)
+export const listarMisTareasPorSemana = async () => {
+  return api.get("/usuarios/me/tareas-semanas");
+};
+
+// ✅ Historial por semanas ISO (admin: propietario/tecnico)
+export const listarTareasUsuarioPorSemana = async (id) => {
+  return api.get(`/usuarios/${id}/tareas-semanas`);
+};
+
 
 // ✅ Si existe en tu backend con auth:
 export const obtenerEstadisticas = (params = {}) =>
@@ -235,6 +247,9 @@ export const configurarTareaItems = (tareaId, data) => api.post(`/tareas/${tarea
 export const listarNovedadesTarea = (id) => api.get(`/tareas/${id}/novedades`);
 export const crearNovedadTarea = (id, data) => api.post(`/tareas/${id}/novedades`, data);
 
+
+
+
 // ================= INVENTARIO =================
 export const getResumenInventario = (params = {}) => api.get("/inventario/resumen", { params });
 
@@ -265,11 +280,18 @@ export const buscarLoteInventario = (itemId, params = {}) =>
 
 
 // ================= REPORTES =================
-export const getDashboardIntegral = (params = {}) => api.get("/reportes/dashboard", { params });
-export const getReporteRendimiento = (params = {}) => api.get("/reportes/cosecha/rendimiento", { params });
-export const getReporteFitosanitario = (params = {}) => api.get("/reportes/fitosanitario", { params });
-export const getReporteOperaciones = (params = {}) => api.get("/reportes/operaciones", { params });
-export const getReporteCostos = (params = {}) => api.get("/reportes/costos", { params });
+
+
+// Reportes - Filtros
+export const listarFincasReporte = async () => (await api.get("/reportes/filtros/fincas")).data;
+export const listarCosechasReporte = async (finca_id) => (await api.get("/reportes/filtros/cosechas", { params: { finca_id } })).data;
+export const listarLotesReporte = async (finca_id) => (await api.get("/reportes/filtros/lotes", { params: { finca_id } })).data;
+
+// Reporte de tareas
+export const reporteTareas = async (params) => (await api.get("/reportes/tareas", { params })).data;
+
+
+
 
 // ================= NOTIFICACIONES =================
 export const listarNotificaciones = (params = {}) => api.get("/notificaciones", { params });

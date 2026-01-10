@@ -1,12 +1,13 @@
+// frontend/src/components/ui/Tabla.jsx
 import React from "react";
 import { Inbox } from "lucide-react";
 
 // 1. Contenedor Principal
-export function Tabla({ children }) {
+export function Tabla({ children, className = "", tableClassName = "" }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className={`overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`}>
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm text-slate-600">
+        <table className={`w-full text-left text-sm text-slate-600 ${tableClassName}`}>
           {children}
         </table>
       </div>
@@ -51,16 +52,19 @@ export function TablaFila({ children, className = "", onClick }) {
 }
 
 // 6. Celda de Datos (Td)
-export function TablaCelda({ children, className = "", align = "left", nowrap = true }) {
+export function TablaCelda({ children, className = "", align = "left", nowrap = true, colSpan }) {
   const aligns = { left: "text-left", center: "text-center", right: "text-right" };
   return (
-    <td className={`px-6 py-4 ${nowrap ? "whitespace-nowrap" : "whitespace-normal"} ${aligns[align]} ${className}`}>
+    <td
+      colSpan={colSpan}
+      className={`px-6 py-4 ${nowrap ? "whitespace-nowrap" : "whitespace-normal"} ${aligns[align]} ${className}`}
+    >
       {children}
     </td>
   );
 }
 
-// Tabla.jsx
+// TablaVacia
 export function TablaVacia({ mensaje = "No hay datos para mostrar", colSpan = 100 }) {
   return (
     <tr>

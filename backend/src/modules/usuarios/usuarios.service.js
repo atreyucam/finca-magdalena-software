@@ -2,6 +2,8 @@ const { Op } = require('sequelize');
 const { models } = require('../../db');
 const { hashPassword } = require('../../utils/crypto');
 
+const { getISOWeek, getRangeFromISO } = require("../../utils/week");
+
 
 function forbid(message = 'Prohibido') {
 const e = new Error(message); e.status = 403; e.code = 'FORBIDDEN'; return e;
@@ -234,7 +236,7 @@ exports.obtenerTareasUsuario = async (id) => {
   });
 
   return asignaciones.map(a => ({
-    id: a.Tarea.id,
+    id: Number(a.Tarea.id),
     tipo: a.Tarea.TipoActividad?.nombre,
     lote: a.Tarea.Lote?.nombre,
     estado: a.Tarea.estado,
@@ -250,4 +252,46 @@ exports.obtenerEstadisticas = async () => {
   const inactivos = await models.Usuario.count({ where: { estado: ['Inactivo', 'Bloqueado'] } });
   
   return { registrados, activos, inactivos };
+};
+
+exports.obtenerTareasUsuarioPorSemana = async (id) => {
+  const asignaciones = await models.TareaAsignacion.findAll({
+    where: { usuario_id: id },
+    include: [{ model: models.Tarea, include: [models.TipoActividad, models.Lote] }],
+    order: [[{ model: models.Tarea }, "fecha_programada", "DESC"]],
+  });
+
+  // 1) normalizamos tareas
+  const tareas = asignaciones
+    .filter(a => a.Tarea)
+    .map(a => ({
+      id: a.Tarea.id,
+      tipo: a.Tarea.TipoActividad?.nombre,
+      lote: a.Tarea.Lote?.nombre,
+      estado: a.Tarea.estado,
+      fecha_programada: a.Tarea.fecha_programada,
+      semana_iso: getISOWeek(a.Tarea.fecha_programada),
+    }));
+
+  // 2) agrupamos por semana_iso
+  const grouped = {};
+  for (const t of tareas) {
+    if (!grouped[t.semana_iso]) grouped[t.semana_iso] = [];
+    grouped[t.semana_iso].push(t);
+  }
+
+  // 3) lo convertimos a array ordenado
+  const semanas = Object.keys(grouped)
+    .sort((a, b) => (a < b ? 1 : -1)) // DESC
+    .map((iso) => {
+      const range = getRangeFromISO(iso);
+      return {
+        semana_iso: iso,
+        fecha_inicio: range.start,
+        fecha_fin: range.end,
+        items: grouped[iso].sort((a, b) => new Date(b.fecha_programada) - new Date(a.fecha_programada)),
+      };
+    });
+
+  return semanas;
 };

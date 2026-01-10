@@ -583,9 +583,9 @@ const handleEnviarNovedad = async () => {
             </div>
 
             {/* === COLUMNA DERECHA (Panel Lateral) === */}
-            <div className="space-y-6">
+            <div className="space-y-6 lg:self-start">
                  {/* 1. Panel de Acciones (Solo Desktop) */}
-                 <div className="hidden lg:block lg:sticky lg:top-6">
+                 <div className="hidden lg:block  top-6 self-start">
   <PanelAcciones />
 </div>
 
