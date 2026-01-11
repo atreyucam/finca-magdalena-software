@@ -3,6 +3,7 @@ import useReportes from "../hooks/useReportes";
 import ReportTabs from "../components/reportes/ReportTabs";
 import EmptyState from "../components/ui/EstadoVacio";
 import TareasGestionPanel from "../components/reportes/panels/TareasGestionPanel";
+import InventarioResumenPanel from "../components/reportes/panels/InventarioResumenPanel";
 
 export default function Reportes() {
   const {
@@ -30,6 +31,10 @@ export default function Reportes() {
           payload={data?.tareas}
         />
       );
+    }
+
+    if (tab === "inventario") {
+      return <InventarioResumenPanel titulo="Inventario" />;
     }
 
     const titulos = {

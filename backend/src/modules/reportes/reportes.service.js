@@ -42,6 +42,36 @@ function parseIds(value) {
     .filter(Boolean);
 }
 
+// ✅ parse num seguro
+function normPosInt(v, def) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : def;
+}
+
+// ✅ búsqueda ILIKE
+function buildWhereItemBase({ categoria, q }) {
+  const where = { activo: true };
+
+  if (categoria && ["Insumo","Herramienta","Equipo"].includes(categoria)) {
+    where.categoria = categoria;
+  }
+
+  const qq = normStr(q);
+  if (qq) where.nombre = { [Op.iLike]: `%${qq}%` };
+
+  return where;
+}
+
+function buildStockEstadoWhere({ estado_stock }) {
+  const st = normLower(estado_stock);
+
+  // stock_actual y stock_minimo son DECIMAL -> comparaciones funcionan en SQL
+  if (st === "critico") return literal(`"InventarioItem"."stock_actual" <= 0`);
+  if (st === "bajo_minimo") return literal(`"InventarioItem"."stock_actual" > 0 AND "InventarioItem"."stock_actual" <= "InventarioItem"."stock_minimo"`);
+  if (st === "ok") return literal(`"InventarioItem"."stock_actual" > "InventarioItem"."stock_minimo"`);
+  return null;
+}
+
 async function resolverCosechaId({ finca_id, cosecha_id, solo_cosecha_activa }) {
   if (cosecha_id) return Number(cosecha_id);
 
@@ -453,6 +483,347 @@ exports.reporteTareas = async (_currentUser, query) => {
     stats,
     page: Number(page),
     pageSize: ps,
+    total: Number(count),
+    totalPages,
+    data,
+  };
+};
+
+
+
+// ===============================
+// 1) RESUMEN (cards)
+// ===============================
+exports.reporteInventarioResumen = async (_currentUser, query) => {
+  const categoria = normStr(query?.categoria);
+  const q = normStr(query?.q);
+
+  const desde = normStr(query?.desde);
+  const hasta = normStr(query?.hasta);
+
+  // Base items
+  const whereItems = buildWhereItemBase({ categoria, q });
+
+  // 1) críticos / bajo mínimo
+  const [criticos, bajoMinimo] = await Promise.all([
+    models.InventarioItem.count({
+      where: {
+        ...whereItems,
+        [Op.and]: [literal(`"InventarioItem"."stock_actual" <= 0`)],
+      }
+    }),
+    models.InventarioItem.count({
+      where: {
+        ...whereItems,
+        [Op.and]: [literal(`"InventarioItem"."stock_actual" > 0 AND "InventarioItem"."stock_actual" <= "InventarioItem"."stock_minimo"`)],
+      }
+    }),
+  ]);
+
+  // 2) FEFO (30 días por defecto)
+  const fefoDias = normPosInt(query?.fefo_dias, 30);
+  const hoy = new Date();
+  const hastaFefo = new Date(hoy);
+  hastaFefo.setDate(hastaFefo.getDate() + fefoDias);
+
+  const fefoWhere = {
+    activo: true,
+    cantidad_actual: { [Op.gt]: 0 },
+    fecha_vencimiento: {
+      [Op.ne]: null,
+      [Op.lte]: hastaFefo,
+    }
+  };
+
+  // si filtras categoria != Insumo, FEFO debe ser 0
+  const lotesPorVencer = (categoria && categoria !== "Insumo")
+    ? 0
+    : await models.InventarioLote.count({
+        where: fefoWhere,
+        include: [{
+          model: models.InventarioItem,
+          required: true,
+          where: whereItems, // respeta categoria/q (si categoria=Insumo ok)
+          attributes: [],
+        }]
+      });
+
+  // 3) préstamos activos (solo herramienta/equipo, pero si categoria=Insumo da 0)
+  const prestamosActivos = (categoria && categoria === "Insumo")
+    ? 0
+    : await models.HerramientaPrestamo.count({
+        where: { estado: "Prestada" },
+        include: [{
+          model: models.InventarioItem,
+          required: true,
+          where: whereItems,
+          attributes: [],
+        }]
+      });
+
+  // 4) movimientos: entradas/salidas en rango (opcional)
+  const whereMov = {};
+  if (desde && hasta) {
+    whereMov.fecha = { [Op.gte]: startOfDay(desde), [Op.lt]: nextDay(hasta) };
+  } else if (desde) {
+    whereMov.fecha = { [Op.gte]: startOfDay(desde) };
+  } else if (hasta) {
+    whereMov.fecha = { [Op.lt]: nextDay(hasta) };
+  }
+
+  // Si quieres separar entradas vs salidas
+  const [movEntradas, movSalidas] = await Promise.all([
+    models.InventarioMovimiento.count({
+      where: {
+        ...whereMov,
+        tipo: { [Op.in]: ["ENTRADA","AJUSTE_ENTRADA","PRESTAMO_DEVUELTA"] }
+      }
+    }),
+    models.InventarioMovimiento.count({
+      where: {
+        ...whereMov,
+        tipo: { [Op.in]: ["SALIDA","AJUSTE_SALIDA","PRESTAMO_SALIDA","BAJA"] }
+      }
+    }),
+  ]);
+
+  return {
+    header: {
+      categoria: categoria || "Todas",
+      q: q || null,
+      fefo_dias: fefoDias,
+      rango_movimientos: { desde: desde || null, hasta: hasta || null },
+      nota: "Inventario es global (no está ligado a finca/lote en el esquema actual)."
+    },
+    stats: {
+      items_sin_stock: Number(criticos || 0),
+      items_bajo_minimo: Number(bajoMinimo || 0),
+      lotes_por_vencer: Number(lotesPorVencer || 0),
+      prestamos_activos: Number(prestamosActivos || 0),
+      movimientos_entradas: Number(movEntradas || 0),
+      movimientos_salidas: Number(movSalidas || 0),
+    }
+  };
+};
+
+// ===============================
+// 2) STOCK (tabla por ítem)
+// ===============================
+exports.reporteInventarioStock = async (_currentUser, query) => {
+  const categoria = normStr(query?.categoria);
+  const q = normStr(query?.q);
+  const estado_stock = normStr(query?.estado_stock);
+
+  const page = normPosInt(query?.page, 1);
+  const pageSize = normPosInt(query?.pageSize, 20);
+
+  const whereItems = buildWhereItemBase({ categoria, q });
+  const estadoLiteral = buildStockEstadoWhere({ estado_stock });
+
+  const where = {
+    ...whereItems,
+    ...(estadoLiteral ? { [Op.and]: [estadoLiteral] } : {}),
+  };
+
+  const { count, rows } = await models.InventarioItem.findAndCountAll({
+    where,
+    include: [{ model: models.Unidad, attributes: ["codigo","nombre"] }],
+    attributes: {
+      include: [
+        // último movimiento (fecha + tipo) por subquery
+        [literal(`(
+          SELECT MAX(m.fecha)
+          FROM inventario_movimientos m
+          WHERE m.item_id = "InventarioItem"."id"
+        )`), "ultimo_mov_fecha"],
+        [literal(`(
+          SELECT m2.tipo
+          FROM inventario_movimientos m2
+          WHERE m2.item_id = "InventarioItem"."id"
+          ORDER BY m2.fecha DESC
+          LIMIT 1
+        )`), "ultimo_mov_tipo"],
+      ]
+    },
+    order: [
+      // críticos y bajo mínimo primero (para UX)
+      [literal(`CASE
+        WHEN "InventarioItem"."stock_actual" <= 0 THEN 1
+        WHEN "InventarioItem"."stock_actual" > 0 AND "InventarioItem"."stock_actual" <= "InventarioItem"."stock_minimo" THEN 2
+        ELSE 3 END`), "ASC"],
+      ["nombre", "ASC"],
+    ],
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+    distinct: true,
+  });
+
+  const data = rows.map((r) => {
+    const j = r.toJSON();
+    const stock = Number(j.stock_actual);
+    const min = Number(j.stock_minimo);
+
+    let estado = "OK";
+    if (stock <= 0) estado = "Sin stock";
+    else if (stock <= min) estado = "Bajo mínimo";
+
+    return {
+      id: Number(j.id),
+      nombre: j.nombre,
+      categoria: j.categoria,
+      unidad: j.Unidad?.codigo || null,
+      stock_actual: j.stock_actual,
+      stock_minimo: j.stock_minimo,
+      estado,
+      ultimo_movimiento: j.ultimo_mov_fecha
+        ? { fecha: j.ultimo_mov_fecha, tipo: j.ultimo_mov_tipo || null }
+        : null,
+    };
+  });
+
+  const totalPages = Math.max(1, Math.ceil(Number(count) / pageSize));
+
+  return {
+    header: { categoria: categoria || "Todas", q: q || null, estado_stock: estado_stock || "Todos" },
+    page,
+    pageSize,
+    total: Number(count),
+    totalPages,
+    data,
+  };
+};
+
+// ===============================
+// 3) FEFO (tabla por lote)
+// ===============================
+exports.reporteInventarioFefo = async (_currentUser, query) => {
+  const categoria = normStr(query?.categoria);
+  const q = normStr(query?.q);
+  const fefoDias = normPosInt(query?.fefo_dias, 30);
+
+  const page = normPosInt(query?.page, 1);
+  const pageSize = normPosInt(query?.pageSize, 20);
+
+  // si piden categoria distinta de Insumo => no aplica
+  if (categoria && categoria !== "Insumo") {
+    return {
+      header: { categoria, q: q || null, fefo_dias: fefoDias, nota: "FEFO solo aplica a Insumos." },
+      page, pageSize, total: 0, totalPages: 1,
+      data: [],
+    };
+  }
+
+  const hoy = new Date();
+  const hastaFefo = new Date(hoy);
+  hastaFefo.setDate(hastaFefo.getDate() + fefoDias);
+
+  const whereLote = {
+    activo: true,
+    cantidad_actual: { [Op.gt]: 0 },
+    fecha_vencimiento: { [Op.ne]: null, [Op.lte]: hastaFefo },
+  };
+
+  const whereItem = buildWhereItemBase({ categoria: "Insumo", q });
+
+  const { count, rows } = await models.InventarioLote.findAndCountAll({
+    where: whereLote,
+    include: [{
+      model: models.InventarioItem,
+      required: true,
+      where: whereItem,
+      attributes: ["id","nombre","categoria"],
+      include: [{ model: models.Unidad, attributes: ["codigo","nombre"] }],
+    }],
+    order: [["fecha_vencimiento", "ASC"], ["id", "ASC"]],
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+    distinct: true,
+  });
+
+  const data = rows.map((r) => {
+    const j = r.toJSON();
+    const fv = j.fecha_vencimiento ? new Date(j.fecha_vencimiento) : null;
+    const dias = fv ? Math.ceil((fv.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24)) : null;
+
+    return {
+      id: Number(j.id),
+      item: { id: Number(j.InventarioItem?.id), nombre: j.InventarioItem?.nombre },
+      unidad: j.InventarioItem?.Unidad?.codigo || null,
+      codigo_lote_proveedor: j.codigo_lote_proveedor || null,
+      fecha_vencimiento: j.fecha_vencimiento,
+      dias_restantes: dias,
+      cantidad_actual: j.cantidad_actual,
+    };
+  });
+
+  const totalPages = Math.max(1, Math.ceil(Number(count) / pageSize));
+
+  return {
+    header: { categoria: "Insumo", q: q || null, fefo_dias: fefoDias },
+    page,
+    pageSize,
+    total: Number(count),
+    totalPages,
+    data,
+  };
+};
+
+// ===============================
+// 4) PRÉSTAMOS (tabla)
+// ===============================
+exports.reporteInventarioPrestamos = async (_currentUser, query) => {
+  const categoria = normStr(query?.categoria);
+  const q = normStr(query?.q);
+
+  const page = normPosInt(query?.page, 1);
+  const pageSize = normPosInt(query?.pageSize, 20);
+
+  // Insumo no aplica
+  if (categoria && categoria === "Insumo") {
+    return {
+      header: { categoria, q: q || null, nota: "Préstamos aplican a Herramientas/Equipos." },
+      page, pageSize, total: 0, totalPages: 1,
+      data: [],
+    };
+  }
+
+  const whereItem = buildWhereItemBase({ categoria, q });
+
+  const { count, rows } = await models.HerramientaPrestamo.findAndCountAll({
+    where: { estado: "Prestada" },
+    include: [
+      { model: models.InventarioItem, required: true, where: whereItem, attributes: ["id","nombre","categoria"] },
+      { model: models.Usuario, required: true, attributes: ["id","nombres","apellidos","tipo"] },
+    ],
+    attributes: {
+      include: [
+        [literal(`DATE_PART('day', NOW() - "HerramientaPrestamo"."fecha_salida")`), "dias_prestado"]
+      ]
+    },
+    order: [["fecha_salida", "DESC"]],
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+    distinct: true,
+  });
+
+  const data = rows.map((r) => {
+    const j = r.toJSON();
+    return {
+      id: Number(j.id),
+      item: { id: Number(j.InventarioItem?.id), nombre: j.InventarioItem?.nombre, categoria: j.InventarioItem?.categoria },
+      usuario: j.Usuario ? { id: Number(j.Usuario.id), nombre: `${j.Usuario.nombres} ${j.Usuario.apellidos}`, tipo: j.Usuario.tipo } : null,
+      fecha_salida: j.fecha_salida,
+      dias_prestado: j.dias_prestado !== undefined && j.dias_prestado !== null ? Number(j.dias_prestado) : null,
+      estado: j.estado,
+    };
+  });
+
+  const totalPages = Math.max(1, Math.ceil(Number(count) / pageSize));
+
+  return {
+    header: { categoria: categoria || "Herramienta/Equipo", q: q || null, estado: "Prestada" },
+    page,
+    pageSize,
     total: Number(count),
     totalPages,
     data,

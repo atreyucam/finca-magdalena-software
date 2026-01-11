@@ -116,8 +116,8 @@ exports.descargarRecibo = async (req, res, next) => {
 
 exports.reporteSemanaPDF = async (req, res, next) => {
   try {
-    const out = await service.reporteSemanaPDF(+req.params.nominaId);
-    res.json(out); // { url: "/files/reportes/..." }
+    const download = String(req.query.download || "false") === "true";
+    await service.reporteSemanaPDFStream(+req.params.nominaId, { download, res });
   } catch (e) {
     next(e);
   }

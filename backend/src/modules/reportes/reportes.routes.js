@@ -11,6 +11,13 @@ const router = Router();
 
 router.get("/tareas", requireAuth, requireRole('Propietario','Tecnico'), controller.reporteTareas);
 
+// ✅ Inventario (4 secciones)
+router.get("/inventario/resumen",   requireAuth, requireRole('Propietario','Tecnico'), controller.reporteInventarioResumen);
+router.get("/inventario/stock",     requireAuth, requireRole('Propietario','Tecnico'), controller.reporteInventarioStock);
+router.get("/inventario/fefo",      requireAuth, requireRole('Propietario','Tecnico'), controller.reporteInventarioFefo);
+router.get("/inventario/prestamos", requireAuth, requireRole('Propietario','Tecnico'), controller.reporteInventarioPrestamos);
+
+
 // Filtros (catálogos)
 router.get("/filtros/fincas", requireAuth,  filtros.listarFincas);
 router.get("/filtros/cosechas", requireAuth,  filtros.listarCosechasPorFinca);

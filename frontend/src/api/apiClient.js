@@ -163,8 +163,11 @@ export const toggleExcluirDetallePago = (nominaId, detalleId, data = {}) =>
   api.patch(`/pagos/semana/${nominaId}/detalles/${detalleId}/excluir`, data);
 
 export const aprobarSemana = (nominaId) => api.post(`/pagos/semana/${nominaId}/aprobar`);
-export const generarRecibo = (nominaId, detalleId) =>
-  api.post(`/pagos/semana/${nominaId}/recibos/${detalleId}`);
+export const descargarRecibo = (detalleId, { download = true } = {}) =>
+  api.get(`/pagos/recibos/${detalleId}`, {
+    params: { download: String(download) },
+    responseType: "blob",
+  });
 
 export const listarSemanasBorrador = () => api.get("/pagos/semanas/borrador");
 export const eliminarSemana = (nominaId) => api.delete(`/pagos/semana/${nominaId}`);
@@ -291,7 +294,18 @@ export const listarLotesReporte = async (finca_id) => (await api.get("/reportes/
 export const reporteTareas = async (params) => (await api.get("/reportes/tareas", { params })).data;
 
 
+// ✅ Reportes - Inventario (4 secciones)
+export const reporteInventarioResumen = async (params) =>
+  (await api.get("/reportes/inventario/resumen", { params })).data;
 
+export const reporteInventarioStock = async (params) =>
+  (await api.get("/reportes/inventario/stock", { params })).data;
+
+export const reporteInventarioFefo = async (params) =>
+  (await api.get("/reportes/inventario/fefo", { params })).data;
+
+export const reporteInventarioPrestamos = async (params) =>
+  (await api.get("/reportes/inventario/prestamos", { params })).data;
 
 // ================= NOTIFICACIONES =================
 export const listarNotificaciones = (params = {}) => api.get("/notificaciones", { params });

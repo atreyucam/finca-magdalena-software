@@ -7,7 +7,7 @@ import api ,{
   aprobarSemana,
   listarSemanasBorrador,
   eliminarSemana,
-  generarRecibo,
+  descargarRecibo,
   bulkUpdateDetallesPago,
   toggleExcluirDetallePago,
   obtenerTareasDetallePago,
@@ -22,6 +22,43 @@ const getCurrentISOWeek = () => {
   const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 };
+
+const readBlobErrorMessage = async (err) => {
+  try {
+    const data = err?.response?.data;
+    if (data instanceof Blob) {
+      const text = await data.text();
+      const json = JSON.parse(text);
+      return json?.message || json?.error || text;
+    }
+  } catch {}
+  return err?.response?.data?.message || err?.message || "Error";
+};
+
+// ===== Helpers descarga =====
+const getFilenameFromDisposition = (disposition) => {
+  if (!disposition) return null;
+  // content-disposition: attachment; filename="recibo.pdf"
+  const match = /filename\*?=(?:UTF-8'')?["']?([^"';\n]+)["']?/i.exec(disposition);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+};
+
+const downloadBlob = (blob, filename = "archivo.pdf") => {
+  const blobUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(blobUrl);
+};
+
 
 export default function usePagos() {
   const [semanaIso, setSemanaIso] = useState(getCurrentISOWeek());
@@ -176,29 +213,20 @@ export default function usePagos() {
     }
   }, [nomina?.id, cargarBorradores, limpiarTodoPendiente]);
 
-
 const generarReciboPago = useCallback(async (detalleId) => {
-  if (!nomina?.id) return;
-  setProcesando(true);
   try {
-    const res = await generarRecibo(nomina.id, detalleId);
+    const resp = await descargarRecibo(detalleId, { download: true });
 
-    await cargarNomina(semanaIso, true);
+    // filename
+    const dispo = resp.headers?.["content-disposition"];
+    const headerName = getFilenameFromDisposition(dispo);
+    const fallback = `recibo_${semanaIso}_${detalleId}.pdf`;
 
-    const path = res.data?.recibo; // ej: /files/recibos/recibo_...
-    if (!path) return;
-
-    const base = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
-    const url = `${base}${path}`;
-
-    window.open(url, "_blank"); // ✅ nueva pestaña (ver + descargar desde el visor)
+    downloadBlob(resp.data, headerName || fallback);
   } catch (e) {
-    toast.error(e.response?.data?.message || "Error generando recibo");
-  } finally {
-    setProcesando(false);
+    toast.error(await readBlobErrorMessage(e));
   }
-}, [nomina?.id, semanaIso, cargarNomina]);
-
+}, [semanaIso]);
 
 
 
