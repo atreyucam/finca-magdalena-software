@@ -10,9 +10,33 @@ const e = new Error(message); e.status = 403; e.code = 'FORBIDDEN'; return e;
 }
 
 
+function assertTecnicoNoAdmin(currentUser, targetUser, accion = "realizar esta acción") {
+  // targetUser necesita include Role cuando aplique
+  const targetRole = targetUser?.Role?.nombre;
+  if (currentUser?.role === "Tecnico" && targetRole === "Propietario") {
+    throw forbid(`Prohibido: un Técnico no puede ${accion} a administradores (Propietario).`);
+  }
+}
+
+function assertNoDeshabilitarProtegido(targetUser, accion = "deshabilitar") {
+  if (targetUser?.protegido) {
+    throw forbid(`Usuario protegido: no puedes ${accion}.`);
+  }
+}
+
+
+
 function badRequest(message = 'Solicitud inválida') {
 const e = new Error(message); e.status = 400; e.code = 'BAD_REQUEST'; return e;
 }
+
+
+
+
+
+
+
+
 
 exports.crearUsuario = async (currentUser, data) => {
   // Extraemos 'tipo' con default a 'Fijo'
@@ -118,83 +142,111 @@ exports.listarUsuarios = async ({ q, estado, role, tipo, page = 1, pageSize = 20
       estado: u.estado,
       tipo: u.tipo,
       role: u.Role?.nombre,
+      protegido: u.protegido,
     })),
   };
 };
 
 
-exports.obtenerUsuario = async (id) => {
-const u = await models.Usuario.findByPk(id, { include: [{ model: models.Role, attributes: ['nombre'] }] });
-if (!u) return null;
-return {
-id: u.id,
-cedula: u.cedula,
-nombres: u.nombres,
-apellidos: u.apellidos,
-email: u.email,
-telefono: u.telefono,
-direccion: u.direccion,
-fecha_ingreso: u.fecha_ingreso,
-estado: u.estado,
-role: u.Role?.nombre,
-};
+exports.obtenerUsuario = async (currentUser, id) => {
+  const n = Number(id);
+  if (!Number.isInteger(n)) throw badRequest("ID inválido");
+
+  const u = await models.Usuario.findByPk(n, {
+    include: [{ model: models.Role, attributes: ["nombre"] }],
+  });
+  if (!u) return null;
+
+  return {
+    id: u.id,
+    cedula: u.cedula,
+    nombres: u.nombres,
+    apellidos: u.apellidos,
+    email: u.email,
+    telefono: u.telefono,
+    direccion: u.direccion,
+    fecha_ingreso: u.fecha_ingreso,
+    estado: u.estado,
+    tipo: u.tipo,
+    role: u.Role?.nombre,
+    protegido: u.protegido,
+  };
 };
 
 
 exports.editarUsuario = async (currentUser, id, data) => {
-const u = await models.Usuario.findByPk(id, { include: [{ model: models.Role }] });
-if (!u) { const e = new Error('Usuario no encontrado'); e.status = 404; throw e; }
+  const u = await models.Usuario.findByPk(id, { include: [{ model: models.Role }] });
+  if (!u) { const e = new Error("Usuario no encontrado"); e.status = 404; throw e; }
 
+  // ✅ Regla: Técnico NO edita Propietarios
+  assertTecnicoNoAdmin(currentUser, u, "editar");
 
-// Rol destino (si viene)
-if (typeof data.role === 'string') {
-if (currentUser.role === 'Tecnico' && data.role !== 'Trabajador') throw forbid('El técnico solo puede asignar rol Trabajador');
-const newRole = await models.Role.findOne({ where: { nombre: data.role } });
-if (!newRole) throw badRequest('Rol inválido');
-u.role_id = newRole.id;
-}
+  // ✅ Regla: protegido NO puede pasar a Inactivo/Bloqueado
+  if ("estado" in data) {
+    const nuevoEstado = String(data.estado || "");
+    if (["Inactivo", "Bloqueado"].includes(nuevoEstado)) {
+      assertNoDeshabilitarProtegido(u, "deshabilitar/bloquear");
+    }
+  }
 
+  // Rol destino (si viene)
+  if (typeof data.role === "string") {
+    if (currentUser.role === "Tecnico" && data.role !== "Trabajador") {
+      throw forbid("El técnico solo puede asignar rol Trabajador");
+    }
+    const newRole = await models.Role.findOne({ where: { nombre: data.role } });
+    if (!newRole) throw badRequest("Rol inválido");
+    u.role_id = newRole.id;
+  }
 
-// Campos editables
-// AHORA (Eliminamos 'fecha_ingreso' para protegerla):
-const fields = ['cedula','nombres','apellidos','email','telefono','direccion','estado', 'tipo'];
-for (const f of fields) if (f in data) u[f] = data[f];
+  // Campos editables
+  const fields = ["cedula","nombres","apellidos","email","telefono","direccion","estado","tipo"];
+  for (const f of fields) if (f in data) u[f] = data[f];
 
+  // Cambio de password (opcional)
+  if (data.password) u.password_hash = await hashPassword(data.password);
 
-// Cambio de password (opcional)
-if (data.password) u.password_hash = await hashPassword(data.password);
-
-
-try {
-await u.save();
-const roleRow = await models.Role.findByPk(u.role_id);
-return {
-id: u.id,
-cedula: u.cedula,
-nombres: u.nombres,
-apellidos: u.apellidos,
-email: u.email,
-tipo: u.tipo,
-telefono: u.telefono,
-direccion: u.direccion,
-fecha_ingreso: u.fecha_ingreso,
-estado: u.estado,
-role: roleRow?.nombre,
-};
-} catch (err) {
-if (err.name === 'SequelizeUniqueConstraintError') { err.status = 409; err.code = 'DUPLICATE'; err.message = 'Cédula o email ya existen'; }
-throw err;
-}
+  try {
+    await u.save();
+    const roleRow = await models.Role.findByPk(u.role_id);
+    return {
+      id: u.id,
+      cedula: u.cedula,
+      nombres: u.nombres,
+      apellidos: u.apellidos,
+      email: u.email,
+      tipo: u.tipo,
+      telefono: u.telefono,
+      direccion: u.direccion,
+      fecha_ingreso: u.fecha_ingreso,
+      estado: u.estado,
+      role: roleRow?.nombre,
+      protegido: u.protegido,
+    };
+  } catch (err) {
+    if (err.name === "SequelizeUniqueConstraintError") {
+      err.status = 409; err.code = "DUPLICATE"; err.message = "Cédula o email ya existen";
+    }
+    throw err;
+  }
 };
 
 
 exports.desactivarUsuario = async (currentUser, id) => {
-const u = await models.Usuario.findByPk(id);
-if (!u) { const e = new Error('Usuario no encontrado'); e.status = 404; throw e; }
-u.estado = 'Inactivo';
-await u.save();
-return { id: u.id, estado: u.estado };
+  const u = await models.Usuario.findByPk(id, { include: [{ model: models.Role }] });
+  if (!u) { const e = new Error("Usuario no encontrado"); e.status = 404; throw e; }
+
+  // ✅ Regla: Técnico NO desactiva Propietarios
+  assertTecnicoNoAdmin(currentUser, u, "desactivar");
+
+  // ✅ Regla: protegido NO se desactiva
+  assertNoDeshabilitarProtegido(u, "desactivar");
+
+  u.estado = "Inactivo";
+  await u.save();
+  return { id: u.id, estado: u.estado };
 };
+
 
 
 

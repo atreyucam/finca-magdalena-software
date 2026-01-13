@@ -1,35 +1,31 @@
 // frontend/src/components/reportes/panels/TareasAnaliticoPanel.jsx
-import Chart from "react-apexcharts";
 import Badge from "../../ui/Badge";
-import EmptyState from "../../ui/EstadoVacio";
+import ReportEmptyState from "../ui/ReportEmptyState";
+import ApexChart from "../../ui/ApexChart";
 import { BarChart3, Layers, ClipboardList, Crown, Donut } from "lucide-react";
 
 // -------------------------
-// Colores (Tailwind palette aproximada a tus badges)
+// Colores (Apex necesita HEX)
 // -------------------------
 const COLORS_TAREAS = {
-  poda: "#10B981", // emerald-500
-  maleza: "#F59E0B", // amber-500
-  nutricion: "#3B82F6", // blue-500
-  fitosanitario: "#8B5CF6", // violet-500
-  enfundado: "#0EA5E9", // sky-500
-  cosecha: "#F43F5E", // rose-500
-  default: "#64748B", // slate-500
+  poda: "#10B981",
+  maleza: "#F59E0B",
+  nutricion: "#3B82F6",
+  fitosanitario: "#8B5CF6",
+  enfundado: "#0EA5E9",
+  cosecha: "#F43F5E",
+  default: "#64748B",
 };
 
-// Para estados (misma intención visual que tus clases)
 const COLORS_ESTADOS = {
-  Pendiente: "#F59E0B", // amber
-  Asignada: "#0EA5E9", // sky
-  "En progreso": "#3B82F6", // blue
-  Completada: "#10B981", // emerald
-  Verificada: "#8B5CF6", // violet
-  Cancelada: "#F43F5E", // rose
+  Pendiente: "#F59E0B",
+  Asignada: "#0EA5E9",
+  "En progreso": "#3B82F6",
+  Completada: "#10B981",
+  Verificada: "#8B5CF6",
+  Cancelada: "#F43F5E",
 };
 
-// -------------------------
-// Card base con header
-// -------------------------
 function Card({ title, icon, right, children }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -47,26 +43,19 @@ function Card({ title, icon, right, children }) {
   );
 }
 
-// -------------------------
-// Barras horizontales (Apex)
-// -------------------------
 function HorizontalBar({ title, icon, items = [], getLabel, getValue, getColor }) {
   const labels = items.map(getLabel);
   const values = items.map((it) => Number(getValue(it) || 0));
-  const colors = items.map((it) => getColor?.(it) || "#64748B");
+  const colors = items.map((it) => getColor?.(it) || COLORS_TAREAS.default);
 
   const series = [{ name: "Total", data: values }];
 
   const options = {
-    chart: {
-      type: "bar",
-      toolbar: { show: false },
-      animations: { enabled: true },
-    },
+    chart: { type: "bar", toolbar: { show: false }, animations: { enabled: true } },
     plotOptions: {
       bar: {
         horizontal: true,
-        distributed: true, // 👈 cada barra toma un color diferente
+        distributed: true,
         barHeight: "70%",
         borderRadius: 8,
       },
@@ -77,63 +66,37 @@ function HorizontalBar({ title, icon, items = [], getLabel, getValue, getColor }
       style: { fontSize: "12px", fontWeight: 700 },
       formatter: (val) => `${val}`,
     },
-    xaxis: {
-      categories: labels,
-      labels: { style: { fontSize: "12px" } },
-    },
-    yaxis: {
-      labels: { style: { fontSize: "12px" } },
-    },
-    grid: {
-      borderColor: "#E2E8F0", // slate-200
-      strokeDashArray: 4,
-    },
-    tooltip: {
-      y: { formatter: (val) => `${val}` },
-    },
+    xaxis: { categories: labels, labels: { style: { fontSize: "12px" } } },
+    yaxis: { labels: { style: { fontSize: "12px" } } },
+    grid: { borderColor: "#E2E8F0", strokeDashArray: 4 },
+    tooltip: { y: { formatter: (val) => `${val}` } },
   };
 
   return (
-    <Card
-      title={title}
-      icon={icon}
-      right={<Badge variante="info">{items.length}</Badge>}
-    >
+    <Card title={title} icon={icon} right={<Badge variante="info">{items.length}</Badge>}>
       {!items.length ? (
-        <div className="text-sm text-slate-500">Sin datos para mostrar.</div>
+        <ReportEmptyState variant="empty" />
       ) : (
-        <div className="h-[320px]">
-          <Chart options={options} series={series} type="bar" height="100%" />
-        </div>
+        <ApexChart type="bar" series={series} options={options} height={320} />
       )}
     </Card>
   );
 }
 
-// -------------------------
-// Dona por estados (Apex)
-// -------------------------
 function DonutEstados({ porEstado = {} }) {
-  // porEstado esperado: { "Pendiente": 10, "Completada": 5, ... }
   const entries = Object.entries(porEstado || {});
-
-  // orden consistente
   const ORDER = ["Pendiente", "Asignada", "En progreso", "Completada", "Verificada", "Cancelada"];
   entries.sort((a, b) => ORDER.indexOf(a[0]) - ORDER.indexOf(b[0]));
 
   const labels = entries.map(([k]) => k);
   const values = entries.map(([, v]) => Number(v));
-  const colors = labels.map((l) => COLORS_ESTADOS[l] || "#64748B");
+  const colors = labels.map((l) => COLORS_ESTADOS[l] || COLORS_TAREAS.default);
 
   const options = {
-    chart: { type: "donut" },
+    chart: { type: "donut", toolbar: { show: false } },
     labels,
     colors,
-    legend: {
-      position: "bottom",
-      fontSize: "12px",
-      markers: { width: 10, height: 10, radius: 10 },
-    },
+    legend: { position: "bottom", fontSize: "12px", markers: { width: 10, height: 10, radius: 10 } },
     dataLabels: { enabled: true },
     tooltip: { y: { formatter: (val) => `${val}` } },
     stroke: { width: 2, colors: ["#fff"] },
@@ -160,20 +123,11 @@ function DonutEstados({ porEstado = {} }) {
       icon={<Donut className="h-5 w-5 text-slate-700" />}
       right={<Badge variante="info">{values.reduce((a, b) => a + b, 0)}</Badge>}
     >
-      {values.length === 0 ? (
-        <div className="text-sm text-slate-500">Sin datos para mostrar.</div>
-      ) : (
-        <div className="h-[320px]">
-          <Chart options={options} series={values} type="donut" height="100%" />
-        </div>
-      )}
+      {values.length === 0 ? <ReportEmptyState variant="empty" /> : <ApexChart type="donut" series={values} options={options} height={320} />}
     </Card>
   );
 }
 
-// -------------------------
-// Lista (la tuya) para mantener respaldo
-// -------------------------
 function TopList({ title, icon, items = [], renderItem }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -189,7 +143,7 @@ function TopList({ title, icon, items = [], renderItem }) {
 
       <div className="p-4">
         {!items.length ? (
-          <div className="text-sm text-slate-500">Sin datos para mostrar.</div>
+          <ReportEmptyState variant="empty" />
         ) : (
           <div className="space-y-2">
             {items.map((it, idx) => (
@@ -220,25 +174,14 @@ export default function TareasAnaliticoPanel({ stats, loading = false }) {
   }
 
   if (!stats) {
-    return (
-      <EmptyState>
-        No hay estadísticas disponibles. Realiza una consulta para generarlas.
-      </EmptyState>
-    );
+    return <ReportEmptyState variant="idle" />;
   }
 
   const totalFinca = Number(stats.total_finca || 0);
   const rankingTareas = Array.isArray(stats.ranking_tareas) ? stats.ranking_tareas : [];
   const rankingLotes = Array.isArray(stats.ranking_lotes) ? stats.ranking_lotes : [];
-  const dominantes = Array.isArray(stats.tarea_mas_realizada_por_lote)
-    ? stats.tarea_mas_realizada_por_lote
-    : [];
-
-  // ✅ si el backend aún no devuelve esto, quedará vacío sin romper UI
+  const dominantes = Array.isArray(stats.tarea_mas_realizada_por_lote) ? stats.tarea_mas_realizada_por_lote : [];
   const porEstado = stats.por_estado || {};
-
-  // UX: si hay muy pocos datos, lista se ve mejor que gráfico
-  const showCharts = true;
 
   return (
     <div className="space-y-4">
@@ -262,80 +205,38 @@ export default function TareasAnaliticoPanel({ stats, loading = false }) {
             </div>
           </div>
 
-          <Badge variante={totalFinca > 0 ? "success" : "warning"}>
+          <Badge variante={totalFinca > 0 ? "exito" : "warning"}>
             {totalFinca > 0 ? "Con datos" : "Sin datos"}
           </Badge>
         </div>
       </div>
 
-      {/* ✅ Gráficos (cuando ya hay volumen) */}
-      {showCharts && (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <HorizontalBar
-            title="Ranking de tareas (Top)"
-            icon={<ClipboardList className="h-5 w-5 text-slate-700" />}
-            items={rankingTareas}
-            getLabel={(it) => it.nombre || it.codigo}
-            getValue={(it) => it.total}
-            getColor={(it) => COLORS_TAREAS[String(it.codigo || "").toLowerCase()] || COLORS_TAREAS.default}
-          />
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <HorizontalBar
+          title="Ranking de tareas (Top)"
+          icon={<ClipboardList className="h-5 w-5 text-slate-700" />}
+          items={rankingTareas}
+          getLabel={(it) => it.nombre || it.codigo}
+          getValue={(it) => it.total}
+          getColor={(it) => COLORS_TAREAS[String(it.codigo || "").toLowerCase()] || COLORS_TAREAS.default}
+        />
 
-          <HorizontalBar
-            title="Ranking de lotes (Top)"
-            icon={<Layers className="h-5 w-5 text-slate-700" />}
-            items={rankingLotes}
-            getLabel={(it) => it.lote || `Lote #${it.lote_id}`}
-            getValue={(it) => it.total}
-            // lotes: colores “rotativos” usando los de tareas (para variar sin inventar paleta)
-            getColor={(it) => {
-              const idx = Number(it.lote_id || 0) % 6;
-              const pool = ["poda", "maleza", "nutricion", "fitosanitario", "enfundado", "cosecha"];
-              return COLORS_TAREAS[pool[idx]] || COLORS_TAREAS.default;
-            }}
-          />
+        <HorizontalBar
+          title="Ranking de lotes (Top)"
+          icon={<Layers className="h-5 w-5 text-slate-700" />}
+          items={rankingLotes}
+          getLabel={(it) => it.lote || `Lote #${it.lote_id}`}
+          getValue={(it) => it.total}
+          getColor={(it) => {
+            const idx = Number(it.lote_id || 0) % 6;
+            const pool = ["poda", "maleza", "nutricion", "fitosanitario", "enfundado", "cosecha"];
+            return COLORS_TAREAS[pool[idx]] || COLORS_TAREAS.default;
+          }}
+        />
 
-          <DonutEstados porEstado={porEstado} />
-        </div>
-      )}
-
-      {/* ✅ Listas (si hay pocos datos o como respaldo) */}
-      {!showCharts && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <TopList
-            title="Ranking de tareas (Top)"
-            icon={<ClipboardList className="h-5 w-5 text-slate-700" />}
-            items={rankingTareas}
-            renderItem={(it, idx) => (
-              <>
-                <div className="min-w-0">
-                  <div className="text-sm font-bold text-slate-900 truncate">
-                    #{idx + 1} — {it.nombre || it.codigo}
-                  </div>
-                  <div className="text-xs text-slate-500">Código: {it.codigo}</div>
-                </div>
-                <Badge variante="info">{Number(it.total || 0)}</Badge>
-              </>
-            )}
-          />
-
-          <TopList
-            title="Ranking de lotes (Top)"
-            icon={<Layers className="h-5 w-5 text-slate-700" />}
-            items={rankingLotes}
-            renderItem={(it, idx) => (
-              <>
-                <div className="min-w-0">
-                  <div className="text-sm font-bold text-slate-900 truncate">
-                    #{idx + 1} — {it.lote || `Lote #${it.lote_id}`}
-                  </div>
-                  <div className="text-xs text-slate-500">ID: {it.lote_id}</div>
-                </div>
-                <Badge variante="info">{Number(it.total || 0)}</Badge>
-              </>
-            )}
-          />
-        </div>
-      )}
+        <DonutEstados porEstado={porEstado} />
+      </div>
 
       {/* Dominante por lote */}
       <TopList

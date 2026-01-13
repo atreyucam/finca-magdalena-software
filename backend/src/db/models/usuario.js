@@ -20,6 +20,10 @@ module.exports = (sequelize) => {
     
     role_id: { type: DataTypes.BIGINT, allowNull: false },
 
+    // ✅ NUEVO: usuario protegido (no editable/desactivable por otros)
+    protegido: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+
+
     // CAMBIO 3: Nuevo campo discriminador
     tipo: { 
       type: DataTypes.ENUM('Fijo', 'Esporadico'), 

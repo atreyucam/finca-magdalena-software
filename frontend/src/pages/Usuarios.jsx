@@ -3,15 +3,18 @@ import { useNavigate } from "react-router-dom";
 import { 
   Plus, Users, UserX, UserCheck, Edit, Eye 
 } from "lucide-react";
+import { getSocket, connectSocket } from "../lib/socket";
 
 // API
-import { listarUsuarios, editarUsuario, desactivarUsuario, obtenerEstadisticas } from "../api/apiClient";
-
+import { listarUsuarios, editarUsuario, 
+  desactivarUsuario, obtenerEstadisticas } from "../api/apiClient";
+import useAuthStore from "../store/authStore";
 // Hooks
 import useListado from "../hooks/useListado";
 
 // Componentes UI
-import { Tabla, TablaCabecera, TablaHead, TablaCuerpo, TablaFila, TablaCelda, TablaVacia } from "../components/ui/Tabla";
+import { Tabla, TablaCabecera, TablaHead, TablaCuerpo, 
+  TablaFila, TablaCelda, TablaVacia } from "../components/ui/Tabla";
 import Paginador from "../components/ui/Paginador";
 import Boton from "../components/ui/Boton";
 
@@ -24,6 +27,18 @@ export default function Usuarios() {
   const [crearModalOpen, setCrearModalOpen] = useState(false);
   const [usuarioAEditar, setUsuarioAEditar] = useState(null);
   const [stats, setStats] = useState({ registrados: 0, activos: 0, inactivos: 0 });
+const me = useAuthStore((s) => s.user);
+const myId = Number(me?.id);
+
+const base =
+  location.pathname.startsWith("/tech") ? "/tech" :
+  location.pathname.startsWith("/worker") ? "/worker" :
+  "/owner";
+const esProtegido = (u) => !!u?.protegido;
+
+// Técnico NO puede editar/desactivar a Propietarios (admins)
+const tecnicoBloqueadoContraAdmin = (u) => me?.role === "Tecnico" && u?.role === "Propietario";
+
 
   // ✅ AQUÍ ESTÁ EL CAMBIO DE PAGINACIÓN: pageSize: 15
   const {
@@ -55,6 +70,23 @@ export default function Usuarios() {
   };
 
   useEffect(() => { cargarStats(); }, []);
+  useEffect(() => {
+  connectSocket();
+  const socket = getSocket();
+
+  const onChanged = () => {
+    recargar();
+    cargarStats();
+  };
+
+  socket.on("usuarios:changed", onChanged);
+
+  return () => {
+    socket.off("usuarios:changed", onChanged);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
 
   const toggleEstado = async (u) => {
     const esActivo = u.estado === "Activo";
@@ -161,12 +193,53 @@ export default function Usuarios() {
                         <TablaCelda className="text-slate-600">{u.email || <span className="italic text-slate-400 text-xs">Sin acceso</span>}</TablaCelda>
                         <TablaCelda><span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${u.estado === "Activo" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>{u.estado}</span></TablaCelda>
                         <TablaCelda>
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => navigate(`/owner/usuarios/${u.id}`)} title="Ver Detalles" className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-sky-600 transition-colors shadow-sm"><Eye size={16} /></button>
-                            <button onClick={() => setUsuarioAEditar(u)} title="Editar Rápido" className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-amber-600 transition-colors shadow-sm"><Edit size={16} /></button>
-                            <button onClick={() => toggleEstado(u)} title={u.estado === "Activo" ? "Desactivar" : "Activar"} className={`p-1.5 rounded-xl border transition-all shadow-sm flex items-center justify-center ${u.estado === "Activo" ? "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100" : "bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100"}`}>{u.estado === "Activo" ? <UserX size={16} /> : <UserCheck size={16} />}</button>
-                          </div>
-                        </TablaCelda>
+  <div className="flex items-center gap-2">
+    {/* VER: siempre */}
+    <button
+      onClick={() => navigate(`${base}/usuarios/${u.id}`)}
+      title="Ver Detalles"
+      className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-sky-600 transition-colors shadow-sm"
+    >
+      <Eye size={16} />
+    </button>
+
+    {/* EDITAR: oculto si técnico intenta tocar admin */}
+    {!tecnicoBloqueadoContraAdmin(u) && (
+      <button
+        onClick={() => setUsuarioAEditar(u)}
+        title="Editar Rápido"
+        className="p-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-amber-600 transition-colors shadow-sm"
+      >
+        <Edit size={16} />
+      </button>
+    )}
+
+    {/* DESACTIVAR: oculto si es protegido, o si técnico contra admin */}
+    {!esProtegido(u) && !tecnicoBloqueadoContraAdmin(u) && (
+      <button
+        onClick={() => toggleEstado(u)}
+        title={u.estado === "Activo" ? "Desactivar" : "Activar"}
+        className={`p-1.5 rounded-xl border transition-all shadow-sm flex items-center justify-center ${
+          u.estado === "Activo"
+            ? "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100"
+            : "bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100"
+        }`}
+      >
+        {u.estado === "Activo" ? <UserX size={16} /> : <UserCheck size={16} />}
+      </button>
+    )}
+
+    {/* etiquetas */}
+    {esProtegido(u) && (
+      <span className="ml-2 text-xs font-semibold text-slate-400">Usuario protegido</span>
+    )}
+    {tecnicoBloqueadoContraAdmin(u) && (
+      <span className="ml-2 text-xs font-semibold text-slate-400">Sin permisos</span>
+    )}
+  </div>
+</TablaCelda>
+
+
                       </TablaFila>
                     ))
                   )}

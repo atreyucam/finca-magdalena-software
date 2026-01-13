@@ -4,6 +4,8 @@ import ReportTabs from "../components/reportes/ReportTabs";
 import EmptyState from "../components/ui/EstadoVacio";
 import TareasGestionPanel from "../components/reportes/panels/TareasGestionPanel";
 import InventarioResumenPanel from "../components/reportes/panels/InventarioResumenPanel";
+import PagosManoObraPanel from "../components/reportes/panels/PagosManoObraPanel";
+import ProduccionPanel from "../components/reportes/panels/ProduccionPanel";
 
 export default function Reportes() {
   const {
@@ -16,6 +18,7 @@ export default function Reportes() {
     loading,
     error,
     data,
+    limpiar,
   } = useReportes();
 
   const renderPanel = () => {
@@ -36,6 +39,31 @@ export default function Reportes() {
     if (tab === "inventario") {
       return <InventarioResumenPanel titulo="Inventario" />;
     }
+
+     if (tab === "pagos") {
+      return <PagosManoObraPanel titulo="Mano de obra" />;
+    }
+
+    if (tab === "produccion") {
+  return (
+    <ProduccionPanel
+  filtrosProduccion={filtros.produccion}
+  setFiltroProduccion={(k, v) =>
+    setFiltros((prev) => ({
+      ...prev,
+      produccion: { ...(prev.produccion || {}), [k]: v },
+    }))
+  }
+  generar={generar}
+  limpiar={limpiar}
+  loading={loading}
+  error={error}
+  payload={data?.produccion}
+/>
+
+  );
+}
+
 
     const titulos = {
       alta: "Alta dirección",

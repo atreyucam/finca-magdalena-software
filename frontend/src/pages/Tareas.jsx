@@ -92,8 +92,11 @@ const recargarTodo = useCallback(() => {
     };
     cargarAuxiliares();
   }, []);
-
-  const irADetalle = (id) => navigate(`/owner/detalleTarea/${id}`, { state: { from: location.pathname } });
+const base =
+  location.pathname.startsWith("/tech") ? "/tech" :
+  location.pathname.startsWith("/worker") ? "/worker" :
+  "/owner";
+  const irADetalle = (id) => navigate(`${base}/detalleTarea/${id}`, { state: { from: location.pathname } });
 
   const toggleFiltroEstado = (estado) => {
     actualizarFiltro("estado", filtros.estado === estado ? "" : estado);

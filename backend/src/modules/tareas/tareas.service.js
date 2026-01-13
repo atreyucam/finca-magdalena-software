@@ -443,7 +443,7 @@ exports.crearTarea = async (currentUser, data, io) => {
   // A) notif al creador
   if (creadorEstaAsignado) {
     await notifs.crearYEmitir(io, creador_id, {
-      tipo: "Tareas",
+      tipo: "Tarea",
       titulo: "Tarea creada y asignada",
       mensaje: `Se creó y se te asignó la tarea "${result.titulo}" para el ${fechaTxt}${loteInfo?.nombre ? ` (Lote: ${loteInfo.nombre})` : ""}.`,
       referencia: ref,

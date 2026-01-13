@@ -3,6 +3,8 @@ import { toastApi } from "../utils/toastApi";
 
 import { getExp, isExpired } from "../utils/jwt";
 import api from "../api/apiClient";
+import { connectSocket, disconnectSocket, updateSocketToken } from "../lib/socket";
+
 
 const STORAGE_KEY = "fm_auth_v1";
 
@@ -30,33 +32,39 @@ const useAuthStore = create((set, get) => ({
   refreshToken: null,
   isBootstrapped: false,
 
-  bootstrap: async () => {
-    const persisted = loadPersisted();
-    set({ ...persisted, isBootstrapped: true });
-    // programar refresh proactivo si aplica
-    get().scheduleProactiveRefresh();
-  },
+bootstrap: async () => {
+  const persisted = loadPersisted();
+  set({ ...persisted, isBootstrapped: true });
 
-  scheduleProactiveRefresh: () => {
-    clearTimeout(refreshTimerId);
-    const { accessToken } = get();
-    if (!accessToken) return;
+  // programar refresh proactivo si aplica
+  get().scheduleProactiveRefresh();
 
-    const expMs = getExp(accessToken);
-    if (!expMs) return;
+  // ✅ si ya había sesión guardada, conecta socket
+  if (persisted?.accessToken) connectSocket();
+},
 
-    // refrescar 60s antes de expirar (mínimo 5s desde ahora)
-    const delta = Math.max(expMs - Date.now() - 60_000, 5000);
-    refreshTimerId = setTimeout(async () => {
-      try {
-        await get().refresh();
-      } catch {
-        // si falla, el interceptor lo gestionará al siguiente 401
-      } finally {
-        get().scheduleProactiveRefresh();
-      }
-    }, delta);
-  },
+
+scheduleProactiveRefresh: () => {
+  clearTimeout(refreshTimerId);
+  const { accessToken } = get();
+  if (!accessToken) return;
+
+  const expMs = getExp(accessToken);
+  if (!expMs) return;
+
+  const delta = Math.max(expMs - Date.now() - 60_000, 5000);
+
+  refreshTimerId = setTimeout(async () => {
+    try {
+      await get().refresh();               // intenta refrescar
+      get().scheduleProactiveRefresh();    // reprograma
+    } catch (e) {
+      // ✅ si no se puede refrescar, sesión muerta -> logout inmediato
+      get().logout({ silent: true });
+    }
+  }, delta);
+},
+
 
 login: async (email, password) => {
   const res = await api.post("/auth/login", { email, password });
@@ -69,21 +77,34 @@ login: async (email, password) => {
 
   set({ user, accessToken: access, refreshToken: refresh || null });
   persist(get());
+
+  // ✅ Socket
+  updateSocketToken(access);
+  connectSocket();
+
   get().scheduleProactiveRefresh();
-  // toastApi.success(`Bienvenido, ${user?.nombres || user?.name || "usuario"}`);
   return user;
 },
 
-  logout: () => {
-    clearTimeout(refreshTimerId);
-    set({ user: null, accessToken: null, refreshToken: null });
-    localStorage.removeItem(STORAGE_KEY);
-    toastApi.info("Sesión cerrada");
-  },
 
- refresh: async () => {
+logout: (opts = {}) => {
+  clearTimeout(refreshTimerId);
+
+  // ✅ Socket
+  disconnectSocket();
+
+  set({ user: null, accessToken: null, refreshToken: null });
+  localStorage.removeItem(STORAGE_KEY);
+
+  if (!opts?.silent) toastApi.info("Sesión cerrada");
+  if (opts?.redirect !== false) window.location.replace("/login");
+},
+
+
+refresh: async () => {
   const { refreshToken } = get();
   if (!refreshToken) throw new Error("No hay refresh_token");
+
   const res = await api.post("/auth/refresh", { refresh_token: refreshToken });
   const { access_token, refresh_token, tokens } = res.data || {};
 
@@ -91,14 +112,20 @@ login: async (email, password) => {
   const refresh = refresh_token || tokens?.refresh || tokens?.refreshToken;
 
   if (!access) throw new Error("Refresh sin access token");
+
   set((s) => ({
     ...s,
     accessToken: access || s.accessToken,
     refreshToken: refresh ?? s.refreshToken,
   }));
   persist(get());
+
+  // ✅ Actualiza token del socket (clave para reconexiones)
+  updateSocketToken(access);
+
   return get().accessToken;
 },
+
 
   setUserFromProfile: (user) => {
     set((s) => ({ ...s, user }));

@@ -66,6 +66,16 @@ api.interceptors.response.use(
       error.response?.data
     );
 
+    // ✅ Si el backend dice que el usuario está INACTIVO/BLOQUEADO => logout inmediato (sin refresh)
+    if (error.response?.status === 401) {
+      const code = error.response?.data?.code;
+      if (code === "USER_INACTIVE") {
+        useAuthStore.getState().logout({ silent: true });
+        return Promise.reject(error);
+      }
+    }
+
+
     // ✅ Manejo 401 con refresh (una sola vez)
     if (error.response?.status === 401 && !originalRequest._retry) {
       const { refresh, logout } = useAuthStore.getState();
@@ -306,6 +316,47 @@ export const reporteInventarioFefo = async (params) =>
 
 export const reporteInventarioPrestamos = async (params) =>
   (await api.get("/reportes/inventario/prestamos", { params })).data;
+
+
+// ✅ Reporte Mano de Obra (Pagos)
+export const reporteManoObraResumen = async (params) =>
+  (await api.get("/reportes/mano-obra/resumen", { params })).data;
+
+export const reporteManoObraDetalle = async (params) =>
+  (await api.get("/reportes/mano-obra/detalle", { params })).data;
+
+
+// ✅ Reportes - Producción / Cosecha (6 secciones)
+export const reporteProduccionResumen = async (params) =>
+  (await api.get("/reportes/produccion/resumen", { params })).data;
+
+export const reporteProduccionPorLote = async (params) =>
+  (await api.get("/reportes/produccion/por-lote", { params })).data;
+
+export const reporteProduccionClasificacion = async (params) =>
+  (await api.get("/reportes/produccion/clasificacion", { params })).data;
+
+export const reporteProduccionMerma = async (params) =>
+  (await api.get("/reportes/produccion/merma", { params })).data;
+
+export const reporteProduccionLogistica = async (params) =>
+  (await api.get("/reportes/produccion/logistica", { params })).data;
+
+export const reporteProduccionEventos = async (params) =>
+  (await api.get("/reportes/produccion/eventos", { params })).data;
+
+// Producción - comparar
+export const compararProduccionFincas = (params) =>
+  api.get("/reportes/produccion/comparar/fincas", { params });
+
+export const compararProduccionCosechas = (params) =>
+  api.get("/reportes/produccion/comparar/cosechas", { params });
+
+export const compararProduccionLotes = (params) =>
+  api.get("/reportes/produccion/comparar/lotes", { params });
+
+
+
 
 // ================= NOTIFICACIONES =================
 export const listarNotificaciones = (params = {}) => api.get("/notificaciones", { params });

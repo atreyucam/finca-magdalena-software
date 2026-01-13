@@ -6,16 +6,18 @@ import {
   listarCosechasReporte,
   listarLotesReporte,
 } from "../../../api/apiClient";
+
 import useAuthStore from "../../../store/authStore";
+import useToast from "../../../hooks/useToast";
 
-
-import Boton from "../../ui/Boton";
 import Select from "../../ui/Select";
 import Input from "../../ui/Input";
 import Badge from "../../ui/Badge";
-import EmptyState from "../../ui/EstadoVacio";
-import useToast from "../../../hooks/useToast";
+import Boton from "../../ui/Boton";
+import EstadoVacio from "../../ui/EstadoVacio";
+import EstadoPanelVacio from "../../reportes/ui/EstadoPanelVacio";
 import Paginador from "../../ui/Paginador";
+
 import {
   Tabla,
   TablaCabecera,
@@ -26,18 +28,12 @@ import {
   TablaVacia,
 } from "../../ui/Tabla";
 
+import ReportPanelLayout from "../ui/ReportPanelLayout";
+import ReportEmptyState from "../ui/ReportEmptyState";
 import MiniTabs from "../MiniTabs";
 import TareasAnaliticoPanel from "./TareasAnaliticoPanel";
 
-import {
-  Sprout,
-  Layers,
-  Warehouse,
-  ClipboardList,
-  CalendarRange,
-  FileSearch,
-  Eye,
-} from "lucide-react";
+import { FileSearch, Eye } from "lucide-react";
 
 // util: fecha YYYY-MM-DD
 const toYmd = (d) => {
@@ -104,6 +100,7 @@ export default function TareasGestionPanel({
 }) {
   const notify = useToast();
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
 
   // catálogos
   const [fincas, setFincas] = useState([]);
@@ -114,14 +111,9 @@ export default function TareasGestionPanel({
   // preset UI
   const [preset, setPreset] = useState("30d");
 
-  // mostrar resumen SOLO cuando se haga consulta
-  const [showResumen, setShowResumen] = useState(false);
+  // UX
   const [hasConsulted, setHasConsulted] = useState(false);
-
-  // ✅ mini tab: analítico/detalle
   const [subTab, setSubTab] = useState("analitico");
-  const user = useAuthStore((s) => s.user);
-
 
   // defaults: últimos 30 días
   const defaultDesde = useMemo(() => addDays(todayYmd(), -29), []);
@@ -142,16 +134,19 @@ export default function TareasGestionPanel({
 
   const [draft, setDraft] = useState(applied);
 
-  // cargar lotes/cosechas por finca
+  // cargar lotes/cosechas por finca (robusto)
   const loadFiltrosDeFinca = useCallback(async (fincaId) => {
     const [cRes, lRes] = await Promise.all([
       listarCosechasReporte(fincaId),
       listarLotesReporte(fincaId),
     ]);
 
-    setCosechas(cRes?.data || []);
+    const cose = cRes?.data || cRes || [];
+    const lots = lRes?.data || lRes || [];
+
+    setCosechas(Array.isArray(cose) ? cose : []);
     setCosechaActivaId(cRes?.cosecha_activa_id || null);
-    setLotes(lRes || []);
+    setLotes(Array.isArray(lots) ? lots : []);
 
     return { cosecha_activa_id: cRes?.cosecha_activa_id || null };
   }, []);
@@ -190,7 +185,6 @@ export default function TareasGestionPanel({
       const r = computeRangeFromPreset(presetValue, draft.cosecha_id);
       setPreset(presetValue);
       setDraft((d) => ({ ...d, ...r, page: 1 }));
-      setShowResumen(false);
     },
     [computeRangeFromPreset, draft.cosecha_id]
   );
@@ -283,7 +277,6 @@ export default function TareasGestionPanel({
         { key: "cos_total", label: "Total $" },
       ];
 
-    // ✅ al final, acciones
     return [...cols, { key: "__acciones", label: "Acciones" }];
   }, [applied.tipo_codigo]);
 
@@ -319,14 +312,12 @@ export default function TareasGestionPanel({
     });
   }, [result?.data]);
 
-  // header UI
-  const headerUi = useMemo(() => {
+  // header UI (chips)
+  const metaChips = useMemo(() => {
     const finca = fincas.find((x) => String(x.id) === String(applied.finca_id));
     const cosecha =
       cosechas.find((x) => String(x.id) === String(applied.cosecha_id)) ||
-      (applied.cosecha_id
-        ? null
-        : cosechas.find((x) => String(x.id) === String(cosechaActivaId)));
+      (applied.cosecha_id ? null : cosechas.find((x) => String(x.id) === String(cosechaActivaId)));
 
     const tipo = TIPOS.find((t) => String(t.codigo) === String(applied.tipo_codigo));
 
@@ -336,27 +327,24 @@ export default function TareasGestionPanel({
           .join(", ")
       : "Todos";
 
-    const desde = applied.desde || "-";
-    const hasta = applied.hasta || "-";
-
-    return {
-      finca: finca?.nombre || "-",
-      lotes: lotesTxt,
-      cosecha: cosecha ? `${cosecha.codigo} — ${cosecha.estado}` : "(Auto) Activa",
-      tipo: tipo?.nombre || "Todas",
-      rango: `${desde} → ${hasta}`,
-      total: result?.total ?? 0,
-    };
-  }, [applied, fincas, cosechas, lotes, result?.total, cosechaActivaId]);
+    return [
+      { label: "Finca", value: finca?.nombre || "-" },
+      { label: "Cosecha", value: cosecha ? `${cosecha.codigo} — ${cosecha.estado}` : "(Auto) Activa" },
+      { label: "Lotes", value: lotesTxt },
+      { label: "Tipo", value: tipo?.nombre || "Todas" },
+      { label: "Rango", value: `${applied.desde || "-"} — ${applied.hasta || "-"}` },
+    ];
+  }, [applied, fincas, cosechas, lotes, cosechaActivaId]);
 
   // mount: cargar fincas y defaults (SIN consultar)
   useEffect(() => {
     (async () => {
       try {
         const f = await listarFincasReporte();
-        setFincas(f || []);
+        const list = f?.data || f || [];
+        setFincas(Array.isArray(list) ? list : []);
 
-        const fincaDefault = f?.[0]?.id ? String(f[0].id) : "";
+        const fincaDefault = list?.[0]?.id ? String(list[0].id) : "";
         if (!fincaDefault) return;
 
         const { cosecha_activa_id } = await loadFiltrosDeFinca(fincaDefault);
@@ -392,7 +380,6 @@ export default function TareasGestionPanel({
         setDraft(nextUi);
         setFiltros(next);
 
-        setShowResumen(false);
         setHasConsulted(false);
         setSubTab("analitico");
       } catch (e) {
@@ -407,12 +394,12 @@ export default function TareasGestionPanel({
 
   const onChangeFinca = useCallback(
     async (fincaId) => {
-      setShowResumen(false);
       setDraft((d) => ({ ...d, finca_id: fincaId, lote_ids: [], cosecha_id: "", page: 1 }));
+      setHasConsulted(false);
+      setSubTab("analitico");
 
       try {
         const { cosecha_activa_id } = await loadFiltrosDeFinca(fincaId);
-
         const nuevaCosechaId = cosecha_activa_id ? String(cosecha_activa_id) : "";
         const r = computeRangeFromPreset("30d");
 
@@ -431,7 +418,6 @@ export default function TareasGestionPanel({
     [computeRangeFromPreset, loadFiltrosDeFinca, notify]
   );
 
-  // Consultar
   const onConsultar = useCallback(async () => {
     const nextUi = { ...draft, page: 1 };
     setApplied(nextUi);
@@ -449,8 +435,6 @@ export default function TareasGestionPanel({
     };
 
     setFiltros(nextHook);
-
-    setShowResumen(true);
     setHasConsulted(true);
 
     try {
@@ -459,7 +443,6 @@ export default function TareasGestionPanel({
   }, [draft, generar, setFiltros]);
 
   const onLimpiar = useCallback(() => {
-    setShowResumen(false);
     setHasConsulted(false);
     setSubTab("analitico");
 
@@ -477,7 +460,6 @@ export default function TareasGestionPanel({
     }));
   }, [computeRangeFromPreset]);
 
-  // paginación
   const onPageChange = useCallback(
     async (newPage) => {
       if (!hasConsulted) return;
@@ -499,9 +481,6 @@ export default function TareasGestionPanel({
 
       setFiltros(nextHook);
       await generar(nextHook);
-
-      setShowResumen(true);
-      setHasConsulted(true);
     },
     [applied, generar, hasConsulted, setFiltros]
   );
@@ -527,16 +506,13 @@ export default function TareasGestionPanel({
 
       setFiltros(nextHook);
       await generar(nextHook);
-
-      setShowResumen(true);
-      setHasConsulted(true);
     },
     [applied, generar, hasConsulted, setFiltros]
   );
 
   const toggleLote = useCallback((id) => {
     const sid = String(id);
-    setShowResumen(false);
+    setHasConsulted(false);
 
     setDraft((d) => {
       const exists = (d.lote_ids || []).map(String).includes(sid);
@@ -545,366 +521,209 @@ export default function TareasGestionPanel({
     });
   }, []);
 
-  // ✅ redirect al detalle (cambia la ruta si tu app usa otra)
- const goToDetalleTarea = useCallback(
-  (id) => {
-    const base =
-      user?.role === "Propietario" ? "/owner" :
-      user?.role === "Tecnico" ? "/tech" :
-      ""; // fallback
+  const goToDetalleTarea = useCallback(
+    (id) => {
+      const base =
+        user?.role === "Propietario" ? "/owner" :
+        user?.role === "Tecnico" ? "/tech" :
+        "";
+      navigate(`${base}/detalleTarea/${id}`);
+    },
+    [navigate, user?.role]
+  );
 
-    navigate(`${base}/detalleTarea/${id}`);
-  },
-  [navigate, user?.role]
-);
+  const primaryDisabled = !draft.finca_id || loading;
 
+  const filtrosJSX = (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <Select label="Finca" value={draft.finca_id} onChange={(e) => onChangeFinca(e.target.value)}>
+          <option value="">Seleccione</option>
+          {fincas.map((f) => (
+            <option key={f.id} value={f.id}>{f.nombre}</option>
+          ))}
+        </Select>
 
-  if (!applied.finca_id && fincas.length === 0) {
-    return <EmptyState>No hay fincas disponibles para reportes.</EmptyState>;
-  }
+        <Select
+          label="Cosecha"
+          value={draft.cosecha_id}
+          onChange={(e) => {
+            const val = e.target.value;
+            setHasConsulted(false);
 
-  return (
-    <div className="mt-6 space-y-4 animate-in slide-in-from-bottom-4 duration-500">
-      {error && (
-        <div className="p-4 bg-red-50 text-red-700 rounded-xl border border-red-100 flex items-center gap-2">
-          ⚠️ <strong>Error:</strong> {error}
+            if (preset === "inicio") {
+              const r = computeRangeFromPreset("inicio", val);
+              setDraft((d) => ({ ...d, cosecha_id: val, ...r, page: 1 }));
+            } else {
+              setDraft((d) => ({ ...d, cosecha_id: val, page: 1 }));
+            }
+          }}
+        >
+          <option value="">(Auto) Activa</option>
+          {cosechas.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.codigo} — {c.estado}
+            </option>
+          ))}
+        </Select>
+
+        <Select
+          label="Tipo de tarea"
+          value={draft.tipo_codigo}
+          onChange={(e) => {
+            setHasConsulted(false);
+            setDraft((d) => ({ ...d, tipo_codigo: e.target.value, page: 1 }));
+          }}
+        >
+          {TIPOS.map((t) => (
+            <option key={t.codigo} value={t.codigo}>{t.nombre}</option>
+          ))}
+        </Select>
+
+        <Select
+          label="Estado"
+          value={draft.estado}
+          onChange={(e) => {
+            setHasConsulted(false);
+            setDraft((d) => ({ ...d, estado: e.target.value, page: 1 }));
+          }}
+        >
+          {ESTADOS.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Select label="Rango rápido" value={preset} onChange={(e) => applyPreset(e.target.value)}>
+          {PRESETS.map((p) => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </Select>
+
+        <Input
+          label="Desde"
+          type="date"
+          value={draft.desde}
+          onChange={(e) => {
+            setHasConsulted(false);
+            setPreset("custom");
+            setDraft((d) => ({ ...d, desde: e.target.value, page: 1 }));
+          }}
+        />
+
+        <Input
+          label="Hasta"
+          type="date"
+          value={draft.hasta}
+          onChange={(e) => {
+            setHasConsulted(false);
+            setPreset("custom");
+            setDraft((d) => ({ ...d, hasta: e.target.value, page: 1 }));
+          }}
+        />
+      </div>
+
+      <div className="h-px bg-slate-200" />
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+            Lotes (multi-selección)
+          </div>
+
+          <div className="flex gap-2">
+            <Boton
+              variante="secundario"
+              onClick={() => {
+                setHasConsulted(false);
+                setDraft((d) => ({ ...d, lote_ids: [], page: 1 }));
+              }}
+              disabled={!draft.lote_ids.length}
+            >
+              Todos
+            </Boton>
+
+            <Boton
+              variante="secundario"
+              onClick={() => {
+                setHasConsulted(false);
+                setDraft((d) => ({ ...d, lote_ids: lotes.map((l) => String(l.id)), page: 1 }));
+              }}
+              disabled={!lotes.length}
+            >
+              Seleccionar todos
+            </Boton>
+          </div>
         </div>
-      )}
 
-      {/* ✅ MiniTabs */}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {lotes.length === 0 ? (
+            <span className="text-sm text-slate-500">No hay lotes para esta finca.</span>
+          ) : null}
+
+          {lotes.map((l) => {
+            const active = (draft.lote_ids || []).map(String).includes(String(l.id));
+            return (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => toggleLote(l.id)}
+                className={[
+                  "px-3 py-1.5 rounded-full border text-sm transition",
+                  active
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                    : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                {l.nombre}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-2 text-xs text-slate-600">
+          {draft.lote_ids?.length ? `Seleccionados: ${draft.lote_ids.length}` : "Modo: Todos los lotes"}
+        </div>
+      </div>
+    </div>
+  );
+
+  const resultsBody = (
+    <div className="space-y-4">
+      {/* SubTabs */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <MiniTabs tab={subTab} setTab={setSubTab} />
-        {loading && <Badge variante="info">Cargando...</Badge>}
-      </div>
-
-      {/* FILTROS */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 sm:p-5 border-b border-slate-200">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="flex items-start gap-3">
-              <div className="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center">
-                <span className="text-lg">📑</span>
-              </div>
-
-              <div>
-                <h3 className="text-base font-extrabold text-slate-900 leading-tight">
-                  Reporte de Tareas
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Filtros de búsqueda y rango de fechas
-                </p>
-
-                <div className="mt-2 flex items-center gap-2">
-                  {dirty && <Badge variante="warning">Cambios sin aplicar</Badge>}
-                  {loading && <Badge variante="info">Cargando...</Badge>}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Boton onClick={onLimpiar} variante="secundario">
-                Limpiar
-              </Boton>
-              <Boton onClick={onConsultar} disabled={!draft.finca_id || loading}>
-                Consultar
-              </Boton>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 sm:p-5 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <Select
-              label="Finca"
-              value={draft.finca_id}
-              onChange={(e) => onChangeFinca(e.target.value)}
-            >
-              <option value="">Seleccione</option>
-              {fincas.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nombre}
-                </option>
-              ))}
-            </Select>
-
-            <Select
-              label="Cosecha"
-              value={draft.cosecha_id}
-              onChange={(e) => {
-                const val = e.target.value;
-                setShowResumen(false);
-
-                if (preset === "inicio") {
-                  const r = computeRangeFromPreset("inicio", val);
-                  setDraft((d) => ({ ...d, cosecha_id: val, ...r, page: 1 }));
-                } else {
-                  setDraft((d) => ({ ...d, cosecha_id: val, page: 1 }));
-                }
-              }}
-            >
-              <option value="">(Auto) Activa</option>
-              {cosechas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.codigo} — {c.estado}
-                </option>
-              ))}
-            </Select>
-
-            <Select
-              label="Tipo de tarea"
-              value={draft.tipo_codigo}
-              onChange={(e) => {
-                setShowResumen(false);
-                setDraft((d) => ({ ...d, tipo_codigo: e.target.value, page: 1 }));
-              }}
-            >
-              {TIPOS.map((t) => (
-                <option key={t.codigo} value={t.codigo}>
-                  {t.nombre}
-                </option>
-              ))}
-            </Select>
-
-            <Select
-              label="Estado"
-              value={draft.estado}
-              onChange={(e) => {
-                setShowResumen(false);
-                setDraft((d) => ({ ...d, estado: e.target.value, page: 1 }));
-              }}
-            >
-              {ESTADOS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Select
-              label="Rango rápido"
-              value={preset}
-              onChange={(e) => applyPreset(e.target.value)}
-            >
-              {PRESETS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </Select>
-
-            <Input
-              label="Desde"
-              type="date"
-              value={draft.desde}
-              onChange={(e) => {
-                setShowResumen(false);
-                setPreset("custom");
-                setDraft((d) => ({ ...d, desde: e.target.value, page: 1 }));
-              }}
-            />
-
-            <Input
-              label="Hasta"
-              type="date"
-              value={draft.hasta}
-              onChange={(e) => {
-                setShowResumen(false);
-                setPreset("custom");
-                setDraft((d) => ({ ...d, hasta: e.target.value, page: 1 }));
-              }}
-            />
-          </div>
-
-          <div className="pt-1">
-            <div className="h-px bg-slate-200" />
-          </div>
-
-          <div className="pt-1">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                Lotes (multi-selección)
-              </div>
-
-              <div className="flex gap-2">
-                <Boton
-                  variante="secundario"
-                  onClick={() => {
-                    setShowResumen(false);
-                    setDraft((d) => ({ ...d, lote_ids: [], page: 1 }));
-                  }}
-                  disabled={!draft.lote_ids.length}
-                >
-                  Todos
-                </Boton>
-
-                <Boton
-                  variante="secundario"
-                  onClick={() => {
-                    setShowResumen(false);
-                    setDraft((d) => ({
-                      ...d,
-                      lote_ids: lotes.map((l) => l.id),
-                      page: 1,
-                    }));
-                  }}
-                  disabled={!lotes.length}
-                >
-                  Seleccionar todos
-                </Boton>
-              </div>
-            </div>
-
-            <div className="mt-2 flex flex-wrap gap-2">
-              {lotes.length === 0 && (
-                <span className="text-sm text-slate-500">
-                  No hay lotes para esta finca.
-                </span>
-              )}
-
-              {lotes.map((l) => {
-                const active = (draft.lote_ids || []).map(String).includes(String(l.id));
-                return (
-                  <button
-                    key={l.id}
-                    type="button"
-                    onClick={() => toggleLote(l.id)}
-                    className={[
-                      "px-3 py-1.5 rounded-full border text-sm transition",
-                      active
-                        ? "bg-emerald-50 border-emerald-300 text-emerald-800"
-                        : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50",
-                    ].join(" ")}
-                  >
-                    {l.nombre}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-2 text-xs text-slate-600">
-              {draft.lote_ids?.length
-                ? `Seleccionados: ${draft.lote_ids.length}`
-                : "Modo: Todos los lotes"}
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          {dirty ? <Badge variante="warning">Cambios sin aplicar</Badge> : null}
+          {loading ? <Badge variante="info">Cargando...</Badge> : null}
         </div>
       </div>
 
-      {/* ✅ RESUMEN */}
-      {showResumen && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center">
-                  <Sprout className="h-5 w-5 text-slate-700" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-500 uppercase">Finca</div>
-                  <div className="text-sm font-semibold text-slate-800 truncate">
-                    {headerUi.finca}
-                  </div>
-                </div>
-              </div>
+      {/* Error inline */}
+      {error ? (
+        <EstadoVacio tipo="error" titulo="No se pudo cargar el reporte">
+          {error}
+        </EstadoVacio>
+      ) : null}
 
-              <div className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center">
-                  <Warehouse className="h-5 w-5 text-slate-700" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-500 uppercase">Cosecha</div>
-                  <div className="text-sm font-semibold text-slate-800 truncate">
-                    {headerUi.cosecha}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center">
-                  <Layers className="h-5 w-5 text-slate-700" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-500 uppercase">Lote</div>
-                  <div className="text-sm font-semibold text-slate-800 truncate">
-                    {headerUi.lotes}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center">
-                  <ClipboardList className="h-5 w-5 text-slate-700" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-500 uppercase">Tarea</div>
-                  <div className="text-sm font-semibold text-slate-800 truncate">
-                    {headerUi.tipo}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center">
-                  <CalendarRange className="h-5 w-5 text-slate-700" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-500 uppercase">Rango</div>
-                  <div className="text-sm font-semibold text-slate-800 truncate">
-                    {headerUi.rango}
-                  </div>
-                  <div className="text-xs text-slate-500">Total: {headerUi.total}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ✅ CONTENIDO según subTab */}
-      {subTab === "analitico" ? (
+      {/* Estado inicial (antes de consultar) */}
+      {!hasConsulted ? (
+        <EstadoPanelVacio tipo="calendario" titulo="Aún no hay consulta" icono={FileSearch}>
+          Configura los filtros y presiona <b>Consultar</b>.
+        </EstadoPanelVacio>
+      ) : subTab === "analitico" ? (
         !payload ? (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10">
-            <div className="flex flex-col items-center text-center gap-3">
-              <div className="h-12 w-12 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center">
-                <FileSearch className="h-6 w-6 text-slate-700" />
-              </div>
-              <div>
-                <div className="text-base font-extrabold text-slate-900">
-                  Analítico aún no disponible
-                </div>
-                <div className="text-sm text-slate-500 mt-1 max-w-xl">
-                  Configura los filtros y presiona{" "}
-                  <span className="font-semibold text-slate-700">Consultar</span>{" "}
-                  para generar estadísticas.
-                </div>
-              </div>
-            </div>
-          </div>
+          <ReportEmptyState variant="idle" title="Analítico aún no disponible">
+            Configura los filtros y presiona <b>Consultar</b> para generar estadísticas.
+          </ReportEmptyState>
         ) : (
           <TareasAnaliticoPanel stats={result?.stats} loading={loading} />
         )
       ) : !payload ? (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10">
-          <div className="flex flex-col items-center text-center gap-3">
-            <div className="h-12 w-12 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center">
-              <FileSearch className="h-6 w-6 text-slate-700" />
-            </div>
-            <div>
-              <div className="text-base font-extrabold text-slate-900">
-                Aún no has generado un reporte
-              </div>
-              <div className="text-sm text-slate-500 mt-1 max-w-xl">
-                Configura los filtros y presiona{" "}
-                <span className="font-semibold text-slate-700">Consultar</span>{" "}
-                para ver la tabla transaccional.
-              </div>
-            </div>
-          </div>
-        </div>
+        <ReportEmptyState variant="idle" title="Aún no has generado un reporte">
+          Configura los filtros y presiona <b>Consultar</b> para ver la tabla transaccional.
+        </ReportEmptyState>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap">
@@ -912,7 +731,7 @@ export default function TareasGestionPanel({
               <div className="text-sm font-bold text-slate-800">
                 Resultados ({result?.total ?? 0})
               </div>
-              {loading && <Badge variante="info">Cargando...</Badge>}
+              {loading ? <Badge variante="info">Cargando...</Badge> : null}
             </div>
 
             <div className="flex items-center gap-2">
@@ -923,9 +742,7 @@ export default function TareasGestionPanel({
                 onChange={(e) => onPageSizeChange(e.target.value)}
               >
                 {[10, 20, 50, 100].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
+                  <option key={n} value={n}>{n}</option>
                 ))}
               </select>
             </div>
@@ -947,7 +764,6 @@ export default function TareasGestionPanel({
                 rowsUi.map((r) => (
                   <TablaFila key={r.id}>
                     {columns.map((c) => {
-                      // ✅ Acciones
                       if (c.key === "__acciones") {
                         return (
                           <TablaCelda key={c.key} className="whitespace-nowrap">
@@ -971,9 +787,7 @@ export default function TareasGestionPanel({
                       if (c.key === "estado") {
                         return (
                           <TablaCelda key={c.key}>
-                            <Badge variante={String(r.estado || "")}>
-                              {String(r.estado || "")}
-                            </Badge>
+                            <Badge variante={String(r.estado || "")}>{String(r.estado || "")}</Badge>
                           </TablaCelda>
                         );
                       }
@@ -1000,5 +814,29 @@ export default function TareasGestionPanel({
         </div>
       )}
     </div>
+  );
+
+  return (
+    <ReportPanelLayout
+      title="Tareas"
+      description="Indicadores y detalle transaccional de actividades por finca, cosecha, lote y rango de fechas."
+      meta={metaChips}
+      primaryAction={{
+        label: "Consultar",
+        onClick: onConsultar,
+        disabled: primaryDisabled,
+        loading,
+      }}
+      secondaryAction={{
+        label: "Limpiar",
+        onClick: onLimpiar,
+        disabled: loading,
+        variant: "outline",
+      }}
+      filters={filtrosJSX}
+      wrapResults
+    >
+      {resultsBody}
+    </ReportPanelLayout>
   );
 }

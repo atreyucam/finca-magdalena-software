@@ -4,6 +4,8 @@ import Loading from "../components/Loading";
 import RequireAuth from "./RequireAuth";
 import RequireRole from "./RequireRole";
 import ScrollToTop from "../components/ScrollToTop";
+import ProtectedRoute from "./ProtectedRoute";
+
 
 import Login from "../pages/Login";
 
@@ -39,7 +41,7 @@ export default function AppRouter() {
         <Route path="/login" element={<Login />} />
 
         {/* Protegido */}
-        <Route element={<RequireAuth />}>
+        <Route element={<ProtectedRoute />}>
           {/* Propietario */}
           <Route element={<RequireRole roles={["Propietario"]} />}>
             <Route path="/owner" element={<OwnerLayout />}>
@@ -66,9 +68,13 @@ export default function AppRouter() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="tareas" element={<Tareas />} />
               <Route path="inventario" element={<Inventario />} />
+              <Route path="usuarios" element={<Usuarios />} />
+              <Route path="usuarios/:id" element={<DetalleUsuario />} />
               <Route path="metricas" element={<Reportes />} />
+              <Route path="pagos" element={<Pagos />} />
               <Route path="notificaciones" element={<Notificaciones />} />
               <Route path="detalleTarea/:id" element={<DetalleTarea />} />
+              <Route path="mi-perfil" element={<MiPerfil />} />
             </Route>
           </Route>
 

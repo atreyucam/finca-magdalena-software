@@ -12,7 +12,7 @@ const router = Router();
 
 // Crear / consolidar semana (Propietario)
 // body: { semana_iso: "2025-W37", cosecha_id?: 1 }
-router.post("/semana", requireAuth, requireRole("Propietario"), controller.consolidarSemana);
+router.post("/semana", requireAuth, requireRole("Propietario", "Tecnico"), controller.consolidarSemana);
 
 // Obtener semana + detalles
 // query: semana_iso=2025-W37 OR nomina_id=123
@@ -22,7 +22,7 @@ router.get("/semana", requireAuth, requireRole("Propietario", "Tecnico"), contro
 router.patch(
   "/semana/:nominaId/detalles/:detalleId/excluir",
   requireAuth,
-  requireRole("Propietario"),
+  requireRole("Propietario", "Tecnico"),
   controller.toggleExcluirDetalle
 );
 
@@ -30,7 +30,7 @@ router.patch(
 router.patch(
   "/semana/:nominaId/detalles/:detalleId",
   requireAuth,
-  requireRole("Propietario"),
+  requireRole("Propietario", "Tecnico"),
   controller.editarDetalle
 );
 
@@ -38,7 +38,7 @@ router.patch(
 router.patch(
   "/semana/:nominaId/detalles",
   requireAuth,
-  requireRole("Propietario"),
+  requireRole("Propietario", "Tecnico"),
   controller.bulkUpdateDetalles
 );
 
@@ -58,13 +58,13 @@ router.get(
   controller.obtenerTareasDetalle
 );
 
-// (Opcional) PDF
-router.post(
-  "/semana/:nominaId/recibos/:detalleId",
-  requireAuth,
-  requireRole("Propietario"),
-  controller.generarRecibo
-);
+// // (Opcional) PDF
+// router.post(
+//   "/semana/:nominaId/recibos/:detalleId",
+//   requireAuth,
+//   requireRole("Propietario", "Tecnico", "Trabajador"),
+//   controller.generarRecibo
+// );
 // ✅ VER / DESCARGAR RECIBO (SEGURO)
 // query: ?download=true para forzar descarga
 router.get(
@@ -91,7 +91,7 @@ router.get("/mios", requireAuth, controller.misRecibos);
 router.get(
   "/semanas/borrador",
   requireAuth,
-  requireRole("Propietario"),
+  requireRole("Propietario", "Tecnico"),
   controller.listarSemanasBorrador
 );
 
@@ -99,7 +99,7 @@ router.get(
 router.delete(
   "/semana/:nominaId",
   requireAuth,
-  requireRole("Propietario"),
+  requireRole("Propietario", "Tecnico"),
   controller.eliminarSemana
 );
 

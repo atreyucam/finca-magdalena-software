@@ -6,6 +6,8 @@ const ITEMS_NAVEGACION = [
   { to: `${BASE_URL}/dashboard`, label: "Dashboard" },
   { to: `${BASE_URL}/tareas`, label: "Tareas" },
   { to: `${BASE_URL}/inventario`, label: "Inventario" },
+  { to: `${BASE_URL}/usuarios`, label: "Usuarios" },
+  { to: `${BASE_URL}/pagos`, label: "Pagos" },
   { to: `${BASE_URL}/metricas`, label: "Métricas" },
   { to: `${BASE_URL}/notificaciones`, label: "Notificaciones" },
 ];
