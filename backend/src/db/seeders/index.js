@@ -1,132 +1,125 @@
 /**
- * SEED BÁSICO – ROLES, USUARIOS, UNIDADES, TIPOS, INVENTARIO
- * ----------------------------------------------------------------------
- * Crea:
- *  - Roles
- *  - Usuarios
- *  - Unidades
- *  - Items de Inventario
- *  - Tipos de Actividad (en minúsculas)
+ * SEED BÁSICO - CATÁLOGOS + 1 PROPIETARIO
+ * --------------------------------------
+ * - Roles
+ * - Unidades
+ * - Tipos de actividad
+ * - 1 usuario Propietario
  */
 
 module.exports = async function runSeed(models) {
   const { hashPassword } = require("../../utils/crypto");
 
-  // --------------------------------------------------------
-  // HELPERS
-  // --------------------------------------------------------
-  async function ensure(model, where, defaults) {
-    const [o] = await model.findOrCreate({ where, defaults: { ...where, ...defaults } });
-    return o;
+  // Configuración
+  const RESET = true;
+  if (process.env.NODE_ENV === "production") throw new Error("❌ NO EJECUTAR EN PROD");
+
+  console.log("🌱 Seed Básico: Iniciando...");
+
+  // ✅ Helper: guardar solo atributos existentes (por si tu modelo cambió)
+  const pickAttrs = (model, payload) => {
+    const attrs = model?.rawAttributes ? Object.keys(model.rawAttributes) : [];
+    const out = {};
+    for (const k of Object.keys(payload)) if (attrs.includes(k)) out[k] = payload[k];
+    return out;
+  };
+
+  // 1) LIMPIEZA (solo lo que vamos a recrear)
+  if (RESET) {
+    console.log("🧹 Limpiando catálogos y usuarios...");
+
+    const tables = [
+      models.Usuario,
+      models.TipoActividad,
+      models.Unidad,
+      models.Role,
+    ];
+
+    for (const m of tables) {
+      if (m) {
+        await m.destroy({ where: {}, truncate: true, cascade: true, restartIdentity: true });
+      }
+    }
   }
 
-  async function ensureUnidad(codigo, nombre) {
-    return ensure(models.Unidad, { codigo }, { codigo, nombre });
+  // 2) ROLES
+  console.log("🏗️ Creando Roles...");
+  const roles = {};
+  for (const r of ["Propietario", "Tecnico", "Trabajador"]) {
+    roles[r] = await models.Role.create({ nombre: r });
   }
 
-  async function ensureRole(nombre) {
-    return ensure(models.Role, { nombre }, { nombre });
-  }
-
-  async function ensureItem(nombre, data) {
-    return ensure(models.InventarioItem, { nombre }, data);
-  }
-
-  async function ensureUsuario(email, data) {
-    return ensure(models.Usuario, { email }, data);
-  }
-
-  // --------------------------------------------------------
-  // ROLES
-  // --------------------------------------------------------
-  const rolProp = await ensureRole("Propietario");
-  const rolTec  = await ensureRole("Tecnico");
-  const rolTrab = await ensureRole("Trabajador");
-
-  // --------------------------------------------------------
-  // UNIDADES
-  // --------------------------------------------------------
-  const uUnidad = await ensureUnidad("unidad", "Unidad");
-  const uKg     = await ensureUnidad("kg", "Kilogramo");
-  const uL      = await ensureUnidad("l", "Litro");
-
-  // --------------------------------------------------------
-  // TIPOS DE ACTIVIDAD (minúsculas)
-  // --------------------------------------------------------
-  const tipos = [
-    ["poda", "Poda"],
-    ["maleza", "Manejo de malezas"],
-    ["nutricion", "Nutrición"],
-    ["fitosanitario", "Protección fitosanitaria"],
-    ["enfundado", "Enfundado"],
-    ["cosecha", "Cosecha"]
+  // 3) UNIDADES
+  console.log("🏗️ Creando Unidades...");
+  const unidadesBase = [
+    { codigo: "KG", nombre: "Kilogramo" },
+    { codigo: "G", nombre: "Gramo" },
+    { codigo: "L", nombre: "Litro" },
+    { codigo: "ML", nombre: "Mililitro" },
+    { codigo: "GAL", nombre: "Galón" },
+    { codigo: "UND", nombre: "Unidad" },
+    { codigo: "HA", nombre: "Hectárea" },
+    { codigo: "M", nombre: "Metro" },
+    { codigo: "CM", nombre: "Centímetro" },
   ];
 
-  for (const [codigo, nombre] of tipos) {
-    await ensure(models.TipoActividad, { codigo }, { nombre });
-  }
-
-  // --------------------------------------------------------
-  // USUARIOS
-  // --------------------------------------------------------
-  const admin = await ensureUsuario("admin@finca.test", {
-    cedula: "0000000000",
-    nombres: "Admin",
-    apellidos: "Finca",
-    telefono: "0000000000",
-    direccion: "Palora",
-    role_id: rolProp.id,
-    password_hash: await hashPassword("admin12345"),
-    estado: "Activo"
-  });
-
-  const tecnico = await ensureUsuario("tecnico@finca.test", {
-    cedula: "1111111111",
-    nombres: "Tecnico",
-    apellidos: "Principal",
-    telefono: "0000000001",
-    direccion: "Palora",
-    role_id: rolTec.id,
-    password_hash: await hashPassword("tec123456"),
-    estado: "Activo"
-  });
-
-  const trabajador = await ensureUsuario("trabajador@finca.test", {
-    cedula: "2222222222",
-    nombres: "Juan",
-    apellidos: "Pérez",
-    telefono: "0000000002",
-    direccion: "Palora",
-    role_id: rolTrab.id,
-    password_hash: await hashPassword("trab123456"),
-    estado: "Activo"
-  });
-
-  // para evitar warnings de no usados
-  void admin;
-  void tecnico;
-  void trabajador;
-
-  // --------------------------------------------------------
-  // INVENTARIO
-  // --------------------------------------------------------
-  const items = [
-    ["Fertilizante NPK", "Insumo",     uKg.id,     100, 10],
-    ["SCORE",            "Insumo",     uL.id,      5,   1],
-    ["Machete",          "Herramienta",uUnidad.id, 10,  2],
-    ["Tijeras de poda",  "Herramienta",uUnidad.id, 5,   1],
-    ["Motoguadaña Stihl","Equipo",     uUnidad.id, 2,   0]
-  ];
-
-  for (const [nombre, categoria, unidad_id, stock, min] of items) {
-    await ensureItem(nombre, {
-      nombre,
-      categoria,
-      unidad_id,
-      stock_actual: stock,
-      stock_minimo: min
+  for (const it of unidadesBase) {
+    await models.Unidad.create({
+      codigo: it.codigo,
+      nombre: it.nombre,
     });
   }
 
-  console.log("✅ SEED BÁSICO COMPLETO: roles, usuarios, unidades, tipos e inventario creados.");
+  // 4) TIPOS DE ACTIVIDAD
+  console.log("🏗️ Creando Tipos de Actividad...");
+  const listaTipos = [
+    ["poda", "Poda"],
+    ["maleza", "Manejo de malezas"],
+    ["nutricion", "Nutrición"],
+    ["fitosanitario", "Protección Fitosanitaria"],
+    ["enfundado", "Enfundado"],
+    ["cosecha", "Cosecha"],
+  ];
+
+  for (const [codigo, nombre] of listaTipos) {
+    await models.TipoActividad.create({ codigo, nombre });
+  }
+
+// 5) USUARIOS
+console.log("👤 Creando usuarios...");
+
+const pass = await hashPassword("123456");
+
+// ✅ SOLO este es protegido
+await models.Usuario.create({
+  cedula: "0102030405",
+  nombres: "German Patricio",
+  apellidos: "Villacis Camacho",
+  email: "g.villacis@fmagdalena.com",
+  password_hash: pass,
+  role_id: roles.Propietario.id,
+  estado: "Activo",
+  tipo: "Fijo",
+  protegido: true,
+});
+
+// ❌ Alex ya NO es protegido
+await models.Usuario.create({
+  cedula: "0102030406",
+  nombres: "Alex Jonathan",
+  apellidos: "Camacho Montenegro",
+  email: "a.camacho@fmagdalena.com",
+  password_hash: pass,
+  role_id: roles.Propietario.id,
+  estado: "Activo",
+  tipo: "Fijo",
+  protegido: false,
+});
+
+
+  console.log("✅ Seed Básico completado con éxito.");
+  console.log(`✅ Roles: ${Object.keys(roles).length}`);
+  console.log(`✅ Unidades: ${unidadesBase.length}`);
+  console.log(`✅ TiposActividad: ${listaTipos.length}`);
+  console.log("✅ Usuario Propietario: germanvillacis@fincalamagdalena.com (pass: 123456)");
 };

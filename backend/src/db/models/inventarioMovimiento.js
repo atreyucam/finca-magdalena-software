@@ -4,6 +4,7 @@ module.exports = (sequelize) => {
   const InventarioMovimiento = sequelize.define('InventarioMovimiento', {
     id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
     item_id: { type: DataTypes.BIGINT, allowNull: false },
+    lote_id: { type: DataTypes.BIGINT, allowNull: true, comment: 'Opcional pero recomendado para trazabilidad estricta' },
     tipo: {
       type: DataTypes.ENUM(
         'ENTRADA','SALIDA',

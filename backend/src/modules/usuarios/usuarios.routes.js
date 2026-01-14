@@ -5,25 +5,31 @@ const { requireRole } = require('../../middlewares/rbac.middleware');
 
 
 const router = Router();
+router.get('/me', requireAuth, controller.obtenerMiUsuario);
+router.get('/estadisticas', requireAuth, requireRole('Propietario','Tecnico'), controller.obtenerEstadisticas);
+router.post('/', requireAuth, requireRole('Propietario','Tecnico'), controller.crearUsuario);
+router.get('/', requireAuth, requireRole('Propietario','Tecnico'), controller.listarUsuarios);
 
 /* ========= NUEVO: endpoints “me” ========= */
-router.get('/me', requireAuth, controller.obtenerMiUsuario);
 router.get('/me/pagos', requireAuth, controller.obtenerMisPagos);
 router.get('/me/tareas', requireAuth, controller.obtenerMisTareas);
 /* ======================================== */
 
 
 // Solo Propietario y Tecnico pueden gestionar usuarios
-router.post('/', requireAuth, requireRole('Propietario','Tecnico'), controller.crearUsuario);
-router.get('/', requireAuth, requireRole('Propietario','Tecnico'), controller.listarUsuarios);
 router.get('/:id', requireAuth, requireRole('Propietario','Tecnico'), controller.obtenerUsuario);
 router.patch('/:id', requireAuth, requireRole('Propietario','Tecnico'), controller.editarUsuario);
 router.patch('/:id/desactivar', requireAuth, requireRole('Propietario','Tecnico'), controller.desactivarUsuario);
 
-router.get('/estadisticas', requireAuth, requireRole('Propietario','Tecnico'), controller.obtenerEstadisticas);
 router.get('/:id/pagos', requireAuth, requireRole('Propietario','Tecnico'), controller.obtenerPagosUsuario);
 router.get('/:id/tareas', requireAuth, requireRole('Propietario','Tecnico'), controller.obtenerTareasUsuario);
 
+
+// “me”
+router.get("/me/tareas-semanas", requireAuth, controller.obtenerMisTareasPorSemana);
+
+// admin
+router.get("/:id/tareas-semanas", requireAuth, requireRole("Propietario","Tecnico"), controller.obtenerTareasUsuarioPorSemana);
 
 
 module.exports = router;

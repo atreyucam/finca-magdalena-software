@@ -1,30 +1,41 @@
 // backend/src/modules/tareas/tareas.controller.js
 const service = require('./tareas.service');
 
+// --- CREACIÓN Y GESTIÓN BÁSICA ---
+
 exports.crearTarea = async (req, res, next) => {
   try {
     const io = req.app.get("io");
+    // Ahora el service espera: { ...datos, items: [], detalle: {} }
     const out = await service.crearTarea(req.user, req.body, io);
     res.status(201).json(out);
   } catch (err) { next(err); }
 };
 
-exports.asignarUsuarios = async (req, res, next) => {
+exports.obtenerTarea = async (req, res, next) => {
   try {
-    const io = req.app.get("io");
-    const out = await service.asignarUsuarios(req.user, +req.params.id, req.body, io);
+    const out = await service.obtenerTarea(req.user, +req.params.id);
+    if (!out) return res.status(404).json({ message: 'Tarea no encontrada' });
     res.json(out);
   } catch (err) { next(err); }
 };
 
-
-exports.actualizarAsignaciones = async (req, res, next) => {
+exports.listarTareas = async (req, res, next) => {
   try {
-    const io = req.app.get("io");
-    const out = await service.actualizarAsignaciones(req.user, +req.params.id, req.body, io);
+    // Pasa query params directamente (lote_id, estado, etc.)
+    const data = await service.listarTareas(req.user, req.query);
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
+exports.resumenTareas = async (req, res, next) => {
+  try {
+    const out = await service.resumenTareas(req.user, req.query);
     res.json(out);
   } catch (err) { next(err); }
 };
+
+// --- FLUJO DE ESTADOS ---
 
 exports.iniciarTarea = async (req, res, next) => {
   try {
@@ -37,6 +48,7 @@ exports.iniciarTarea = async (req, res, next) => {
 exports.completarTarea = async (req, res, next) => {
   try {
     const io = req.app.get("io");
+    // req.body debe incluir { items: [...], detalle: {...} } para cierre real
     const out = await service.completarTarea(req.user, +req.params.id, req.body, io);
     res.json(out);
   } catch (err) { next(err); }
@@ -50,10 +62,50 @@ exports.verificarTarea = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.cancelarTarea = async (req, res, next) => {
+  try {
+    const io = req.app.get("io");
+    const out = await service.cancelarTarea(req.user, +req.params.id, req.body, io);
+    res.json(out);
+  } catch (err) { next(err); }
+};
+
+// --- ASIGNACIONES E ITEMS ---
+
+exports.actualizarAsignaciones = async (req, res, next) => {
+  try {
+    const io = req.app.get("io");
+    const out = await service.actualizarAsignaciones(req.user, +req.params.id, req.body, io);
+    res.json(out);
+  } catch (err) { next(err); }
+};
+
+// (Opcional) compat con nombre anterior
+exports.asignarUsuarios = exports.actualizarAsignaciones;
+
+exports.configurarItems = async (req, res, next) => {
+  try {
+    const io = req.app.get("io");
+    const out = await service.configurarItems(req.user, +req.params.id, req.body, io);
+    res.status(201).json(out);
+  } catch (err) { next(err); }
+};
+
+exports.listarItems = async (req, res, next) => {
+  try {
+    // Si necesitas listar items separados, usamos obtenerTarea que ya los trae
+    const tarea = await service.obtenerTarea(req.user, +req.params.id);
+    if (!tarea) return res.status(404).json({ message: 'Tarea no encontrada' });
+    res.json(tarea.items || []); 
+  } catch (err) { next(err); }
+};
+
+// --- NOVEDADES ---
 
 exports.crearNovedad = async (req, res, next) => {
   try {
     const io = req.app.get("io");
+    // Nota: El servicio de novedades no cambió drásticamente
     const out = await service.crearNovedad(req.user, +req.params.id, req.body, io);
     res.status(201).json(out);
   } catch (err) { next(err); }
@@ -66,91 +118,13 @@ exports.listarNovedades = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-exports.configurarItems = async (req, res, next) => {
+exports.actualizarDetalles = async (req, res, next) => {
   try {
-    const io = req.app.get("io");
-    const out = await service.configurarItems(req.user, +req.params.id, req.body, io);
-    res.status(201).json(out);
-  } catch (err) { next(err); }
-};
-
-exports.listarItems = async (req, res, next) => {
-  try {
-    const out = await service.listarItems(req.user, +req.params.id);
-    res.json(out);
-  } catch (err) { next(err); }
-};
-
-// exports.listarTareas = async (req, res, next) => {
-//   try {
-//     const { lote_id, estado, desde, hasta, asignadoA, page = 1, pageSize = 100 } = req.query;
-//     const out = await service.listarTareas(req.user, {
-//       lote_id: lote_id ? +lote_id : undefined,
-//       estado,
-//       desde,
-//       hasta,
-//       asignadoA: asignadoA ? +asignadoA : undefined,
-//       page: +page,
-//       pageSize: +pageSize,
-//     });
-//     res.json(out);
-//   } catch (err) { next(err); }
-// };
-
-exports.listarTareas = async (req, res, next) => {
-  try {
-    const data = await service.listarTareas(req.user, req.query);
-    res.json(data);
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.obtenerTarea = async (req, res, next) => {
-  try {
-    const out = await service.obtenerTarea(req.user, +req.params.id);
-    if (!out) return res.status(404).json({ message: 'No encontrado' });
-    res.json(out);
-  } catch (err) { next(err); }
-};
-
-
-// NUEVO: cancelar tarea
-exports.cancelarTarea = async (req, res, next) => {
-  try {
-    const id = Number(req.params.id);
-    const data = await service.cancelarTarea(req.user, id, req.body);
-    res.json(data);
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.resumenTareas = async (req, res, next) => {
-  try {
-    const out = await service.resumenTareas(req.user, req.query);
-    res.json(out);
-  } catch (err) {
-    next(err);
-  }
-};
-
-
-
-exports.actualizarCosecha = async (req, res, next) => {
-  try {
+    const io = req.app.get("io"); // ✅ socket real
     const tareaId = Number(req.params.id);
-    const { grado_madurez, notas, clasificacion, rechazos } = req.body;
-
-    const result = await service.actualizarCosecha(tareaId, {
-      grado_madurez,
-      notas,
-      clasificacion,
-      rechazos,
-    });
-
-    res.json(result); // o solo { ok: true }
-  } catch (err) {
-    next(err);
+    const data = await service.actualizarDetalles(req.user, tareaId, req.body, io);
+    res.json(data);
+  } catch (e) {
+    next(e);
   }
 };

@@ -1,41 +1,48 @@
-import toast from "react-hot-toast";
+import useToastStore from "../store/toastStore";
 
-/**
- * Hook reutilizable para mostrar notificaciones.
- * Ejemplo:
- *   const { showError, showSuccess } = useToast();
- *   showSuccess("Guardado correctamente");
- *   showError(error);
- */
 export default function useToast() {
-  // ✅ Éxito
-  const showSuccess = (message = "Operación exitosa") => {
-    toast.success(message, {
-      duration: 4000,
-      position: "top-right",
-    });
+  const push = useToastStore((s) => s.push);
+  const remove = useToastStore((s) => s.remove);
+
+  // ✅ API "nueva" que ya usas
+  const success = (message, opts = {}) =>
+    push({ type: "success", title: "Éxito", message, ...opts });
+
+  const info = (message, opts = {}) =>
+    push({ type: "info", title: "Info", message, ...opts });
+
+  const warning = (message, opts = {}) =>
+    push({ type: "warning", title: "Atención", message, ...opts });
+
+  const error = (message, opts = {}) =>
+    push({ type: "danger", title: "Error", message, ...opts });
+
+  // ✅ API "compat" para useApi (SIN cambiar useApi)
+  const showSuccess = (msg, opts = {}) => success(msg, opts);
+
+  const showError = (err, opts = {}) => {
+    // Acepta string o error de axios
+    const msg =
+      typeof err === "string"
+        ? err
+        : err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Error inesperado";
+    error(msg, opts);
   };
 
-  // ❌ Error
-  const showError = (error, fallback = "Ocurrió un error inesperado") => {
-    let msg = fallback;
+  return {
+    // lo que ya usas
+    success,
+    info,
+    warning,
+    error,
+    custom: (toast) => push(toast),
+    close: (id) => remove(id),
 
-    // Manejo flexible: Axios, fetch, string, objeto
-    if (typeof error === "string") {
-      msg = error;
-    } else if (error?.response?.data?.message) {
-      msg = error.response.data.message;
-    } else if (error?.response?.data?.error) {
-      msg = error.response.data.error;
-    } else if (error?.message) {
-      msg = error.message;
-    }
-
-    toast.error(msg, {
-      duration: 5000,
-      position: "top-right",
-    });
+    // lo que useApi necesita
+    showSuccess,
+    showError,
   };
-
-  return { showSuccess, showError };
 }

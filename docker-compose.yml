@@ -3,6 +3,7 @@ services:
     image: postgres:16-alpine
     container_name: finca_db
     environment:
+      TZ: America/Guayaquil
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASS:-postgres}
       POSTGRES_DB: ${DB_NAME:-finca_dev}
@@ -21,6 +22,7 @@ services:
       dockerfile: Dockerfile
     container_name: finca_api
     environment:
+      TZ: America/Guayaquil
       DB_HOST: db
       DB_PORT: 5432
       NODE_ENV: ${NODE_ENV}
@@ -38,6 +40,7 @@ services:
     image: dpage/pgadmin4:8
     container_name: finca_pgadmin
     environment:
+      TZ: America/Guayaquil
       PGADMIN_DEFAULT_EMAIL: admin@local.com
       PGADMIN_DEFAULT_PASSWORD: admin123
     ports:

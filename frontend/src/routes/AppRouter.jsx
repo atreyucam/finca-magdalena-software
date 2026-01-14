@@ -4,6 +4,8 @@ import Loading from "../components/Loading";
 import RequireAuth from "./RequireAuth";
 import RequireRole from "./RequireRole";
 import ScrollToTop from "../components/ScrollToTop";
+import ProtectedRoute from "./ProtectedRoute";
+
 
 import Login from "../pages/Login";
 
@@ -17,7 +19,7 @@ import Dashboard from "../pages/Dashboard";
 import Tareas from "../pages/Tareas";
 import Inventario from "../pages/Inventario";
 import Notificaciones from "../pages/Notificaciones";
-import Metricas from "../pages/Metricas";
+import Reportes from "../pages/Reportes";
 import Usuarios from "../pages/Usuarios";
 import MisTareas from "../pages/MisTareas";
 import DetalleUsuario from "../pages/DetalleUsuario";
@@ -26,6 +28,7 @@ import MiPerfil from "../pages/MiPerfil";
 import Pagos from "../pages/Pagos";
 import Produccion from "../pages/Produccion";
 import DetalleLote from "../pages/DetalleLote";
+import DetalleCosecha from "../pages/DetalleCosecha";
 
 export default function AppRouter() {
   const { isBootstrapped } = useAuth();
@@ -33,16 +36,12 @@ export default function AppRouter() {
 
   return (
     <>
-      {/* 👇 Esto resetea el scroll SIEMPRE en cada cambio de ruta */}
       <ScrollToTop />
-
-      {/* 👇 Tu sistema de rutas permanece igual */}
       <Routes>
-        {/* Público */}
         <Route path="/login" element={<Login />} />
 
         {/* Protegido */}
-        <Route element={<RequireAuth />}>
+        <Route element={<ProtectedRoute />}>
           {/* Propietario */}
           <Route element={<RequireRole roles={["Propietario"]} />}>
             <Route path="/owner" element={<OwnerLayout />}>
@@ -52,10 +51,11 @@ export default function AppRouter() {
               <Route path="inventario" element={<Inventario />} />
               <Route path="produccion" element={<Produccion />} />
               <Route path="produccion/lotes/:id" element={<DetalleLote />} />
+              <Route path="produccion/cosechas/:id" element={<DetalleCosecha />} />
               <Route path="usuarios" element={<Usuarios />} />
               <Route path="usuarios/:id" element={<DetalleUsuario />} />
               <Route path="pagos" element={<Pagos />} />
-              <Route path="metricas" element={<Metricas />} />
+              <Route path="metricas" element={<Reportes />} />
               <Route path="notificaciones" element={<Notificaciones />} />
               <Route path="detalleTarea/:id" element={<DetalleTarea />} />
             </Route>
@@ -68,9 +68,13 @@ export default function AppRouter() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="tareas" element={<Tareas />} />
               <Route path="inventario" element={<Inventario />} />
-              <Route path="metricas" element={<Metricas />} />
+              <Route path="usuarios" element={<Usuarios />} />
+              <Route path="usuarios/:id" element={<DetalleUsuario />} />
+              <Route path="metricas" element={<Reportes />} />
+              <Route path="pagos" element={<Pagos />} />
               <Route path="notificaciones" element={<Notificaciones />} />
               <Route path="detalleTarea/:id" element={<DetalleTarea />} />
+              <Route path="mi-perfil" element={<MiPerfil />} />
             </Route>
           </Route>
 

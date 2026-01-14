@@ -51,6 +51,23 @@ exports.crearPeriodos = async (req, res, next) => {
   }
 };
 
+exports.previewNext = async (req, res, next) => {
+  try {
+    console.log("[/cosechas/next] req.query =", req.query);
+    const out = await service.previewNextCosecha(req.user, req.query);
+    console.log("[/cosechas/next] out =", out);
+    res.json(out);
+  } catch (e) {
+    console.log("[/cosechas/next] ERROR =", {
+      message: e.message,
+      code: e.code,
+      status: e.status,
+      stack: e.stack,
+    });
+    next(e);
+  }
+};
+
 
 
 // ✅ Actualizar un periodo

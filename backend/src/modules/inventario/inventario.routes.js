@@ -4,34 +4,29 @@ const controller = require('./inventario.controller');
 const { requireAuth } = require('../../middlewares/auth.middleware');
 const { requireRole } = require('../../middlewares/rbac.middleware');
 
-
 const router = Router();
 
-
-// Ítems (Propietario/Tecnico)
-router.post('/items', requireAuth, requireRole('Propietario','Tecnico'), controller.crearItem);
+// 1. Rutas Generales y Estáticas (PRIORIDAD ALTA)
+router.get('/resumen', requireAuth, controller.getResumen); // <--- NUEVA RUTA AQUÍ
 router.get('/items', requireAuth, requireRole('Propietario','Tecnico'), controller.listarItems);
-router.patch('/items/:id', requireAuth, requireRole('Propietario','Tecnico'), controller.editarItem);
-
-
-// Ajustes manuales (RF-16)
-router.post('/items/:id/ajustes', requireAuth, requireRole('Propietario','Tecnico'), controller.ajustarStock);
-
-
-// Movimientos
 router.get('/movimientos', requireAuth, requireRole('Propietario','Tecnico'), controller.listarMovimientos);
-
-
-// Préstamos de herramientas (RF-17)
-router.post('/herramientas/:id/prestar', requireAuth, requireRole('Propietario','Tecnico'), controller.prestarHerramienta);
-router.post('/herramientas/:id/devolver', requireAuth, requireRole('Propietario','Tecnico'), controller.devolverHerramienta);
 router.get('/herramientas/no-devueltas', requireAuth, requireRole('Propietario','Tecnico'), controller.listarNoDevueltas);
-
-
-// Alertas (stock bajo)
 router.get('/alertas/stock-bajo', requireAuth, requireRole('Propietario','Tecnico'), controller.alertasStockBajo);
 
+// 2. Rutas Dinámicas (con :id)
+router.post('/items', requireAuth, requireRole('Propietario','Tecnico'), controller.crearItem);
+router.patch('/items/:id', requireAuth, requireRole('Propietario','Tecnico'), controller.editarItem);
+router.post('/items/:id/ajustes', requireAuth, requireRole('Propietario','Tecnico'), controller.ajustarStock);
+router.patch('/lotes/:loteId', requireAuth, requireRole('Propietario','Tecnico'), controller.editarLote);
+
+// Préstamos
+router.post('/herramientas/:id/prestar', requireAuth, requireRole('Propietario','Tecnico'), controller.prestarHerramienta);
+router.post('/herramientas/:id/devolver', requireAuth, requireRole('Propietario','Tecnico'), controller.devolverHerramienta);
 
 router.get('/', requireAuth, controller.listar);
+
+
+// ✅ Validación / Autocomplete de lote (ANTES de rutas dinámicas de /lotes/:loteId)
+router.get('/items/:id/lotes/buscar', requireAuth, requireRole('Propietario','Tecnico'), controller.buscarLote);
 
 module.exports = router;

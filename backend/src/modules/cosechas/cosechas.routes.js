@@ -5,6 +5,8 @@ const { requireAuth } = require('../../middlewares/auth.middleware');
 const { requireRole } = require('../../middlewares/rbac.middleware');
 
 const router = Router();
+// GET /cosechas/next?finca_id=1&fecha_inicio=2026-01-01
+router.get("/next", requireAuth, requireRole('Propietario'), controller.previewNext);
 
 // Listar todas las cosechas
 router.get('/', requireAuth, controller.listarCosechas);
@@ -52,5 +54,6 @@ router.delete(
   requireRole('Propietario'),
   controller.eliminarPeriodo
 );
+
 
 module.exports = router;
