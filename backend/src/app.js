@@ -20,33 +20,63 @@ app.use(cookieParser());
 
 // --- 2. CORS (Crucial) ---
 // En desarrollo, permitimos localhost explícitamente y wildcard si hace falta
-const allowedOrigins = [
-  "http://localhost:5173", 
-  "http://127.0.0.1:5173"
+// const allowedOrigins = [
+//   "http://localhost:5173", 
+//   "http://127.0.0.1:5173",
+//   "https://app.finca-magdalena.com",
+// ];
+
+// app.use(cors({
+//   origin: function (origin, callback) {
+//     if (!origin) return callback(null, true);
+    
+//     if (process.env.NODE_ENV === 'development') {
+//         // En desarrollo, ser más laxos o permitir explícitamente el origen del frontend
+//         return callback(null, true); 
+//     }
+
+//     if (allowedOrigins.indexOf(origin) !== -1) {
+//       callback(null, true);
+//     } else {
+//       console.log("Bloqueado por CORS:", origin);
+//       callback(new Error('Not allowed by CORS'));
+//     }
+//   },
+//   credentials: true,
+//   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+//   allowedHeaders: ['Content-Type', 'Authorization', 'x-refresh-token'],
+//   exposedHeaders: ["Content-Disposition"],
+// }));
+
+const isProd = process.env.NODE_ENV === "production";
+
+const allowedOriginsDev = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
 ];
 
-app.use(cors({
-  origin: function (origin, callback) {
-    // Permitir requests sin origen (como Postman o Server-to-Server)
-    if (!origin) return callback(null, true);
-    
-    if (process.env.NODE_ENV === 'development') {
-        // En desarrollo, ser más laxos o permitir explícitamente el origen del frontend
-        return callback(null, true); 
-    }
+const allowedOriginsProd = [
+  "https://app.finca-lamagdalena.com",
+  "http://app.finca-lamagdalena.com",
+];
 
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log("Bloqueado por CORS:", origin);
-      callback(new Error('Not allowed by CORS'));
-    }
+const allowedOrigins = isProd ? allowedOriginsProd : allowedOriginsDev;
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // Postman / server to server
+
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    console.log("Bloqueado por CORS:", origin, "NODE_ENV:", process.env.NODE_ENV);
+    return callback(new Error("Not allowed by CORS"));
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-refresh-token'],
+  credentials: false,
+  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-refresh-token"],
   exposedHeaders: ["Content-Disposition"],
 }));
+
 
 // --- 3. Rate Limiting (Suavizado para Dev) ---
 const limiter = rateLimit({

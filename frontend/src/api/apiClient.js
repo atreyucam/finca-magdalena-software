@@ -10,9 +10,10 @@ import useAuthStore from "../store/authStore";
 //   withCredentials: false,
 // });
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
+  baseURL: import.meta.env.PROD ? "/api" : (import.meta.env.VITE_API_BASE_URL || "http://localhost:3001"),
   withCredentials: false,
 });
+
 
 // ==========================
 // 🔹 Interceptor Authorization
