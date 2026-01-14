@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { PiBellRingingBold } from "react-icons/pi";
 import useNotificaciones from "../hooks/useNotificaciones";
+import useToast from "../hooks/useToast";
 
 function formatRelative(dateStr) {
   const d = new Date(dateStr);
@@ -18,8 +19,11 @@ function formatRelative(dateStr) {
 }
 
 export default function NotificationsBell() {
+  const notify = useToast();
+
   const [open, setOpen] = useState(false);
   const [filtro, setFiltro] = useState("todas");
+
   const { items, noLeidas, loading, marcarLeida, marcarTodas, cargar } =
     useNotificaciones();
 
@@ -36,12 +40,48 @@ export default function NotificationsBell() {
     return filtro === "noLeidas" ? items.filter((n) => !n.leida) : items;
   }, [filtro, items]);
 
-  // ✅ Cargar SOLO cuando se abre (en efecto, no en setState)
+  // ✅ 1) Polling: refrescar cada 20s (para que el badge cambie sin recargar)
   useEffect(() => {
-    if (open) cargar();
+    const id = setInterval(() => {
+      cargar?.(); // si tu store ya evita spam, perfecto
+    }, 20000);
+    return () => clearInterval(id);
+  }, [cargar]);
+
+  // ✅ 2) Refrescar cuando vuelves a la pestaña
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") cargar?.();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [cargar]);
+
+  // ✅ 3) Toast SOLO cuando aumentan las no leídas
+  const prevNoLeidasRef = useRef(noLeidas ?? 0);
+  useEffect(() => {
+    const prev = prevNoLeidasRef.current ?? 0;
+    const curr = noLeidas ?? 0;
+
+    if (curr > prev) {
+      const diff = curr - prev;
+      notify.info(
+        diff === 1
+          ? "Tienes 1 notificación nueva"
+          : `Tienes ${diff} notificaciones nuevas`,
+        { duration: 2500 }
+      );
+    }
+
+    prevNoLeidasRef.current = curr;
+  }, [noLeidas, notify]);
+
+  // ✅ Cargar SOLO cuando se abre (bien)
+  useEffect(() => {
+    if (open) cargar?.();
   }, [open, cargar]);
 
-  // Cerrar al hacer click fuera
+  // cerrar click fuera
   useEffect(() => {
     function onClickOutside(e) {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
@@ -61,6 +101,12 @@ export default function NotificationsBell() {
     setOpen(false);
   }
 
+  const badgeText = useMemo(() => {
+    const n = Number(noLeidas) || 0;
+    if (n <= 0) return null;
+    return n > 9 ? "9+" : String(n);
+  }, [noLeidas]);
+
   const card = (
     <div className="w-[360px] max-w-[calc(100vw-2rem)] max-h-[420px] origin-top rounded-2xl bg-white shadow-xl ring-1 ring-black/5 text-sm flex flex-col">
       <div className="flex items-start justify-between px-4 py-3 border-b border-slate-100">
@@ -69,8 +115,9 @@ export default function NotificationsBell() {
           <p className="text-xs text-slate-500">Avisos del sistema.</p>
         </div>
         <button
-          className="text-[11px] text-emerald-600 hover:text-emerald-700"
+          className="text-[11px] text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
           onClick={marcarTodas}
+          disabled={(Number(noLeidas) || 0) === 0}
         >
           Marcar todas como leídas
         </button>
@@ -99,11 +146,13 @@ export default function NotificationsBell() {
             Cargando notificaciones...
           </p>
         )}
+
         {!loading && filtradas.length === 0 && (
           <p className="text-xs text-center text-slate-400 py-3">
             No tienes notificaciones.
           </p>
         )}
+
         {filtradas.map((n) => (
           <button
             key={n.id}
@@ -138,9 +187,11 @@ export default function NotificationsBell() {
                 </span>
               </div>
             </div>
+
             <div className="text-xs font-semibold text-slate-900 line-clamp-2">
               {n.titulo}
             </div>
+
             {n.mensaje && (
               <div className="text-[11px] text-slate-600 line-clamp-2">
                 {n.mensaje}
@@ -157,10 +208,15 @@ export default function NotificationsBell() {
       <button
         className="relative p-2 rounded-full text-slate-500 hover:bg-slate-100 hover:text-emerald-600 transition-colors"
         onClick={() => setOpen((prev) => !prev)}
+        aria-label="Notificaciones"
       >
         <PiBellRingingBold size={20} />
-        {noLeidas > 0 && (
-          <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" />
+
+        {/* ✅ Badge con número */}
+        {badgeText && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white">
+            {badgeText}
+          </span>
         )}
       </button>
 

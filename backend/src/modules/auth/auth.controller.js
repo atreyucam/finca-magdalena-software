@@ -12,28 +12,20 @@ const cookieOptions = {
 exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email y contraseña son obligatorios' });
-    }
+    if (!email || !password) return res.status(400).json({ code:"AUTH_BAD_REQUEST", message:"Email y contraseña son obligatorios" });
 
     const result = await service.login(email, password);
-    
-    // Guardamos el refresh token en cookie
-    res.cookie('refresh_token', result.tokens.refresh, cookieOptions);
+    res.cookie("refresh_token", result.tokens.refresh, cookieOptions);
 
-    // Respondemos solo con access_token y usuario
-    res.json({ 
-      user: result.user, 
-      access_token: result.tokens.access 
-    });
+    return res.json({ user: result.user, access_token: result.tokens.access });
   } catch (err) {
-    if (err.message.includes('inválidas') || err.message.includes('inactivo')) {
-      err.status = 401;
-    }
-    next(err);
+    // ✅ RESPUESTA JSON CLARA
+    const msg = err.message || "Credenciales inválidas";
+    const code = msg.includes("inactivo") ? "USER_INACTIVE" : "AUTH_INVALID_CREDENTIALS";
+    return res.status(401).json({ code, message: msg });
   }
 };
+
 
 // ✅ REFRESH TOKEN (Corregido)
 exports.refresh = async (req, res, next) => {

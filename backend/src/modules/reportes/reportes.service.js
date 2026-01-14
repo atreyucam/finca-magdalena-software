@@ -2138,3 +2138,530 @@ exports.compararLotes = async (_currentUser, q) => {
     items,
   };
 };
+
+
+
+// =====================================================
+// DASHBOARD (Tareas + Inventario) - Minimalista
+// GET /reportes/dashboard?finca_ids=1,2&desde=YYYY-MM-DD&hasta=YYYY-MM-DD&solo_cosecha_activa=true
+// =====================================================
+exports.reporteDashboard = async (_currentUser, query) => {
+  const {
+    finca_ids,
+    finca_id, // compat
+    desde,
+    hasta,
+    solo_cosecha_activa,
+    limit_hoy = 8,
+    limit_criticos = 8,
+  } = query;
+
+  // -----------------------------
+  // Helpers internos del dashboard
+  // -----------------------------
+  const endStates = ["Verificada", "Cancelada"]; // cerradas para dashboard
+
+  const ymdToday = (() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  })();
+
+  const desdeNorm = normStr(desde) || null;
+  const hastaNorm = normStr(hasta) || null;
+
+  // ✅ Fincas: si mandan finca_ids usa eso; si mandan finca_id úsalo; si no, todas activas.
+  const fincaIds = (() => {
+    const a = parseIds(finca_ids);
+    const b = parseIds(finca_id);
+    const out = a.length ? a : b;
+    return out;
+  })();
+
+  const fincas = fincaIds.length
+    ? await models.Finca.findAll({
+        where: { id: { [Op.in]: fincaIds } },
+        attributes: ["id", "nombre", "estado"],
+        order: [["nombre", "ASC"]],
+        raw: true,
+      })
+    : await models.Finca.findAll({
+        where: { estado: "Activo" },
+        attributes: ["id", "nombre", "estado"],
+        order: [["nombre", "ASC"]],
+        raw: true,
+      });
+
+  if (!fincas.length) throw badRequest("No hay fincas disponibles para el dashboard.");
+
+  // ✅ Resolver cosecha activa por finca (si aplica)
+  const useActiva =
+    solo_cosecha_activa === undefined || solo_cosecha_activa === null
+      ? true
+      : String(solo_cosecha_activa) === "true";
+
+  const fincaToCosechaActiva = new Map();
+  if (useActiva) {
+    for (const f of fincas) {
+      const cId = await resolverCosechaId({
+        finca_id: f.id,
+        cosecha_id: null,
+        solo_cosecha_activa: true,
+      });
+      // puede ser null si no hay activa
+      fincaToCosechaActiva.set(Number(f.id), cId ? Number(cId) : null);
+    }
+  }
+
+  // -----------------------------
+  // WHERE base para tareas (por fincas)
+  // -----------------------------
+  const whereFecha = {};
+  if (desdeNorm && hastaNorm) {
+    whereFecha[Op.and] = [
+      ...(whereFecha[Op.and] || []),
+      literal(`"Tarea"."fecha_programada" >= '${desdeNorm} 00:00:00'::timestamp`),
+      literal(`"Tarea"."fecha_programada" <  '${hastaNorm} 00:00:00'::timestamp + interval '1 day'`),
+    ];
+  } else if (desdeNorm) {
+    whereFecha[Op.and] = [
+      ...(whereFecha[Op.and] || []),
+      literal(`"Tarea"."fecha_programada" >= '${desdeNorm} 00:00:00'::timestamp`),
+    ];
+  } else if (hastaNorm) {
+    whereFecha[Op.and] = [
+      ...(whereFecha[Op.and] || []),
+      literal(`"Tarea"."fecha_programada" < '${hastaNorm} 00:00:00'::timestamp + interval '1 day'`),
+    ];
+  } else {
+    // default: últimos 30 días
+    const d = new Date();
+    const h = new Date(d);
+    h.setDate(h.getDate() - 30);
+    const toYmd = (x) => {
+      const yyyy = x.getFullYear();
+      const mm = String(x.getMonth() + 1).padStart(2, "0");
+      const dd = String(x.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    };
+    const dFrom = toYmd(h);
+    const dTo = toYmd(d);
+    whereFecha[Op.and] = [
+      ...(whereFecha[Op.and] || []),
+      literal(`"Tarea"."fecha_programada" >= '${dFrom} 00:00:00'::timestamp`),
+      literal(`"Tarea"."fecha_programada" <  '${dTo} 00:00:00'::timestamp + interval '1 day'`),
+    ];
+  }
+
+  // INCLUDE Lote (para filtrar por fincas)
+  const includeLoteStats = {
+    model: models.Lote,
+    attributes: [],
+    required: true,
+    where: { finca_id: { [Op.in]: fincas.map((x) => Number(x.id)) } },
+  };
+
+  // -----------------------------
+  // 1) KPIs globales (tareas)
+  // -----------------------------
+  const baseWhereGlobal = {
+    ...whereFecha,
+  };
+
+  // Si solo cosecha activa está ON, filtramos tareas por las cosechas activas existentes.
+  // Si una finca no tiene cosecha activa, dejamos esa finca sin ese filtro (igual aparecen por finca en resumen).
+  let cosechasActivasIds = [];
+  if (useActiva) {
+    cosechasActivasIds = Array.from(fincaToCosechaActiva.values()).filter(Boolean);
+    if (cosechasActivasIds.length) {
+      baseWhereGlobal.cosecha_id = { [Op.in]: cosechasActivasIds };
+    }
+  }
+
+  // Total por estado (para donut)
+  const porEstadoRows = await models.Tarea.findAll({
+    where: baseWhereGlobal,
+    include: [includeLoteStats],
+    attributes: [[col("Tarea.estado"), "estado"], [fn("COUNT", col("Tarea.id")), "total"]],
+    group: [col("Tarea.estado")],
+    raw: true,
+  });
+
+  const ORDER_ESTADOS = ["Pendiente", "Asignada", "En progreso", "Completada", "Verificada", "Cancelada"];
+  const tareas_por_estado = {};
+  for (const s of ORDER_ESTADOS) tareas_por_estado[s] = 0;
+  for (const r of porEstadoRows) tareas_por_estado[String(r.estado)] = Number(r.total || 0);
+
+  const total_tareas = ORDER_ESTADOS.reduce((acc, s) => acc + (tareas_por_estado[s] || 0), 0);
+
+  // Vencidas (fecha < hoy, no finalizadas)
+  const vencidasCount = await models.Tarea.count({
+    where: {
+      ...baseWhereGlobal,
+      estado: { [Op.notIn]: endStates },
+      [Op.and]: [
+        ...(baseWhereGlobal[Op.and] || []),
+        literal(`"Tarea"."fecha_programada" < '${ymdToday} 00:00:00'::timestamp`),
+      ],
+    },
+    include: [includeLoteStats],
+    distinct: true,
+  });
+
+  const pendientesCount = (tareas_por_estado["Pendiente"] || 0) + (tareas_por_estado["Asignada"] || 0);
+
+  const enProgresoCount = tareas_por_estado["En progreso"] || 0;
+  const verificadasCount = tareas_por_estado["Verificada"] || 0;
+
+  // -----------------------------
+  // 2) Tareas de hoy (tabla)
+  // -----------------------------
+  const hoyRows = await models.Tarea.findAll({
+    where: {
+      ...baseWhereGlobal,
+      [Op.and]: [
+        ...(baseWhereGlobal[Op.and] || []),
+        literal(`"Tarea"."fecha_programada" >= '${ymdToday} 00:00:00'::timestamp`),
+        literal(`"Tarea"."fecha_programada" <  '${ymdToday} 00:00:00'::timestamp + interval '1 day'`),
+      ],
+    },
+    include: [
+      { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
+      {
+        model: models.Lote,
+        attributes: ["id", "nombre", "finca_id"],
+        required: true,
+        include: [{ model: models.Finca, as: "finca", attributes: ["id", "nombre"] }],
+      },
+      {
+        model: models.TareaAsignacion,
+        required: false,
+        include: [{ model: models.Usuario, attributes: ["id", "nombres", "apellidos", "tipo"] }],
+      },
+    ],
+    order: [["fecha_programada", "ASC"]],
+    limit: normPosInt(limit_hoy, 8),
+  });
+
+  const tareas_hoy = hoyRows.map((t) => {
+    const j = t.toJSON();
+    const asignados = (j.TareaAsignacions || []).map((a) => ({
+      id: a.Usuario?.id,
+      nombre: a.Usuario ? `${a.Usuario.nombres} ${a.Usuario.apellidos}` : null,
+      tipo: a.Usuario?.tipo || null,
+      rol_en_tarea: a.rol_en_tarea,
+    }));
+
+    return {
+      id: Number(j.id),
+      finca: j.Lote?.finca?.nombre || null,
+      lote: j.Lote?.nombre || null,
+      tipo: j.TipoActividad?.codigo || null,
+      titulo: j.titulo || null,
+      estado: j.estado,
+      fecha_programada: j.fecha_programada,
+      asignados,
+    };
+  });
+
+  // -----------------------------
+  // 3) Pendientes críticos (vencidas o por vencer)
+  // -----------------------------
+  // regla: estado != Verificada/Cancelada
+  // orden: vencidas primero, luego por fecha asc
+  const criticosRows = await models.Tarea.findAll({
+    where: {
+      ...baseWhereGlobal,
+      estado: { [Op.notIn]: endStates },
+    },
+    include: [
+      { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
+      {
+        model: models.Lote,
+        attributes: ["id", "nombre", "finca_id"],
+        required: true,
+        include: [{ model: models.Finca, as: "finca", attributes: ["id", "nombre"] }],
+      },
+    ],
+    order: [
+      [
+        literal(`CASE WHEN "Tarea"."fecha_programada" < '${ymdToday} 00:00:00'::timestamp THEN 0 ELSE 1 END`),
+        "ASC",
+      ],
+      ["fecha_programada", "ASC"],
+    ],
+    limit: normPosInt(limit_criticos, 8),
+  });
+
+  const pendientes_criticos = criticosRows.map((t) => {
+    const j = t.toJSON();
+    const fecha = j.fecha_programada;
+    return {
+      id: Number(j.id),
+      finca: j.Lote?.finca?.nombre || null,
+      lote: j.Lote?.nombre || null,
+      tipo: j.TipoActividad?.codigo || null,
+      titulo: j.titulo || null,
+      estado: j.estado,
+      fecha_programada: fecha,
+      es_vencida: fecha ? new Date(fecha).getTime() < new Date(`${ymdToday}T00:00:00`).getTime() : false,
+    };
+  });
+
+  // -----------------------------
+  // 4) Resumen por finca
+  // -----------------------------
+  const resumenPorFincaRows = await models.Tarea.findAll({
+    where: baseWhereGlobal,
+    include: [
+      {
+        model: models.Lote,
+        attributes: [],
+        required: true,
+        include: [{ model: models.Finca, as: "finca", attributes: ["id", "nombre"] }],
+      },
+    ],
+    attributes: [
+      [col("Lote.finca.id"), "finca_id"],
+      [col("Lote.finca.nombre"), "finca_nombre"],
+      [col("Tarea.estado"), "estado"],
+      [fn("COUNT", col("Tarea.id")), "total"],
+    ],
+    group: [col("Lote.finca.id"), col("Lote.finca.nombre"), col("Tarea.estado")],
+    raw: true,
+  });
+
+  const mapFincas = new Map();
+  for (const f of fincas) {
+    mapFincas.set(Number(f.id), {
+      finca_id: Number(f.id),
+      finca: f.nombre,
+      cosecha_activa_id: fincaToCosechaActiva.get(Number(f.id)) || null,
+      pendientes: 0,
+      en_progreso: 0,
+      completadas: 0,
+      verificadas: 0,
+      canceladas: 0,
+      vencidas: 0,
+    });
+  }
+
+  for (const r of resumenPorFincaRows) {
+    const fid = Number(r.finca_id);
+    const st = String(r.estado);
+    const tot = Number(r.total || 0);
+    const item = mapFincas.get(fid);
+    if (!item) continue;
+
+    if (st === "Pendiente" || st === "Asignada") item.pendientes += tot;
+    else if (st === "En progreso") item.en_progreso += tot;
+    else if (st === "Completada") item.completadas += tot;
+    else if (st === "Verificada") item.verificadas += tot;
+    else if (st === "Cancelada") item.canceladas += tot;
+  }
+
+  // Vencidas por finca (otra consulta)
+  const vencidasPorFinca = await models.Tarea.findAll({
+    where: {
+      ...baseWhereGlobal,
+      estado: { [Op.notIn]: endStates },
+      [Op.and]: [
+        ...(baseWhereGlobal[Op.and] || []),
+        literal(`"Tarea"."fecha_programada" < '${ymdToday} 00:00:00'::timestamp`),
+      ],
+    },
+    include: [
+      {
+        model: models.Lote,
+        attributes: [],
+        required: true,
+        include: [{ model: models.Finca, as: "finca", attributes: ["id"] }],
+      },
+    ],
+    attributes: [[col("Lote.finca.id"), "finca_id"], [fn("COUNT", col("Tarea.id")), "total"]],
+    group: [col("Lote.finca.id")],
+    raw: true,
+  });
+
+  for (const r of vencidasPorFinca) {
+    const item = mapFincas.get(Number(r.finca_id));
+    if (item) item.vencidas = Number(r.total || 0);
+  }
+
+  const resumen_por_finca = Array.from(mapFincas.values()).sort((a, b) =>
+    String(a.finca).localeCompare(String(b.finca))
+  );
+
+  // -----------------------------
+  // 5) Gráfico: vencidas últimos 14 días (por día)
+  // -----------------------------
+  const ult14 = await sequelize.query(
+    `
+    SELECT
+      (date_trunc('day', t.fecha_programada))::date AS dia,
+      COUNT(*)::int AS total
+    FROM tareas t
+    JOIN lotes l ON l.id = t.lote_id
+    WHERE
+      l.finca_id = ANY(ARRAY[:fincas]::bigint[])
+
+      AND t.estado NOT IN ('Verificada','Cancelada')
+      AND t.fecha_programada < NOW()
+      AND t.fecha_programada >= NOW() - interval '14 days'
+    GROUP BY dia
+    ORDER BY dia ASC
+    `,
+    {
+      type: QueryTypes.SELECT,
+      replacements: { fincas: fincas.map((x) => Number(x.id)) },
+    }
+  );
+
+  const vencidas_ult_14_dias = ult14.map((r) => ({ dia: String(r.dia), vencidas: Number(r.total || 0) }));
+
+// -----------------------------
+// 6) Inventario (global): resumen + alertas agregadas
+// -----------------------------
+const invResumen = await exports.reporteInventarioResumen(_currentUser, query);
+
+// Alertas agregadas tipo gráfico
+const sinStock = Number(invResumen?.stats?.items_sin_stock || 0);
+const bajoMin = Number(invResumen?.stats?.items_bajo_minimo || 0);
+const fefo = Number(invResumen?.stats?.lotes_por_vencer || 0);
+
+const alertas_inventario = {
+  sin_stock: sinStock,
+  bajo_minimo: bajoMin,
+  fefo_proximo: fefo,
+  total_alertas: sinStock + bajoMin + fefo,
+};
+
+// -----------------------------
+// 6.1) Detalle de alertas (para tabla en Dashboard)
+// -----------------------------
+const fefoDias = Number(query?.fefo_dias || 30);
+
+const ModelItem = models.InventarioItem;
+const ModelLote = models.InventarioLote;
+
+// 1) Items sin stock
+const itemsSinStock = await ModelItem.findAll({
+  attributes: ["id", "nombre", "stock_actual"],
+  where: { stock_actual: { [Op.lte]: 0 } },
+  order: [["nombre", "ASC"]],
+  limit: 50,
+  raw: true,
+});
+
+// 2) Items bajo mínimo
+const itemsBajoMin = await ModelItem.findAll({
+  attributes: ["id", "nombre", "stock_actual", "stock_minimo"],
+  where: {
+    stock_minimo: { [Op.gt]: 0 },
+    stock_actual: { [Op.lt]: col("stock_minimo") },
+  },
+  order: [["nombre", "ASC"]],
+  limit: 50,
+  raw: true,
+});
+
+// 3) FEFO próximo (lotes con vencimiento)
+const hoy = new Date();
+const limite = new Date();
+limite.setDate(limite.getDate() + fefoDias);
+const ymd = (d) => d.toISOString().slice(0, 10);
+
+const lotesPorVencer = await ModelLote.findAll({
+  attributes: ["id", "item_id", "codigo_lote_proveedor", "fecha_vencimiento", "cantidad_actual"],
+  where: {
+    cantidad_actual: { [Op.gt]: 0 },
+    fecha_vencimiento: { [Op.gte]: ymd(hoy), [Op.lte]: ymd(limite) },
+  },
+  include: [
+    {
+      model: ModelItem,
+      attributes: ["id", "nombre", "unidad_id"],
+      include: [{ model: models.Unidad, attributes: ["id", "codigo", "nombre"] }],
+    },
+  ],
+  order: [["fecha_vencimiento", "ASC"]],
+  limit: 50,
+});
+
+
+const fefoDetalle = lotesPorVencer.map((x) => {
+  const j = x.toJSON();
+  const item = j?.InventarioItem || null;
+  const unidad = item?.Unidad || null;
+
+  return {
+    lote_id: Number(j.id),
+    item_id: Number(j.item_id),
+    item: item?.nombre || null,
+    codigo_lote: j.codigo_lote_proveedor || null,
+    fecha_vencimiento: j.fecha_vencimiento,
+    cantidad_actual: Number(j.cantidad_actual || 0),
+    unidad: unidad
+      ? { id: Number(unidad.id), codigo: unidad.codigo, nombre: unidad.nombre }
+      : null,
+  };
+});
+
+
+// ✅ Detalle dentro del resumen de inventario
+invResumen.alertas_detalle = {
+  sin_stock: itemsSinStock.map((i) => ({
+    item_id: Number(i.id),
+    item: i.nombre,
+    stock_actual: Number(i.stock_actual || 0),
+  })),
+  bajo_minimo: itemsBajoMin.map((i) => ({
+    item_id: Number(i.id),
+    item: i.nombre,
+    stock_actual: Number(i.stock_actual || 0),
+    stock_minimo: Number(i.stock_minimo || 0),
+  })),
+  fefo_proximo: fefoDetalle,
+};
+
+  // -----------------------------
+  // Response final (minimalista)
+  // -----------------------------
+  return {
+    header: {
+      hoy: ymdToday,
+      fincas: fincas.map((f) => ({ id: Number(f.id), nombre: f.nombre })),
+      solo_cosecha_activa: useActiva,
+      rango: {
+        desde: desdeNorm || null,
+        hasta: hastaNorm || null,
+        default_ultimos_30_dias: !desdeNorm && !hastaNorm,
+      },
+    },
+    
+    kpis: {
+      total_tareas,
+      pendientes: Number(pendientesCount || 0),
+      en_progreso: Number(enProgresoCount || 0),
+      verificadas: Number(verificadasCount || 0),
+      vencidas: Number(vencidasCount || 0),
+      alertas_inventario: alertas_inventario.total_alertas,
+      prestamos_activos: Number(invResumen?.stats?.prestamos_activos || 0),
+    },
+    charts: {
+      tareas_por_estado,
+      vencidas_ult_14_dias,
+      alertas_inventario,
+    },
+    tareas: {
+      hoy: tareas_hoy,
+      pendientes_criticos,
+      resumen_por_finca,
+    },
+    inventario: {
+      resumen: invResumen, // (kpis inventario + nota)
+    },
+  };
+};

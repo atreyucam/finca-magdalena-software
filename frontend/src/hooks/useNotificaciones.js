@@ -1,3 +1,4 @@
+// src/hooks/useNotificaciones.js
 import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import useNotificacionesStore from "../store/notificacionesStore";
@@ -9,11 +10,12 @@ export default function useNotificaciones() {
     loadingMore,
     error,
     meta,
-    initialized,     // ✅ NUEVO
+    initialized,
     cargar,
     cargarMas,
     marcarLeida,
     marcarTodas,
+    bindSocket, // ✅
   } = useNotificacionesStore(
     useShallow((s) => ({
       items: s.items,
@@ -21,16 +23,20 @@ export default function useNotificaciones() {
       loadingMore: s.loadingMore,
       error: s.error,
       meta: s.meta,
-      initialized: s.initialized, // ✅ NUEVO
+      initialized: s.initialized,
       cargar: s.cargar,
       cargarMas: s.cargarMas,
       marcarLeida: s.marcarLeida,
       marcarTodas: s.marcarTodas,
+      bindSocket: s.bindSocket,
     }))
   );
 
   useEffect(() => {
-    // ✅ solo 1 vez (StrictMode en dev lo hará 2, pero ya no spamea)
+    bindSocket(); // ✅ activa tiempo real
+  }, [bindSocket]);
+
+  useEffect(() => {
     if (!initialized && !loading) cargar();
   }, [initialized, loading, cargar]);
 

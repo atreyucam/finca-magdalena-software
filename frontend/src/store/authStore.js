@@ -97,7 +97,7 @@ logout: (opts = {}) => {
   localStorage.removeItem(STORAGE_KEY);
 
   if (!opts?.silent) toastApi.info("Sesión cerrada");
-  if (opts?.redirect !== false) window.location.replace("/login");
+
 },
 
 

@@ -53,39 +53,37 @@ api.interceptors.response.use(
 
     const originalRequest = error.config;
 
-    const msg =
-      error?.response?.data?.message ||
-      error?.response?.data?.error ||
-      error?.message ||
-      "Error de red";
 
-    console.error(
-      `[API ERROR] ${originalRequest?.method?.toUpperCase?.()} ${originalRequest?.url} ->`,
-      error.response?.status,
-      msg,
-      error.response?.data
-    );
 
     // ✅ Si el backend dice que el usuario está INACTIVO/BLOQUEADO => logout inmediato (sin refresh)
     if (error.response?.status === 401) {
       const code = error.response?.data?.code;
       if (code === "USER_INACTIVE") {
-        useAuthStore.getState().logout({ silent: true });
+        useAuthStore.getState().logout({
+    silent: false,
+    message: "Tu usuario fue desactivado. Se cerró tu sesión.",
+  });
         return Promise.reject(error);
       }
     }
 
-
+    
+      if (error.response?.status === 401 && originalRequest?.url?.includes("/auth/login")) {
+  return Promise.reject(error);
+}
     // ✅ Manejo 401 con refresh (una sola vez)
     if (error.response?.status === 401 && !originalRequest._retry) {
       const { refresh, logout } = useAuthStore.getState();
 
       // Si falló el refresh => logout
       if (originalRequest.url?.includes("/auth/refresh")) {
-        console.warn("Sesión expirada. Inicia sesión nuevamente.");
-        logout();
-        return Promise.reject(error);
-      }
+  useAuthStore.getState().logout({
+    silent: false,
+    message: "Tu sesión expiró. Inicia sesión nuevamente.",
+  });
+  return Promise.reject(error);
+}
+
 
       // Si ya estamos refrescando, encolamos la request
       if (isRefreshing) {
@@ -355,7 +353,8 @@ export const compararProduccionCosechas = (params) =>
 export const compararProduccionLotes = (params) =>
   api.get("/reportes/produccion/comparar/lotes", { params });
 
-
+export const reporteDashboard = async (params) =>
+  (await api.get("/reportes/dashboard", { params })).data;
 
 
 // ================= NOTIFICACIONES =================

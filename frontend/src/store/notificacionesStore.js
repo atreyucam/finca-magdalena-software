@@ -1,9 +1,11 @@
+// src/store/notificacionesStore.js
 import { create } from "zustand";
 import {
   listarNotificaciones,
   marcarNotificacionLeida,
   marcarTodasNotificacionesLeidas,
 } from "../api/apiClient";
+import { getSocket, connectSocket } from "../lib/socket";
 
 const PAGE_SIZE = 20;
 
@@ -13,6 +15,7 @@ const useNotificacionesStore = create((set, get) => ({
   loadingMore: false,
   error: null,
   initialized: false,
+  socketBound: false, // ✅ NUEVO
   meta: {
     total: 0,
     noLeidas: 0,
@@ -20,20 +23,58 @@ const useNotificacionesStore = create((set, get) => ({
     nextOffset: 0,
   },
 
-  cargar: async () => {
+  // ✅ bind socket una sola vez
+  bindSocket: () => {
+    const { socketBound } = get();
+    if (socketBound) return;
+
+    connectSocket();
+    const s = getSocket();
+
+    const onNueva = (notif) => {
+      // Inserta arriba si no existe
+      set((st) => {
+        const exists = st.items.some((x) => x.id === notif.id);
+        const items = exists ? st.items : [notif, ...st.items];
+
+        return {
+          items,
+          meta: {
+            ...st.meta,
+            total: (st.meta.total || 0) + (exists ? 0 : 1),
+            noLeidas: (st.meta.noLeidas || 0) + (exists ? 0 : 1),
+          },
+        };
+      });
+    };
+
+    const onRefresh = () => {
+      // Refresca contador + primera página en background
+      get().cargar({ silent: true });
+    };
+
+    s.on("notif:nueva", onNueva);
+    s.on("notif:refresh", onRefresh);
+
+    set({ socketBound: true });
+
+    // opcional: guardar refs para limpiar si algún día lo necesitas
+  },
+
+  cargar: async ({ silent = false } = {}) => {
     const { loading, initialized } = get();
-    if (loading) return;
+    if (loading && !silent) return;
 
-     if (!initialized) set({ initialized: true });
-
-    set({ loading: true, error: null });
+    if (!initialized) set({ initialized: true });
+    if (!silent) set({ loading: true, error: null });
+    else set({ error: null });
 
     try {
       const { data } = await listarNotificaciones({ limit: PAGE_SIZE, offset: 0 });
 
-      set({
+      set((st) => ({
         items: data.items || [],
-        loading: false, 
+        loading: false,
         error: null,
         meta: {
           total: data.total || 0,
@@ -41,7 +82,7 @@ const useNotificacionesStore = create((set, get) => ({
           hasMore: !!data.hasMore,
           nextOffset: data.nextOffset || 0,
         },
-      });
+      }));
     } catch (e) {
       console.error("Error cargando notificaciones", e);
       set({ loading: false, error: "No se pudieron cargar las notificaciones" });

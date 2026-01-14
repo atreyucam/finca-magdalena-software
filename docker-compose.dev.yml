@@ -1,10 +1,12 @@
 services:
   db:
     environment:
+      TZ: America/Guayaquil
       DB_NAME: finca_dev
 
   api:
     env_file:
       - ./backend/.env.dev
     environment:
+      TZ: America/Guayaquil
       NODE_ENV: development

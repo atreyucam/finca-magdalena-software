@@ -42,4 +42,14 @@ router.get("/produccion/comparar/fincas", requireAuth, requireRole('Propietario'
 router.get("/produccion/comparar/cosechas", requireAuth, requireRole('Propietario','Tecnico'), controller.compararCosechas);
 router.get("/produccion/comparar/lotes", requireAuth, requireRole('Propietario','Tecnico'), controller.compararLotes);
 
+
+
+// ✅ Dashboard (Tareas + Inventario)
+router.get(
+  "/dashboard",
+  requireAuth,
+  requireRole("Propietario", "Tecnico"),
+  controller.reporteDashboard
+);
+
 module.exports = router;

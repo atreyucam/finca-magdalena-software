@@ -100,21 +100,36 @@ exports.obtenerCosecha = async (id) => {
 
   if (!cosecha) return null;
 
-// 🛡️ Lógica corregida: Permitir cierre si no hay tareas pendientes
-  const totalTareas = await models.Tarea.count({ where: { cosecha_id: id } });
-  const verificadas = await models.Tarea.count({ where: { cosecha_id: id, estado: 'Verificada' } });
+const totalTareas = await models.Tarea.count({ where: { cosecha_id: id } });
 
-const puedeCerrar = totalTareas === verificadas; 
-  const progreso = totalTareas > 0 ? Math.round((verificadas / totalTareas) * 100) : 100; // 100% si no hay tareas
+const verificadas = await models.Tarea.count({
+  where: { cosecha_id: id, estado: "Verificada" },
+});
+
+const canceladas = await models.Tarea.count({
+  where: { cosecha_id: id, estado: "Cancelada" },
+});
+
+// ✅ Opción A: estado final = Verificada o Cancelada
+const finalizadas = verificadas + canceladas;
+
+// ✅ Puede cerrar si NO hay tareas en estados no-finales
+const puedeCerrar = totalTareas === finalizadas;
+
+// ✅ Progreso basado en finalizadas (no solo verificadas)
+const progreso = totalTareas > 0 ? Math.round((finalizadas / totalTareas) * 100) : 100;
   return {
     ...cosecha.toJSON(),
     anio_agricola_label: generarLabelAgricola(cosecha.fecha_inicio, cosecha.fecha_fin),
     metricas: {
-      totalTareas,
-      verificadas,
-      progresoVerificacion: progreso,
-      puedeCerrar
-    }
+  totalTareas,
+  verificadas,
+  canceladas,
+  finalizadas,
+  progresoVerificacion: progreso,
+  puedeCerrar,
+}
+
   };
 };
 

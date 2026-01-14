@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { io } from "socket.io-client";
 import useToast from "../hooks/useToast";
+import usePageTitle from "../hooks/usePageTitle";
 
 import { 
   ArrowLeft, Calendar, MapPin, Tag, 
@@ -58,6 +59,7 @@ export default function DetalleTarea() {
   const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
+  usePageTitle(`Tarea #${id}`);
   const tareaId = Number(id);
 
   const { user } = useAuthStore();

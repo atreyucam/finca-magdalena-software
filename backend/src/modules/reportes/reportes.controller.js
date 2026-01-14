@@ -119,3 +119,12 @@ exports.compararLotes = async (req, res, next) => {
     res.json(result);
   } catch (err) { next(err); }
 };
+
+exports.reporteDashboard = async (req, res, next) => {
+  try {
+    const out = await service.reporteDashboard(req.user, req.query);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
