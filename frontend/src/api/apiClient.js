@@ -5,8 +5,12 @@ import useAuthStore from "../store/authStore";
 // ==========================
 // 🔹 Cliente principal
 // ==========================
+// const api = axios.create({
+//   baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:3001",
+//   withCredentials: false,
+// });
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:3001",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
   withCredentials: false,
 });
 
