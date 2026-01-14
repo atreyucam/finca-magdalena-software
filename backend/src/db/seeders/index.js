@@ -12,7 +12,11 @@ module.exports = async function runSeed(models) {
 
   // Configuración
   const RESET = true;
-  if (process.env.NODE_ENV === "production") throw new Error("❌ NO EJECUTAR EN PROD");
+// Bloquear por defecto en producción
+if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "true") {
+  throw new Error("❌ NO EJECUTAR EN PROD (set ALLOW_PROD_SEED=true para habilitar)");
+}
+
 
   console.log("🌱 Seed Básico: Iniciando...");
 
