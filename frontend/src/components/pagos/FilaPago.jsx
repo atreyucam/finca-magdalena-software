@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { FileText, Save, Edit2, X, Ban, CheckCircle2, Eye } from "lucide-react";
 import { TablaFila, TablaCelda } from "../ui/Tabla";
 import Boton from "../ui/Boton";
-import Input from "../ui/input";
+import Input from "../ui/Input";
 import Select from "../ui/Select";
 import Badge from "../ui/Badge";
 import api from "../../api/apiClient"; // ajusta ruta real
