@@ -34,10 +34,9 @@ export default function CosechaClasificacionModal({
   ];
 
   const CAUSAS = [
-    { value: "DanoMecanico", label: "Daño mecánico" },
+    { value: "DanoFisico", label: "Daño físico" },
     { value: "Plaga", label: "Plaga / enfermedad" },
     { value: "Calibre", label: "Calibre fuera de estándar" },
-    { value: "Manipulacion", label: "Mala manipulación" },
     { value: "Otro", label: "Otro" },
   ];
 
@@ -95,7 +94,7 @@ setLocalClasif(clasif.map(c => ({
   kg: r.kg ?? "",
   observacion: r.observacion ?? "",
 })));
-    } catch (e) {
+    } catch {
       // Fallback si falla el fetch: al menos carga lo que llegue en props
       setKgBascula(Number(cosecha?.kg_cosechados) || 0);
 
@@ -122,7 +121,7 @@ setLocalClasif(clasif.map(c => ({
       toast.error("No se pudo cargar la tarea para la clasificación");
     }
   })();
-}, [open, tareaId]); // 👈 NO pongas `cosecha` aquí o se te resetea raro
+}, [open, tareaId, cosecha]); // 👈 NO pongas `cosecha` aquí o se te resetea raro
 
 
   // ✅ EL TOTAL CORRECTO PARA BALANCE ES kgBascula (no cosecha?.kg_cosechados)

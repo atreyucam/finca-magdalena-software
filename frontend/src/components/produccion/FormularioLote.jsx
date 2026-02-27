@@ -43,7 +43,7 @@ export default function FormularioLote({ fincas = [], lote = null, alGuardar, al
       fecha_siembra: lote?.fecha_siembra ? String(lote.fecha_siembra).slice(0, 10) : "",
     });
     setError("");
-  }, [esEdicion, lote?.id]);
+  }, [esEdicion, lote]);
 
   const onChangeField = (key) => (e) => {
     const value = e.target.value;

@@ -23,7 +23,7 @@ export default function AsignacionesModal({ tareaId, open, onClose, onSaved }) {
         setUsuarios(allUsers);
         const currentIds = (tRes.data?.asignaciones || []).map(a => String(a.usuario_id || a.usuario?.id));
         setSelAsign(currentIds);
-      } catch (e) {
+      } catch {
         toast.error("Error cargando datos");
       }
     };
@@ -50,14 +50,14 @@ export default function AsignacionesModal({ tareaId, open, onClose, onSaved }) {
           toast.success("Equipo actualizado");
           onSaved?.();
           onClose();
-      } catch (e) {
+      } catch {
           toast.error("Error al guardar");
       } finally {
           setLoading(false);
       }
   };
 
-  const UserRow = ({ u, action, color }) => (
+  const UserRow = ({ u, action }) => (
       <div className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:shadow-sm transition-all">
           <div className="flex items-center gap-3">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${u.role === 'Tecnico' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'}`}>

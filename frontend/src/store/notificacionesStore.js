@@ -72,7 +72,7 @@ const useNotificacionesStore = create((set, get) => ({
     try {
       const { data } = await listarNotificaciones({ limit: PAGE_SIZE, offset: 0 });
 
-      set((st) => ({
+      set(() => ({
         items: data.items || [],
         loading: false,
         error: null,

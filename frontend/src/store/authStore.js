@@ -1,135 +1,129 @@
 import { create } from "zustand";
 import { toastApi } from "../utils/toastApi";
-
 import { getExp, isExpired } from "../utils/jwt";
 import api from "../api/apiClient";
 import { connectSocket, disconnectSocket, updateSocketToken } from "../lib/socket";
 
+let refreshTimerId = null;
+const LEGACY_AUTH_KEYS = ["fm_auth_v1", "refreshToken", "refresh_token"];
 
-const STORAGE_KEY = "fm_auth_v1";
-
-function loadPersisted() {
+function clearLegacyAuthStorage() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : { user: null, accessToken: null, refreshToken: null };
+    for (const key of LEGACY_AUTH_KEYS) {
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
+    }
   } catch {
-    return { user: null, accessToken: null, refreshToken: null };
+    // ignore storage access errors
   }
 }
-
-function persist(state) {
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({ user: state.user, accessToken: state.accessToken, refreshToken: state.refreshToken })
-  );
-}
-
-let refreshTimerId = null;
 
 const useAuthStore = create((set, get) => ({
   user: null,
   accessToken: null,
-  refreshToken: null,
   isBootstrapped: false,
 
-bootstrap: async () => {
-  const persisted = loadPersisted();
-  set({ ...persisted, isBootstrapped: true });
+  bootstrap: async () => {
+    if (get().isBootstrapped) return;
+    clearLegacyAuthStorage();
 
-  // programar refresh proactivo si aplica
-  get().scheduleProactiveRefresh();
-
-  // ✅ si ya había sesión guardada, conecta socket
-  if (persisted?.accessToken) connectSocket();
-},
-
-
-scheduleProactiveRefresh: () => {
-  clearTimeout(refreshTimerId);
-  const { accessToken } = get();
-  if (!accessToken) return;
-
-  const expMs = getExp(accessToken);
-  if (!expMs) return;
-
-  const delta = Math.max(expMs - Date.now() - 60_000, 5000);
-
-  refreshTimerId = setTimeout(async () => {
     try {
-      await get().refresh();               // intenta refrescar
-      get().scheduleProactiveRefresh();    // reprograma
-    } catch (e) {
-      // ✅ si no se puede refrescar, sesión muerta -> logout inmediato
-      get().logout({ silent: true });
+      await get().refresh();
+    } catch {
+      // Sin cookie válida -> sesión no restaurada, continúa en estado no autenticado.
+    } finally {
+      set((s) => ({ ...s, isBootstrapped: true }));
     }
-  }, delta);
-},
+  },
 
+  scheduleProactiveRefresh: () => {
+    clearTimeout(refreshTimerId);
 
-login: async (email, password) => {
-  const res = await api.post("/auth/login", { email, password });
-  const { user, access_token, refresh_token, tokens } = res.data || {};
+    const { accessToken } = get();
+    if (!accessToken) return;
 
-  const access = access_token || tokens?.access || tokens?.accessToken;
-  const refresh = refresh_token || tokens?.refresh || tokens?.refreshToken;
+    const expMs = getExp(accessToken);
+    if (!expMs) return;
 
-  if (!access) throw new Error("Respuesta de login sin access token");
+    const delta = Math.max(expMs - Date.now() - 60_000, 5000);
 
-  set({ user, accessToken: access, refreshToken: refresh || null });
-  persist(get());
+    refreshTimerId = setTimeout(async () => {
+      try {
+        await get().refresh();
+      } catch {
+        get().logout({ silent: true });
+      }
+    }, delta);
+  },
 
-  // ✅ Socket
-  updateSocketToken(access);
-  connectSocket();
+  login: async (email, password) => {
+    clearLegacyAuthStorage();
 
-  get().scheduleProactiveRefresh();
-  return user;
-},
+    const res = await api.post(
+      "/auth/login",
+      { email, password },
+      { skipAuthRefresh: true }
+    );
 
+    const { user, access_token, tokens } = res.data || {};
+    const access = access_token || tokens?.access || tokens?.accessToken;
 
-logout: (opts = {}) => {
-  clearTimeout(refreshTimerId);
+    if (!access) throw new Error("Respuesta de login sin access token");
 
-  // ✅ Socket
-  disconnectSocket();
+    set({ user, accessToken: access });
 
-  set({ user: null, accessToken: null, refreshToken: null });
-  localStorage.removeItem(STORAGE_KEY);
+    updateSocketToken(access);
+    connectSocket();
+    get().scheduleProactiveRefresh();
 
-  if (!opts?.silent) toastApi.info("Sesión cerrada");
+    return user;
+  },
 
-},
+  logout: (opts = {}) => {
+    clearTimeout(refreshTimerId);
+    disconnectSocket();
 
+    set({ user: null, accessToken: null });
+    clearLegacyAuthStorage();
 
-refresh: async () => {
-  const { refreshToken } = get();
-  if (!refreshToken) throw new Error("No hay refresh_token");
+    if (!opts.localOnly) {
+      api.post("/auth/logout", null, { skipAuthRefresh: true, suppressToast: true }).catch(() => {});
+    }
 
-  const res = await api.post("/auth/refresh", { refresh_token: refreshToken });
-  const { access_token, refresh_token, tokens } = res.data || {};
+    if (!opts.silent) {
+      toastApi.info(opts.message || "Sesión cerrada");
+    }
+  },
 
-  const access = access_token || tokens?.access || tokens?.accessToken;
-  const refresh = refresh_token || tokens?.refresh || tokens?.refreshToken;
+  refresh: async (opts = {}) => {
+    const res = await api.post("/auth/refresh", null, {
+      skipAuthRefresh: true,
+      suppressToast: true,
+    });
 
-  if (!access) throw new Error("Refresh sin access token");
+    const { user, access_token, tokens } = res.data || {};
+    const access = access_token || tokens?.access || tokens?.accessToken;
 
-  set((s) => ({
-    ...s,
-    accessToken: access || s.accessToken,
-    refreshToken: refresh ?? s.refreshToken,
-  }));
-  persist(get());
+    if (!access) throw new Error("Refresh sin access token");
 
-  // ✅ Actualiza token del socket (clave para reconexiones)
-  updateSocketToken(access);
+    set((s) => ({
+      ...s,
+      accessToken: access,
+      user: user || s.user,
+    }));
 
-  return get().accessToken;
-},
+    updateSocketToken(access);
+    connectSocket();
 
+    if (!opts.skipSchedule) {
+      get().scheduleProactiveRefresh();
+    }
+
+    return access;
+  },
 
   setUserFromProfile: (user) => {
     set((s) => ({ ...s, user }));
-    persist(get());
   },
 
   isAuthenticated: () => {
@@ -138,11 +132,10 @@ refresh: async () => {
   },
 
   getRole: () =>
-  get().user?.role ||
-  get().user?.rol ||
-  get().user?.Role?.nombre ||
-  null,
-
+    get().user?.role ||
+    get().user?.rol ||
+    get().user?.Role?.nombre ||
+    null,
 }));
 
 export default useAuthStore;

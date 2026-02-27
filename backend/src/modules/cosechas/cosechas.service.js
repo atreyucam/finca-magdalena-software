@@ -3,6 +3,38 @@ const { models, sequelize } = require('../../db');
 const notifs = require('../notificaciones/notificaciones.service');
 const { badRequest } = require('../../utils/errors'); 
 
+const PERIODOS_CANONICOS = new Set(["pre-floracion", "floracion", "desarrollo", "cosecha"]);
+const ALIAS_PERIODOS = {
+  "pre-floración": "pre-floracion",
+  "pre-floracion": "pre-floracion",
+  "floración": "floracion",
+  "floracion": "floracion",
+  "desarrollo": "desarrollo",
+  "cosecha": "cosecha",
+};
+
+function normalizarPeriodoNombre(nombre) {
+  const key = String(nombre || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const canonico = ALIAS_PERIODOS[key];
+  if (!canonico || !PERIODOS_CANONICOS.has(canonico)) {
+    throw badRequest("Nombre de periodo invalido. Usa: pre-floracion, floracion, desarrollo o cosecha.");
+  }
+  return canonico;
+}
+
+function mapPeriodoDTO(periodo) {
+  const j = periodo?.toJSON ? periodo.toJSON() : periodo;
+  return {
+    ...j,
+    nombre: normalizarPeriodoNombre(j.nombre),
+  };
+}
+
 
 /**
  * Genera anio_agricola y codigo para una cosecha
@@ -67,12 +99,20 @@ function parseFechaFlexible(fechaStr) {
 /* ========== LISTAR / OBTENER ========== */
 
 exports.listarCosechas = async () => {
-  return await models.Cosecha.findAll({
+  const rows = await models.Cosecha.findAll({
     include: [{ model: models.PeriodoCosecha }],
     order: [
       ['anio_agricola', 'DESC'],
       ['numero', 'ASC'],
     ],
+  });
+
+  return rows.map((c) => {
+    const j = c.toJSON();
+    return {
+      ...j,
+      PeriodoCosechas: Array.isArray(j.PeriodoCosechas) ? j.PeriodoCosechas.map(mapPeriodoDTO) : [],
+    };
   });
 };
 
@@ -120,6 +160,9 @@ const puedeCerrar = totalTareas === finalizadas;
 const progreso = totalTareas > 0 ? Math.round((finalizadas / totalTareas) * 100) : 100;
   return {
     ...cosecha.toJSON(),
+    PeriodoCosechas: Array.isArray(cosecha.toJSON().PeriodoCosechas)
+      ? cosecha.toJSON().PeriodoCosechas.map(mapPeriodoDTO)
+      : [],
     anio_agricola_label: generarLabelAgricola(cosecha.fecha_inicio, cosecha.fecha_fin),
     metricas: {
   totalTareas,
@@ -198,10 +241,10 @@ const year = String(d.getFullYear());
 
     // Periodos
     const periodosBase = [
-      { nombre: 'Pre-Floración' },
-      { nombre: 'Floración' },
-      { nombre: 'Crecimiento' },
-      { nombre: 'Cosecha/Recuperación' },
+      { nombre: 'pre-floracion' },
+      { nombre: 'floracion' },
+      { nombre: 'desarrollo' },
+      { nombre: 'cosecha' },
     ];
 
     await Promise.all(
@@ -300,7 +343,7 @@ exports.crearPeriodos = async (currentUser, cosechaId, periodos) => {
       if (!nombre) throw badRequest('nombre de periodo es obligatorio');
 
       return models.PeriodoCosecha.create({
-        nombre,
+        nombre: normalizarPeriodoNombre(nombre),
         cosecha_id: cosechaId,
       });
     })
@@ -323,7 +366,7 @@ exports.actualizarPeriodo = async (currentUser, periodoId, data) => {
   const { nombre } = data;
 
   if (nombre != null) {
-    periodo.nombre = nombre; // ENUM valida
+    periodo.nombre = normalizarPeriodoNombre(nombre);
   }
 
   await periodo.save();

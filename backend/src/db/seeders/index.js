@@ -78,9 +78,9 @@ if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "tr
   console.log("🏗️ Creando Tipos de Actividad...");
   const listaTipos = [
     ["poda", "Poda"],
-    ["maleza", "Manejo de malezas"],
-    ["nutricion", "Nutrición"],
-    ["fitosanitario", "Protección Fitosanitaria"],
+    ["maleza", "Control de malezas"],
+    ["nutricion", "Fertilizacion"],
+    ["fitosanitario", "Control fitosanitario"],
     ["enfundado", "Enfundado"],
     ["cosecha", "Cosecha"],
   ];

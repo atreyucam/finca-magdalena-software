@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from "react";
 import useToastStore from "../store/toastStore";
 
 export default function useToast() {
@@ -5,44 +6,65 @@ export default function useToast() {
   const remove = useToastStore((s) => s.remove);
 
   // ✅ API "nueva" que ya usas
-  const success = (message, opts = {}) =>
-    push({ type: "success", title: "Éxito", message, ...opts });
+  const success = useCallback(
+    (message, opts = {}) =>
+      push({ type: "success", title: "Éxito", message, ...opts }),
+    [push]
+  );
 
-  const info = (message, opts = {}) =>
-    push({ type: "info", title: "Info", message, ...opts });
+  const info = useCallback(
+    (message, opts = {}) =>
+      push({ type: "info", title: "Info", message, ...opts }),
+    [push]
+  );
 
-  const warning = (message, opts = {}) =>
-    push({ type: "warning", title: "Atención", message, ...opts });
+  const warning = useCallback(
+    (message, opts = {}) =>
+      push({ type: "warning", title: "Atención", message, ...opts }),
+    [push]
+  );
 
-  const error = (message, opts = {}) =>
-    push({ type: "danger", title: "Error", message, ...opts });
+  const error = useCallback(
+    (message, opts = {}) =>
+      push({ type: "danger", title: "Error", message, ...opts }),
+    [push]
+  );
 
   // ✅ API "compat" para useApi (SIN cambiar useApi)
-  const showSuccess = (msg, opts = {}) => success(msg, opts);
+  const showSuccess = useCallback((msg, opts = {}) => success(msg, opts), [success]);
 
-  const showError = (err, opts = {}) => {
-    // Acepta string o error de axios
-    const msg =
-      typeof err === "string"
-        ? err
-        : err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          err?.message ||
-          "Error inesperado";
-    error(msg, opts);
-  };
+  const showError = useCallback(
+    (err, opts = {}) => {
+      // Acepta string o error de axios
+      const msg =
+        typeof err === "string"
+          ? err
+          : err?.response?.data?.message ||
+            err?.response?.data?.error ||
+            err?.message ||
+            "Error inesperado";
+      error(msg, opts);
+    },
+    [error]
+  );
 
-  return {
-    // lo que ya usas
-    success,
-    info,
-    warning,
-    error,
-    custom: (toast) => push(toast),
-    close: (id) => remove(id),
+  const custom = useCallback((toast) => push(toast), [push]);
+  const close = useCallback((id) => remove(id), [remove]);
 
-    // lo que useApi necesita
-    showSuccess,
-    showError,
-  };
+  return useMemo(
+    () => ({
+      // lo que ya usas
+      success,
+      info,
+      warning,
+      error,
+      custom,
+      close,
+
+      // lo que useApi necesita
+      showSuccess,
+      showError,
+    }),
+    [success, info, warning, error, custom, close, showSuccess, showError]
+  );
 }

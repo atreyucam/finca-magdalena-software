@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import useToast from "../hooks/useToast";
 import { Mail, Lock, Eye, EyeOff, LogIn } from "lucide-react";
 import useAuthStore from "../store/authStore";
@@ -19,7 +19,6 @@ const schema = z.object({
 
 export default function Login() {
   const navigate = useNavigate();
-  const location = useLocation();
   const login = useAuthStore((s) => s.login);
   const [showPass, setShowPass] = useState(false);
 

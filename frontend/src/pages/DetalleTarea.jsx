@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { io } from "socket.io-client";
 import useToast from "../hooks/useToast";
 import usePageTitle from "../hooks/usePageTitle";
 
@@ -14,6 +13,7 @@ import {
 
 import { obtenerTarea, listarNovedadesTarea, crearNovedadTarea, iniciarTarea, cancelarTarea} from "../api/apiClient";
 import useAuthStore from "../store/authStore";
+import { connectSocket, getSocket } from "../lib/socket";
 
 // --- Componentes ---
 import Avatar from "../components/Avatar";
@@ -35,10 +35,16 @@ const formatQty = (val, unitName) => {
     const num = Number(val);
     if (isNaN(num)) return "0";
     const u = unitName?.toLowerCase() || "";
+    const formatNumber = (value, maxDecimals = 2) =>
+      new Intl.NumberFormat("es-EC", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: maxDecimals,
+      }).format(value);
+
     if (u === "unidad" || u === "unidades" || u === "u") {
-        return `${num} ${num === 1 ? 'unidad' : 'unidades'}`;
+        return `${formatNumber(Math.trunc(num), 0)} ${num === 1 ? 'unidad' : 'unidades'}`;
     }
-    return `${num} ${unitName}`;
+    return `${formatNumber(num, 3)} ${unitName}`;
 };
 
 const nombreUsuario = (u) => {
@@ -46,6 +52,19 @@ const nombreUsuario = (u) => {
   if (u.nombre) return u.nombre; // si backend manda "nombre"
   const full = [u.nombres, u.apellidos].filter(Boolean).join(" ").trim();
   return full || u.username || u.email || "Usuario";
+};
+
+const normalizarNovedad = (n) => {
+  const usuarioRaw = n?.usuario || n?.Usuario || null;
+  return {
+    ...n,
+    usuario: usuarioRaw
+      ? {
+          ...usuarioRaw,
+          nombre: nombreUsuario(usuarioRaw),
+        }
+      : null,
+  };
 };
 
 
@@ -90,7 +109,7 @@ export default function DetalleTarea() {
 
       if (!resTarea) throw new Error("Tarea no encontrada");
       setTarea(resTarea.data || resTarea);
-      setNovedades(resNov.data || []);
+      setNovedades((resNov.data || []).map(normalizarNovedad));
       setLoading(false);
     } catch (e) {
       console.error(e);
@@ -121,7 +140,8 @@ const handleCancelar = async () => {
     setLoading(true);
     cargarDetalle();
 
-    const socket = io(import.meta.env.VITE_API_BASE_URL || "http://localhost:3001");
+    connectSocket();
+    const socket = getSocket();
     socket.emit("join:tarea", tareaId);
     
     // Función centralizada de recarga
@@ -132,9 +152,10 @@ const handleCancelar = async () => {
 
     const onNovedad = (payload) => {
         if(payload.novedad) {
+            const novedad = normalizarNovedad(payload.novedad);
             setNovedades(prev => {
-                if (prev.some(n => n.id === payload.novedad.id)) return prev;
-                return [payload.novedad, ...prev];
+                if (prev.some(n => n.id === novedad.id)) return prev;
+                return [novedad, ...prev];
             });
         }
         refresh(); // Refrescamos todo por si cambió el estado también
@@ -158,7 +179,6 @@ const handleCancelar = async () => {
       socket.off("tarea:detalles", refresh);
       socket.off("tarea:insumos", refresh);
       socket.off("tarea:asignaciones", refresh);
-      socket.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tareaId]);
@@ -183,7 +203,7 @@ const handleEnviarNovedad = async () => {
     id: `tmp-${Date.now()}`,
     texto,
     created_at: new Date().toISOString(),
-    usuario: user ? { ...user } : null,
+    usuario: user ? { ...user, nombre: nombreUsuario(user) } : null,
   };
 
   setNovedades(prev => [temp, ...prev]);
@@ -194,20 +214,24 @@ const handleEnviarNovedad = async () => {
 
     // si backend devuelve la novedad real
     if (res?.data) {
-      const real = {
+      const real = normalizarNovedad({
         ...res.data,
         // ✅ si no viene usuario poblado, lo “pegamos” con el logueado
         usuario: res.data.usuario ?? (user ? { ...user } : null),
-      };
+      });
 
-      setNovedades(prev => [real, ...prev.filter(n => n.id !== temp.id)]);
+      setNovedades((prev) => {
+        const sinTemp = prev.filter((n) => n.id !== temp.id);
+        const sinDuplicadoReal = sinTemp.filter((n) => n.id !== real.id);
+        return [real, ...sinDuplicadoReal];
+      });
     } else {
       // fallback
       await cargarDetalle();
     }
 
     notify.success("Comentario agregado");
-  } catch (e) {
+  } catch {
     // revertir optimistic
     setNovedades(prev => prev.filter(n => n.id !== temp.id));
     setTextoNovedad(texto);
@@ -223,6 +247,8 @@ const handleEnviarNovedad = async () => {
   const esAsignado = tarea.asignaciones?.some(a => Number(a.usuario?.id) === Number(user.id));
   const puedeIniciar = (isWorker && esAsignado) || isOwnerOrTech;
   const puedeCompletar = (isWorker && esAsignado) || isOwnerOrTech;
+  const puedeGestionarRecursosPlanificados =
+    isOwnerOrTech && !["Completada", "Verificada", "Cancelada"].includes(tarea.estado);
 
   // --- SUBCOMPONENTE: Panel de Acciones ---
 // --- SUBCOMPONENTE: Panel de Acciones ---
@@ -398,10 +424,10 @@ const handleEnviarNovedad = async () => {
                       </div>
                   </div>
 
-                  {tarea.descripcion && (
+                  {(tarea.metodologia || tarea.descripcion) && (
                     <div className="mt-6 bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-600 text-sm leading-relaxed">
-                       <span className="block font-bold text-slate-700 mb-1 text-xs uppercase">Instrucciones:</span>
-                       {tarea.descripcion}
+                       <span className="block font-bold text-slate-700 mb-1 text-xs uppercase">Metodología:</span>
+                       {tarea.metodologia || tarea.descripcion}
                     </div>
                   )}
               </div>
@@ -477,7 +503,7 @@ const handleEnviarNovedad = async () => {
               <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
                   <div className="flex justify-between items-center mb-6">
                       <h3 className="text-lg font-bold text-slate-800">Insumos y Recursos</h3>
-                      {isOwnerOrTech && tarea.estado !== "Verificada" && (
+                      {puedeGestionarRecursosPlanificados && (
                           <Boton variante="secundario" onClick={() => toggleModal("items", true)} className="!px-3 !py-1.5 !text-xs !bg-emerald-50 !text-emerald-700 !border-emerald-200 hover:!bg-emerald-100 border">
                               Gestionar Recursos
                           </Boton>

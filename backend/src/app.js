@@ -87,12 +87,16 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Auth Limiter (Suavizado)
+// Auth Limiter (login)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  max: 100, // 👈 Aumentado para desarrollo
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { code: "TOO_MANY_REQUESTS", message: "Demasiados intentos de login. Intenta de nuevo en 1 minuto." },
 });
 app.use('/auth/login', authLimiter);
+app.use('/api/auth/login', authLimiter);
 
 app.use(express.json());
 
@@ -118,6 +122,7 @@ const fincasRoutes = require('./modules/fincas/fincas.routes');
 app.use('/files', express.static(path.join(__dirname, '../storage')));
 app.use('/health', healthRoutes);
 app.use('/auth', authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/usuarios', usuariosRoutes);
 app.use('/fincas', fincasRoutes);
 app.use('/lotes', lotesRoutes);

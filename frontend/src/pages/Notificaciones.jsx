@@ -201,15 +201,15 @@ export default function Notificaciones() {
                 </TablaFila>
               ))}
           </TablaCuerpo>
-
-          <Paginador
-            paginaActual={pagina}
-            totalPaginas={totalPaginas}
-            onCambiarPagina={onCambiarPagina}
-            totalRegistros={total}
-            mostrarSiempre={true}
-          />
         </Tabla>
+
+        <Paginador
+          paginaActual={pagina}
+          totalPaginas={totalPaginas}
+          onCambiarPagina={onCambiarPagina}
+          totalRegistros={total}
+          mostrarSiempre={true}
+        />
 
         {/* Hint de carga incremental */}
         {!loading && hasMore && (

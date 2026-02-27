@@ -85,8 +85,9 @@ exports.asignarUsuarios = exports.actualizarAsignaciones;
 
 exports.configurarItems = async (req, res, next) => {
   try {
-    const io = req.app.get("io");
-    const out = await service.configurarItems(req.user, +req.params.id, req.body, io);
+    const tareaId = Number(req.params.id);
+    const items = Array.isArray(req.body) ? req.body : req.body?.items;
+    const out = await service.configurarItems(tareaId, items || [], req.user);
     res.status(201).json(out);
   } catch (err) { next(err); }
 };

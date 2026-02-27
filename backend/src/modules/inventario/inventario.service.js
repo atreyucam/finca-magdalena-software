@@ -191,7 +191,7 @@ exports.crearItem = async (data) => {
   if (!nombre) throw badRequest("Nombre obligatorio");
   if (!unidad_id) throw badRequest("Unidad obligatoria");
 
-  return await sequelize.transaction(async (t) => {
+  const creado = await sequelize.transaction(async (t) => {
     const item = await models.InventarioItem.create({
         nombre,
         categoria,
@@ -217,6 +217,22 @@ exports.crearItem = async (data) => {
     }
     return item.toJSON();
   });
+
+  // Notificación en vivo para paneles de administración
+  try {
+    await notif.crearParaRoles(['Propietario', 'Tecnico'], {
+      tipo: 'Inventario',
+      titulo: 'Nuevo ítem de inventario',
+      mensaje: `Se creó el ítem "${creado.nombre}" (${creado.categoria}).`,
+      referencia: { item_id: creado.id },
+      prioridad: 'Info',
+    });
+  } catch (e) {
+    // No romper flujo principal de inventario por una falla de notificaciones
+    console.error('No se pudo emitir notificación de creación de ítem:', e?.message || e);
+  }
+
+  return creado;
 };
 
 /**

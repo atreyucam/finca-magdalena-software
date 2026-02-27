@@ -10,6 +10,177 @@ const { convertir } = require("../../utils/units"); // ✅ Usamos la nueva utili
 function badRequest(msg) { const e = new Error(msg || "Solicitud inválida"); e.status = 400; e.code = "BAD_REQUEST"; return e; }
 function forbidden(msg) { const e = new Error(msg || "Prohibido"); e.status = 403; e.code = "FORBIDDEN"; return e; }
 function notFound(msg) { const e = new Error(msg || "No encontrado"); e.status = 404; e.code = "NOT_FOUND"; return e; }
+function forbiddenTaskAccess() { return forbidden("No tienes permiso para acceder a esta tarea"); }
+
+const TIPO_NOMBRES = {
+  poda: "Poda",
+  maleza: "Control de malezas",
+  nutricion: "Fertilizacion",
+  fitosanitario: "Control fitosanitario",
+  enfundado: "Enfundado",
+  cosecha: "Cosecha",
+};
+
+const METODOS_MALEZA_VALIDOS = new Set(["manual", "quimico"]);
+
+const CALIDADES_POR_TIPO_ENTREGA = {
+  exportacion: ["grande", "pequeno"],
+  nacional: ["primera", "segunda", "tercera", "cuarta", "quinta", "rechazo"],
+};
+
+const CAUSAS_RECHAZO_VALIDAS = new Set(["DanoFisico", "Plaga", "Calibre", "Otro"]);
+
+function asText(value) {
+  return String(value ?? "").trim();
+}
+
+function asLower(value) {
+  return asText(value).toLowerCase();
+}
+
+function asPositiveInteger(value, fieldName) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw badRequest(`${fieldName} debe ser un entero positivo`);
+  }
+  return n;
+}
+
+function asIntegerInRange(value, min, max, fieldName) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw badRequest(`${fieldName} debe ser un entero entre ${min} y ${max}`);
+  }
+  return n;
+}
+
+function mapTipoNombre(codigo, fallback) {
+  if (!codigo) return fallback || "";
+  return TIPO_NOMBRES[String(codigo).toLowerCase()] || fallback || "";
+}
+
+function normalizarMetodoMaleza(value) {
+  const metodo = asLower(value);
+  if (!METODOS_MALEZA_VALIDOS.has(metodo)) {
+    throw badRequest("MALEZA: metodo debe ser 'manual' o 'quimico'.");
+  }
+  return metodo;
+}
+
+function normalizarCausaRechazo(value) {
+  const causa = asLower(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (!causa) return "Otro";
+  if (causa === "danomecanico") return "DanoFisico";
+  if (causa === "danofisico") return "DanoFisico";
+  if (causa === "manipulacion") return "Otro";
+  if (causa === "plaga") return "Plaga";
+  if (causa === "calibre") return "Calibre";
+  return "Otro";
+}
+
+function inferirTipoEntrega(calidadNorm) {
+  if (CALIDADES_POR_TIPO_ENTREGA.exportacion.includes(calidadNorm)) return "exportacion";
+  if (CALIDADES_POR_TIPO_ENTREGA.nacional.includes(calidadNorm)) return "nacional";
+  return null;
+}
+
+function normalizarLiquidacion(liquidacion = []) {
+  if (!Array.isArray(liquidacion)) throw badRequest("COSECHA: liquidacion debe ser un arreglo.");
+
+  return liquidacion.map((l, idx) => {
+    const calidadNorm = asLower(l?.calidad);
+    const tipoEntrega = asLower(l?.tipo_entrega) || inferirTipoEntrega(calidadNorm) || "nacional";
+
+    if (!CALIDADES_POR_TIPO_ENTREGA[tipoEntrega]) {
+      throw badRequest(`COSECHA: tipo_entrega inválido en fila ${idx + 1}.`);
+    }
+
+    const calidad = calidadNorm;
+    if (!CALIDADES_POR_TIPO_ENTREGA[tipoEntrega].includes(calidad)) {
+      throw badRequest(
+        `COSECHA: calidad '${l?.calidad || ""}' no permitida para tipo_entrega '${tipoEntrega}'.`
+      );
+    }
+
+    return {
+      tipo_entrega: tipoEntrega,
+      calidad,
+      gabetas: Number(l?.gabetas) || 0,
+      novedad: asText(l?.novedad),
+      valor_total: Number(l?.valor_total) || 0,
+    };
+  });
+}
+
+function normalizarRechazos(rechazos = []) {
+  if (!Array.isArray(rechazos)) throw badRequest("COSECHA: rechazos debe ser un arreglo.");
+
+  return rechazos.map((r) => {
+    const causa = normalizarCausaRechazo(r?.causa);
+    if (!CAUSAS_RECHAZO_VALIDAS.has(causa)) {
+      throw badRequest("COSECHA: causa de rechazo inválida.");
+    }
+
+    return {
+      causa,
+      observacion: asText(r?.observacion),
+      kg: Number(r?.kg) || 0,
+    };
+  });
+}
+
+function validarYNormalizarGradoMaduracion(value) {
+  if (value === undefined || value === null || value === "") return null;
+  return asIntegerInRange(value, 1, 8, "grado_maduracion");
+}
+
+function normalizarDetalleParaRespuesta(tipoCodigo, detalle = {}) {
+  const out = { ...(detalle || {}) };
+
+  if (tipoCodigo === "poda") {
+    if (out.numero_plantas_intervenir === undefined && out.porcentaje_plantas_plan_pct !== undefined) {
+      out.numero_plantas_intervenir = out.porcentaje_plantas_plan_pct;
+    }
+    if (
+      out.numero_plantas_intervenidas_real === undefined &&
+      out.porcentaje_plantas_real_pct !== undefined
+    ) {
+      out.numero_plantas_intervenidas_real = out.porcentaje_plantas_real_pct;
+    }
+  }
+
+  if (tipoCodigo === "enfundado") {
+    if (out.numero_fundas_colocadas === undefined && out.porcentaje_frutos_plan_pct !== undefined) {
+      out.numero_fundas_colocadas = out.porcentaje_frutos_plan_pct;
+    }
+    if (
+      out.numero_fundas_colocadas_real === undefined &&
+      out.porcentaje_frutos_real_pct !== undefined
+    ) {
+      out.numero_fundas_colocadas_real = out.porcentaje_frutos_real_pct;
+    }
+  }
+
+  if (tipoCodigo === "cosecha") {
+    if (out.grado_maduracion === undefined && out.grado_madurez !== undefined) {
+      out.grado_maduracion = out.grado_madurez;
+    }
+    delete out.grado_madurez;
+    delete out.filas_recolectadas;
+
+    if (Array.isArray(out.rechazos)) {
+      out.rechazos = out.rechazos.map((r) => ({
+        ...r,
+        causa: normalizarCausaRechazo(r?.causa),
+      }));
+    }
+  }
+
+  return out;
+}
 
 // --- Utilidad Socket ---
 function emitTarea(io, tareaId, type, payload = {}) {
@@ -101,6 +272,54 @@ async function getNombreUsuario(usuarioId) {
   return `${u.nombres || ""} ${u.apellidos || ""}`.trim() || "Usuario";
 }
 
+function mapNovedadDTO(novedad) {
+  const j = novedad?.toJSON ? novedad.toJSON() : (novedad || {});
+  const autor = j.usuario || j.Usuario || null;
+  const nombreAutor = autor ? `${autor.nombres || ""} ${autor.apellidos || ""}`.trim() : "Usuario";
+
+  return {
+    id: j.id,
+    tarea_id: j.tarea_id,
+    autor_id: j.autor_id,
+    texto: j.texto,
+    created_at: j.created_at,
+    updated_at: j.updated_at,
+    usuario: autor
+      ? {
+          id: autor.id,
+          nombres: autor.nombres,
+          apellidos: autor.apellidos,
+          nombre: nombreAutor || "Usuario",
+        }
+      : null,
+  };
+}
+
+async function validarPermisoSobreTarea(tareaId, userId, userRol) {
+  const usuario = await models.Usuario.findByPk(userId, { attributes: ["id", "estado"] });
+  if (!usuario || usuario.estado !== "Activo") {
+    const e = new Error("Usuario inactivo o bloqueado");
+    e.status = 401;
+    e.code = "USER_INACTIVE";
+    throw e;
+  }
+
+  const tarea = await models.Tarea.findByPk(tareaId, {
+    attributes: ["id", "estado", "titulo", "lote_id", "cosecha_id", "creador_id"],
+  });
+  if (!tarea) throw notFound("Tarea no encontrada");
+
+  if (["Propietario", "Tecnico"].includes(userRol)) return tarea;
+
+  const asignacion = await models.TareaAsignacion.findOne({
+    where: { tarea_id: tareaId, usuario_id: userId },
+    attributes: ["id"],
+  });
+  if (!asignacion) throw forbiddenTaskAccess();
+
+  return tarea;
+}
+
 
 exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
   if (!["Propietario", "Tecnico"].includes(currentUser.role)) throw forbidden();
@@ -184,23 +403,24 @@ exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
 const REGLAS_BPA = {
   poda: (d) => {
     if (!d.tipo) throw badRequest("PODA: El 'tipo' (Formación/Sanitaria/Producción) es obligatorio.");
-    // Validamos que el porcentaje sea lógico
-    if (d.porcentaje_plantas_plan_pct > 100) throw badRequest("PODA: No puedes planificar más del 100% del lote.");
+    const numeroPlantas = asPositiveInteger(
+      d.numero_plantas_intervenir ?? d.porcentaje_plantas_plan_pct,
+      "PODA: numero_plantas_intervenir"
+    );
     return {
       tipo: d.tipo,
       herramientas_desinfectadas: d.herramientas_desinfectadas || false,
       disposicion_restos: d.disposicion_restos || 'Compostaje en sitio',
-      porcentaje_plantas_plan_pct: Number(d.porcentaje_plantas_plan_pct) || 0,
-      porcentaje_plantas_real_pct: 0 // Inicializa en 0
+      numero_plantas_intervenir: numeroPlantas,
+      numero_plantas_intervenidas_real: 0,
     };
   },
   maleza: (d) => {
     if (!d.metodo) throw badRequest("MALEZA: El 'metodo' es obligatorio.");
     return {
-      metodo: d.metodo,
+      metodo: normalizarMetodoMaleza(d.metodo),
       cobertura_planificada_pct: Number(d.cobertura_planificada_pct || d.cobertura_estimada_pct) || 0,
       cobertura_real_pct: 0,
-      altura_corte_cm: d.altura_corte_cm || null
     };
   },
   nutricion: (d) => {
@@ -232,9 +452,13 @@ const REGLAS_BPA = {
     };
   },
   enfundado: (d) => {
+    const numeroFundas = asPositiveInteger(
+      d.numero_fundas_colocadas ?? d.porcentaje_frutos_plan_pct,
+      "ENFUNDADO: numero_fundas_colocadas"
+    );
     return {
-      porcentaje_frutos_plan_pct: Number(d.porcentaje_frutos_plan_pct) || 100,
-      porcentaje_frutos_real_pct: 0,
+      numero_fundas_colocadas: numeroFundas,
+      numero_fundas_colocadas_real: 0,
       material_funda: d.material_funda || 'Estándar'
     };
   },
@@ -242,19 +466,14 @@ const REGLAS_BPA = {
   // 🟢 MODIFICACIÓN: Actualizar esquema de Cosecha
   // ---------------------------------------------------------
   cosecha: (d) => {
+    const gradoMaduracion = validarYNormalizarGradoMaduracion(
+      d.grado_maduracion ?? d.grado_madurez
+    );
     return {
       kg_planificados: Number(d.kg_planificados) || 0,
       kg_cosechados: Number(d.kg_cosechados) || 0,
-      grado_madurez: Number(d.grado_madurez) || 0,
+      grado_maduracion: gradoMaduracion,
       higiene_verificada: !!d.higiene_verificada,
-      
-      // Conteo por Filas
-      filas_recolectadas: Array.isArray(d.filas_recolectadas) 
-        ? d.filas_recolectadas.map(f => ({
-            numero: f.numero || 1,
-            gabetas: Number(f.gabetas) || 0
-          })) 
-        : [],
 
       // ✅ NUEVO: Clasificación Comercial (Antes en Modal)
       clasificacion: Array.isArray(d.clasificacion)
@@ -266,12 +485,7 @@ const REGLAS_BPA = {
         })) : [],
 
       // ✅ NUEVO: Rechazos / Merma (Antes en Modal)
-      rechazos: Array.isArray(d.rechazos)
-        ? d.rechazos.map(r => ({
-            causa: r.causa || "Otro",
-            observacion: r.observacion || "",
-            kg: Number(r.kg) || 0
-        })) : [],
+      rechazos: normalizarRechazos(d.rechazos || []),
 
       // Logística de Entrega
       entrega: {
@@ -282,14 +496,7 @@ const REGLAS_BPA = {
       },
 
       // Liquidación Financiera
-      liquidacion: Array.isArray(d.liquidacion)
-        ? d.liquidacion.map(l => ({
-            calidad: l.calidad || "General",
-            gabetas: Number(l.gabetas) || 0,
-            novedad: l.novedad || "",
-            valor_total: Number(l.valor_total) || 0
-          }))
-        : [],
+      liquidacion: normalizarLiquidacion(d.liquidacion || []),
         
       total_dinero: Number(d.total_dinero) || 0
     };
@@ -317,7 +524,7 @@ exports.crearTarea = async (currentUser, data, io) => {
 
   const {
     titulo, fecha_programada, lote_id, cosecha_id, periodo_id,
-    tipo_codigo, tipo_id, descripcion, asignados = [], detalle = {}, items = []
+    tipo_codigo, tipo_id, descripcion, metodologia, asignados = [], detalle = {}, items = []
   } = data;
 
   if (!lote_id || !fecha_programada || !cosecha_id) {
@@ -354,6 +561,7 @@ exports.crearTarea = async (currentUser, data, io) => {
   }
 
   const detallesJSON = validarDetalles(finalTipoCodigo, detalle);
+  const metodologiaFinal = asText(metodologia ?? descripcion) || null;
 
   // 1) Crear dentro de TX
   const result = await sequelize.transaction(async (t) => {
@@ -364,7 +572,7 @@ exports.crearTarea = async (currentUser, data, io) => {
       cosecha_id,
       periodo_id: periodo_id || null,
       fecha_programada: new Date(fecha_programada),
-      descripcion,
+      descripcion: metodologiaFinal,
       creador_id: currentUser.sub,
       estado: "Pendiente",
       detalles: detallesJSON,
@@ -516,6 +724,7 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
 exports.completarTarea = async (currentUser, tareaId, body, io) => {
   const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
   if (!tarea) throw notFound();
+  const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
   
   if (currentUser.role === 'Trabajador') {
     const asign = await models.TareaAsignacion.findOne({ where: { tarea_id: tareaId, usuario_id: currentUser.sub } });
@@ -548,13 +757,66 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
     const detallesActuales = tarea.detalles || {};
     const nuevosDetalles = { ...detallesActuales, ...detalleReal };
 
-    // (Opcional) Asegurar tipos numéricos para consistencia en reportes
-    if (nuevosDetalles.porcentaje_plantas_real_pct !== undefined) 
-        nuevosDetalles.porcentaje_plantas_real_pct = Number(nuevosDetalles.porcentaje_plantas_real_pct);
+    // Asegurar tipos numéricos para consistencia en reportes
+    if (nuevosDetalles.porcentaje_plantas_real_pct !== undefined)
+      nuevosDetalles.porcentaje_plantas_real_pct = Number(nuevosDetalles.porcentaje_plantas_real_pct);
     if (nuevosDetalles.cobertura_real_pct !== undefined)
         nuevosDetalles.cobertura_real_pct = Number(nuevosDetalles.cobertura_real_pct);
     if (nuevosDetalles.kg_cosechados !== undefined)
         nuevosDetalles.kg_cosechados = Number(nuevosDetalles.kg_cosechados);
+    if (nuevosDetalles.grado_maduracion !== undefined || nuevosDetalles.grado_madurez !== undefined) {
+      nuevosDetalles.grado_maduracion = validarYNormalizarGradoMaduracion(
+        nuevosDetalles.grado_maduracion ?? nuevosDetalles.grado_madurez
+      );
+      delete nuevosDetalles.grado_madurez;
+    }
+
+    if (tipoCodigo === "poda") {
+      if (nuevosDetalles.numero_plantas_intervenir !== undefined) {
+        nuevosDetalles.numero_plantas_intervenir = asPositiveInteger(
+          nuevosDetalles.numero_plantas_intervenir,
+          "PODA: numero_plantas_intervenir"
+        );
+      }
+      if (nuevosDetalles.numero_plantas_intervenidas_real !== undefined) {
+        const real = Number(nuevosDetalles.numero_plantas_intervenidas_real);
+        if (!Number.isInteger(real) || real < 0) {
+          throw badRequest("PODA: numero_plantas_intervenidas_real debe ser entero mayor o igual a 0.");
+        }
+        nuevosDetalles.numero_plantas_intervenidas_real = real;
+      }
+    }
+
+    if (tipoCodigo === "enfundado") {
+      if (nuevosDetalles.numero_fundas_colocadas !== undefined) {
+        nuevosDetalles.numero_fundas_colocadas = asPositiveInteger(
+          nuevosDetalles.numero_fundas_colocadas,
+          "ENFUNDADO: numero_fundas_colocadas"
+        );
+      }
+      if (nuevosDetalles.numero_fundas_colocadas_real !== undefined) {
+        const real = Number(nuevosDetalles.numero_fundas_colocadas_real);
+        if (!Number.isInteger(real) || real < 0) {
+          throw badRequest("ENFUNDADO: numero_fundas_colocadas_real debe ser entero mayor o igual a 0.");
+        }
+        nuevosDetalles.numero_fundas_colocadas_real = real;
+      }
+    }
+
+    if (tipoCodigo === "maleza" && nuevosDetalles.metodo !== undefined) {
+      nuevosDetalles.metodo = normalizarMetodoMaleza(nuevosDetalles.metodo);
+      delete nuevosDetalles.altura_corte_cm;
+    }
+
+    if (tipoCodigo === "cosecha") {
+      if (nuevosDetalles.rechazos !== undefined) {
+        nuevosDetalles.rechazos = normalizarRechazos(nuevosDetalles.rechazos);
+      }
+      if (nuevosDetalles.liquidacion !== undefined) {
+        nuevosDetalles.liquidacion = normalizarLiquidacion(nuevosDetalles.liquidacion);
+      }
+      delete nuevosDetalles.filas_recolectadas;
+    }
 
     // Guardar el JSON actualizado
     tarea.detalles = nuevosDetalles;
@@ -605,37 +867,99 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
   if (!["Propietario", "Tecnico"].includes(currentUser.role)) throw forbidden();
   
   // ✅ 1. Extraemos 'detalle' del body (antes no se hacía)
-  const { comentario, force = false, detalle } = body;
+  const { comentario, force = false, detalle, items: itemsReal = [] } = body || {};
 
-  const tarea = await models.Tarea.findByPk(tareaId);
+  const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
   if (!tarea || tarea.estado !== "Completada") throw badRequest("La tarea debe estar Completada para verificar.");
+  const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
 
   // Verificar si ya se descontó inventario
   const yaMovido = await models.InventarioMovimiento.findOne({
-    where: { referencia: { [Op.contains]: { tarea_id: tareaId } } }
+    where: {
+      tipo: "SALIDA",
+      referencia: { [Op.contains]: { tarea_id: tareaId } },
+    },
   });
 
   await sequelize.transaction(async (t) => {
+    // ✅ 2.1 Guardar ajustes finales de insumos (cantidad real / lote) desde modal de verificación
+    if (Array.isArray(itemsReal) && itemsReal.length > 0) {
+      for (const itemInput of itemsReal) {
+        const whereItem = itemInput?.id
+          ? { id: Number(itemInput.id), tarea_id: tareaId }
+          : { item_id: Number(itemInput?.item_id), tarea_id: tareaId };
+
+        const tareaItem = await models.TareaItem.findOne({
+          where: whereItem,
+          transaction: t,
+          lock: t.LOCK.UPDATE,
+        });
+        if (!tareaItem) continue;
+
+        if (itemInput?.cantidad_real !== undefined && itemInput?.cantidad_real !== null) {
+          const cantidadReal = Number(itemInput.cantidad_real);
+          if (!Number.isFinite(cantidadReal) || cantidadReal < 0) {
+            throw badRequest("cantidad_real inválida en verificación");
+          }
+          tareaItem.cantidad_real = cantidadReal;
+        }
+
+        if (typeof itemInput?.lote_insumo_manual === "string") {
+          tareaItem.lote_insumo_manual = itemInput.lote_insumo_manual.trim() || null;
+        }
+
+        await tareaItem.save({ transaction: t });
+      }
+    }
+
     // ✅ 2. Actualizar Detalles (Checks finales como Herramientas Desinfectadas)
     // Si el frontend envió correcciones o validaciones finales, las guardamos ahora.
     if (detalle && Object.keys(detalle).length > 0) {
         const detallesActuales = tarea.detalles || {};
         // Mezclamos lo viejo con lo nuevo
-        tarea.detalles = { ...detallesActuales, ...detalle };
+        const nuevosDetalles = { ...detallesActuales, ...detalle };
+
+        if (nuevosDetalles.grado_maduracion !== undefined || nuevosDetalles.grado_madurez !== undefined) {
+          nuevosDetalles.grado_maduracion = validarYNormalizarGradoMaduracion(
+            nuevosDetalles.grado_maduracion ?? nuevosDetalles.grado_madurez
+          );
+          delete nuevosDetalles.grado_madurez;
+        }
+
+        if (tipoCodigo === "maleza" && nuevosDetalles.metodo !== undefined) {
+          nuevosDetalles.metodo = normalizarMetodoMaleza(nuevosDetalles.metodo);
+          delete nuevosDetalles.altura_corte_cm;
+        }
+
+        if (tipoCodigo === "cosecha") {
+          if (nuevosDetalles.rechazos !== undefined) {
+            nuevosDetalles.rechazos = normalizarRechazos(nuevosDetalles.rechazos);
+          }
+          if (nuevosDetalles.liquidacion !== undefined) {
+            nuevosDetalles.liquidacion = normalizarLiquidacion(nuevosDetalles.liquidacion);
+          }
+          delete nuevosDetalles.filas_recolectadas;
+        }
+
+        tarea.detalles = nuevosDetalles;
     }
 
-    // 3. Descontar Inventario Real (Lógica original)
+    // 3. Registrar consumo/uso real en inventario
     if (!yaMovido) {
       const items = await models.TareaItem.findAll({
-        where: { tarea_id: tareaId, categoria: "Insumo" },
+        where: { tarea_id: tareaId },
         include: [models.InventarioItem],
         transaction: t
       });
 
       for (const ti of items) {
         const cantidadAUsar = Number(ti.cantidad_real) > 0 ? Number(ti.cantidad_real) : Number(ti.cantidad_planificada);
+        if (!(cantidadAUsar > 0) || !ti.InventarioItem) continue;
 
-        if (cantidadAUsar > 0 && ti.InventarioItem) {
+        const referenciaMov = { tarea_id: tareaId, lote_id: tarea.lote_id, usuario_id: currentUser.sub };
+
+        // Insumos: descuentan stock real.
+        if (ti.categoria === "Insumo") {
           try {
             await invService._moverStock({
               t,
@@ -644,16 +968,31 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
               cantidad: cantidadAUsar,
               unidad_id: ti.unidad_id,
               motivo: `Consumo Tarea #${tareaId} (${tarea.titulo || 'Sin titulo'})`,
-              referencia: { tarea_id: tareaId, lote_id: tarea.lote_id }
+              referencia: referenciaMov
             });
           } catch (e) {
-            if (e.code === 'LOW_STOCK' && force) {
-               // Permitir stock negativo si se fuerza
-            } else {
-              throw badRequest(`Stock insuficiente para ${ti.InventarioItem.nombre}.`);
+            // En force, permitimos continuar con la verificación aunque haya faltante.
+            if (force && /stock insuficiente/i.test(String(e?.message || ""))) {
+              continue;
             }
+            throw badRequest(`Stock insuficiente para ${ti.InventarioItem.nombre}.`);
           }
+          continue;
         }
+
+        // Recursos no consumibles (Herramienta/Equipo): solo trazabilidad en historial.
+        await models.InventarioMovimiento.create({
+          item_id: ti.InventarioItem.id,
+          lote_id: null,
+          tipo: "SALIDA",
+          cantidad: cantidadAUsar,
+          unidad_id: ti.unidad_id,
+          factor_a_unidad_base: 1,
+          cantidad_en_base: cantidadAUsar.toFixed(3),
+          stock_resultante: Number(ti.InventarioItem.stock_actual).toFixed(3),
+          motivo: `Uso recurso Tarea #${tareaId} (${tarea.titulo || 'Sin titulo'})`,
+          referencia: referenciaMov,
+        }, { transaction: t });
       }
     }
 
@@ -748,6 +1087,7 @@ exports.obtenerTarea = async (currentUser, id) => {
 
   const response = {
     ...json,
+    metodologia: json.descripcion ?? null,
     // Atributos de ubicación simplificados para el Frontend
     finca_nombre: json.Lote?.finca?.nombre, // 🔹 Nombre de la finca origen
     lote_nombre: json.Lote?.nombre,
@@ -784,7 +1124,7 @@ exports.obtenerTarea = async (currentUser, id) => {
   if (tipoCodigo) {
     response[tipoCodigo] = {
       id: tarea.id,
-      ...tarea.detalles
+      ...normalizarDetalleParaRespuesta(tipoCodigo, tarea.detalles)
     };
   }
 
@@ -795,92 +1135,165 @@ exports.obtenerTarea = async (currentUser, id) => {
 
 /**
  * 2. LISTAR TAREAS
- * Permite filtrar por finca_id y muestra a qué finca pertenece cada tarea.
+ * Filtros + paginación consistentes para frontend/backend.
  */
-exports.listarTareas = async (currentUser, query) => {
-  const { finca_id, lote_id, estado, desde, hasta, asignadoA, page = 1, pageSize = 20 } = query;
+exports.listarTareas = async (currentUser, query = {}) => {
+  const {
+    finca_id,
+    lote_id,
+    estado,
+    asignadoA,
+    tipo_codigo,
+    fecha_rango,
+  } = query;
+
+  const pageRaw = Number(query.page ?? 1);
+  const limitRaw = Number(query.limit ?? query.pageSize ?? 10);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.trunc(pageRaw) : 1;
+  const limit = Math.min(100, Number.isFinite(limitRaw) && limitRaw > 0 ? Math.trunc(limitRaw) : 10);
+  const offset = (page - 1) * limit;
+
   const where = {};
-
-  if (lote_id) where.lote_id = lote_id;
-  
-  // ✅ Filtro de Estado exacto
+  if (lote_id) where.lote_id = Number(lote_id);
   if (estado) where.estado = estado;
-  
-  // ✅ Filtro de Fechas
-  if (desde && hasta) where.fecha_programada = { [Op.between]: [desde, hasta] };
 
-  // Configuración de inclusión de Lote y Finca
-  const includeLote = {
+  // Compatibilidad: acepta fecha_desde/fecha_hasta y alias viejos desde/hasta
+  let fechaDesde = query.fecha_desde || query.desde || null;
+  let fechaHasta = query.fecha_hasta || query.hasta || null;
+
+  // Filtro semántico de frontend (fecha_rango)
+  if ((!fechaDesde && !fechaHasta) && fecha_rango) {
+    const ahora = new Date();
+    const inicioHoy = new Date(ahora);
+    inicioHoy.setHours(0, 0, 0, 0);
+    const finHoy = new Date(ahora);
+    finHoy.setHours(23, 59, 59, 999);
+
+    if (fecha_rango === "hoy_atrasadas") {
+      fechaHasta = finHoy.toISOString();
+    } else if (fecha_rango === "proximos_7") {
+      const fin = new Date(inicioHoy);
+      fin.setDate(fin.getDate() + 7);
+      fin.setHours(23, 59, 59, 999);
+      fechaDesde = inicioHoy.toISOString();
+      fechaHasta = fin.toISOString();
+    } else if (fecha_rango === "ultimos_30") {
+      const inicio = new Date(inicioHoy);
+      inicio.setDate(inicio.getDate() - 30);
+      fechaDesde = inicio.toISOString();
+      fechaHasta = finHoy.toISOString();
+    }
+  }
+
+  // Requerimiento: filtrar por rango de fecha de creación
+  if (fechaDesde && fechaHasta) {
+    where.created_at = { [Op.between]: [fechaDesde, fechaHasta] };
+  } else if (fechaDesde) {
+    where.created_at = { [Op.gte]: fechaDesde };
+  } else if (fechaHasta) {
+    where.created_at = { [Op.lte]: fechaHasta };
+  }
+
+  const includeTipoBase = {
+    model: models.TipoActividad,
+    attributes: ["id", "nombre", "codigo"],
+    required: !!tipo_codigo,
+    ...(tipo_codigo ? { where: { codigo: tipo_codigo } } : {}),
+  };
+
+  const includeLoteBase = {
     model: models.Lote,
-    attributes: ['id', 'nombre', 'finca_id'],
-    include: [{ 
-      model: models.Finca, 
-      as: 'finca', 
-      attributes: ['id', 'nombre'] 
-    }]
-  };
-
-  // ✅ FILTRO POR FINCA: Clave para Multifinca
-  if (finca_id) {
-    includeLote.where = { finca_id: finca_id };
-  }
-
-  const includeAsignacion = {
-    model: models.TareaAsignacion,
-    required: false
-  };
-
-  if (currentUser.role === 'Trabajador') {
-    includeAsignacion.where = { usuario_id: currentUser.sub };
-    includeAsignacion.required = true;
-  } else if (asignadoA) {
-    includeAsignacion.where = { usuario_id: asignadoA };
-    includeAsignacion.required = true;
-  }
-
-  const { count, rows } = await models.Tarea.findAndCountAll({
-    where,
+    attributes: ["id", "nombre", "finca_id"],
     include: [
-      { model: models.TipoActividad, attributes: ['id', 'nombre', 'codigo'] },
-      includeLote,
-      { model: models.Cosecha, attributes: ['id', 'nombre', 'codigo'] }, // Incluimos código de cosecha
-      includeAsignacion
+      {
+        model: models.Finca,
+        as: "finca",
+        attributes: ["id", "nombre"],
+      },
     ],
-    order: [['fecha_programada', 'DESC']],
-    limit: Number(pageSize),
-    offset: (Number(page) - 1) * Number(pageSize),
-    distinct: true
+    ...(finca_id ? { where: { finca_id: Number(finca_id) }, required: true } : {}),
+  };
+
+  const includeAsignacionBase = {
+    model: models.TareaAsignacion,
+    required: false,
+  };
+
+  if (currentUser.role === "Trabajador" || query.soloMias) {
+    includeAsignacionBase.where = { usuario_id: Number(currentUser.sub) };
+    includeAsignacionBase.required = true;
+  } else if (asignadoA) {
+    includeAsignacionBase.where = { usuario_id: Number(asignadoA) };
+    includeAsignacionBase.required = true;
+  }
+
+  const buildIncludes = () => ([
+    { ...includeTipoBase },
+    {
+      ...includeLoteBase,
+      include: includeLoteBase.include.map((i) => ({ ...i })),
+    },
+    { model: models.Cosecha, attributes: ["id", "nombre", "codigo"] },
+    { ...includeAsignacionBase },
+  ]);
+
+  // Conteo total con los mismos filtros
+  const totalCount = await models.Tarea.count({
+    where,
+    include: buildIncludes(),
+    distinct: true,
+  });
+
+  // Query paginada
+  const rows = await models.Tarea.findAll({
+    where,
+    include: buildIncludes(),
+    order: [["created_at", "DESC"], ["id", "DESC"]],
+    limit,
+    offset,
+    distinct: true,
   });
 
   return {
-    total: count,
-    page: Number(page),
-    totalPages: Math.ceil(count / pageSize), // Agregado helper
-    data: rows.map(t => {
+    data: rows.map((t) => {
       const j = t.toJSON();
       return {
         id: j.id,
         titulo: j.titulo,
-        finca: j.Lote?.finca?.nombre, // ✅ Dato crucial para la columna Finca
+        finca: j.Lote?.finca?.nombre,
         finca_id: j.Lote?.finca?.id,
         lote: j.Lote?.nombre,
-        tipo: j.TipoActividad?.nombre,
+        tipo: mapTipoNombre(j.TipoActividad?.codigo, j.TipoActividad?.nombre),
         tipo_codigo: j.TipoActividad?.codigo,
         cosecha: j.Cosecha?.nombre,
         fecha_programada: j.fecha_programada,
+        created_at: j.created_at,
         estado: j.estado,
-        asignados_count: j.TareaAsignacions?.length || 0
+        asignados_count: j.TareaAsignacions?.length || 0,
       };
-    })
+    }),
+    total: totalCount,
+    page,
+    limit,
   };
 };
 
 // backend/src/modules/tareas/tareas.service.js
 
 exports.resumenTareas = async (currentUser, query) => {
-    // 1. Traemos todas las tareas (sin límite estricto para contar bien)
-    const data = await exports.listarTareas(currentUser, { ...query, page: 1, pageSize: 5000 }); 
-    const tareas = data.data;
+    // 1. Traemos todas las tareas por páginas para respetar límite máximo
+    const batchLimit = 100;
+    let page = 1;
+    let total = 0;
+    let tareas = [];
+
+    while (true) {
+      const chunk = await exports.listarTareas(currentUser, { ...query, page, limit: batchLimit });
+      total = chunk.total || 0;
+      tareas = tareas.concat(chunk.data || []);
+      if (tareas.length >= total || (chunk.data || []).length === 0) break;
+      page += 1;
+    }
 
     // 2. Inicializamos contadores con TODAS las claves plurales que usa el frontend
     const statsEstado = { 
@@ -923,7 +1336,7 @@ exports.resumenTareas = async (currentUser, query) => {
     });
 
     return { 
-        total: data.total, 
+        total, 
         porGrupo: statsEstado, // ✅ Ahora incluye 'Asignadas' con su valor correcto
         porFinca: statsFinca 
     };
@@ -983,25 +1396,144 @@ exports.asignarUsuarios = async (currentUser, tareaId, body, io) => {
   return await exports.actualizarAsignaciones(currentUser, tareaId, body, io);
 };
 
+exports.configurarItems = async (tareaId, items, user) => {
+  if (!["Propietario", "Tecnico"].includes(user?.role)) {
+    throw forbidden("No autorizado para configurar items de la tarea");
+  }
+
+  const tarea = await models.Tarea.findByPk(tareaId, { attributes: ["id"] });
+  if (!tarea) throw notFound("Tarea no encontrada");
+
+  if (!Array.isArray(items)) {
+    throw badRequest("items debe ser un arreglo");
+  }
+
+  const normalizados = items.map((raw, idx) => {
+    const inventarioId = Number(raw?.inventario_id ?? raw?.item_id);
+    const cantidadEstimada = Number(raw?.cantidad_estimada ?? raw?.cantidad_planificada);
+
+    if (!Number.isInteger(inventarioId) || inventarioId <= 0) {
+      throw badRequest(`inventario_id inválido en la posición ${idx + 1}`);
+    }
+
+    if (!Number.isFinite(cantidadEstimada) || cantidadEstimada <= 0) {
+      throw badRequest(`cantidad_estimada debe ser mayor a 0 para inventario_id ${inventarioId}`);
+    }
+
+    return {
+      inventario_id: inventarioId,
+      cantidad_estimada: cantidadEstimada,
+      idx,
+    };
+  });
+
+  const inventarioIds = normalizados.map((i) => i.inventario_id);
+  const idsUnicos = [...new Set(inventarioIds)];
+
+  if (idsUnicos.length !== inventarioIds.length) {
+    throw badRequest("No se permiten items de inventario duplicados en la misma tarea");
+  }
+
+  const inventarioItems = idsUnicos.length
+    ? await models.InventarioItem.findAll({
+        where: { id: idsUnicos },
+        attributes: ["id", "categoria", "unidad_id"],
+      })
+    : [];
+
+  const inventarioMap = new Map(inventarioItems.map((it) => [Number(it.id), it]));
+  const faltantes = idsUnicos.filter((id) => !inventarioMap.has(Number(id)));
+  if (faltantes.length) {
+    throw badRequest(`Inventario no existe para id(s): ${faltantes.join(", ")}`);
+  }
+
+  await sequelize.transaction(async (t) => {
+    await models.TareaItem.destroy({
+      where: { tarea_id: tareaId },
+      transaction: t,
+    });
+
+    if (!normalizados.length) return;
+
+    const payload = normalizados.map((it) => {
+      const inventario = inventarioMap.get(Number(it.inventario_id));
+      return {
+        tarea_id: tareaId,
+        item_id: inventario.id,
+        categoria: inventario.categoria,
+        unidad_id: inventario.unidad_id,
+        cantidad_planificada: it.cantidad_estimada,
+        cantidad_real: 0,
+        idx: it.idx,
+      };
+    });
+
+    await models.TareaItem.bulkCreate(payload, { transaction: t });
+  });
+
+  const guardados = await models.TareaItem.findAll({
+    where: { tarea_id: tareaId },
+    include: [
+      { model: models.InventarioItem, attributes: ["id", "nombre", "categoria"] },
+      { model: models.Unidad, attributes: ["id", "codigo", "nombre"] },
+    ],
+    order: [["idx", "ASC"], ["id", "ASC"]],
+  });
+
+  return {
+    tarea_id: tareaId,
+    items: guardados.map((it) => ({
+      id: it.id,
+      inventario_id: it.item_id,
+      item_id: it.item_id,
+      nombre: it.InventarioItem?.nombre || null,
+      categoria: it.categoria,
+      unidad: it.Unidad?.codigo || null,
+      cantidad_estimada: Number(it.cantidad_planificada),
+      cantidad_planificada: Number(it.cantidad_planificada),
+    })),
+  };
+};
 
 
 
-exports.crearNovedad = async (currentUser, tareaId, body) => {
+
+exports.crearNovedad = async (currentUser, tareaId, body, io) => {
+    await validarPermisoSobreTarea(tareaId, currentUser.sub, currentUser.role);
+
+    const texto = String(body?.texto || "").trim();
+    if (!texto) throw badRequest("El texto de la novedad es obligatorio");
+
     const nov = await models.Novedad.create({
         tarea_id: tareaId,
         autor_id: currentUser.sub,
-        texto: body.texto
+        texto
     });
-    return nov;
+
+    const novConAutor = await models.Novedad.findByPk(nov.id, {
+      include: [{ model: models.Usuario, attributes: ["id", "nombres", "apellidos"] }],
+    });
+
+    const dto = mapNovedadDTO(novConAutor || nov);
+    emitTarea(io, tareaId, "novedad", { novedad: dto });
+    return dto;
 };
 
 exports.listarNovedades = async (currentUser, tareaId) => {
-    return models.Novedad.findAll({ where: { tarea_id: tareaId }, include: [models.Usuario] });
+    await validarPermisoSobreTarea(tareaId, currentUser.sub, currentUser.role);
+
+    const rows = await models.Novedad.findAll({
+      where: { tarea_id: tareaId },
+      include: [{ model: models.Usuario, attributes: ["id", "nombres", "apellidos"] }],
+      order: [["created_at", "DESC"]],
+    });
+    return rows.map(mapNovedadDTO);
 };
 
 exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
-  const tarea = await models.Tarea.findByPk(tareaId);
+  const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
   if (!tarea) throw notFound();
+  const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
 
   // 1. Validación de Estado y Permisos
   if (["Verificada", "Cancelada"].includes(tarea.estado)) {
@@ -1025,13 +1557,7 @@ exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
       }
   }
 
-  // B. FILAS
-  if (body.filas_recolectadas) {
-      const diff = diffFilas(detallesAnteriores.filas_recolectadas, body.filas_recolectadas);
-      if (diff) mensajesBitacora.push(diff);
-  }
-
-  // C. LOGÍSTICA
+  // B. LOGÍSTICA
   if (body.entrega) {
       // Merge temporal para comparar bien, ya que body puede traer parciales
       const nextEntrega = { ...(detallesAnteriores.entrega || {}), ...body.entrega };
@@ -1039,7 +1565,7 @@ exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
       if (diff) mensajesBitacora.push(diff);
   }
 
-  // D. LIQUIDACIÓN
+  // C. LIQUIDACIÓN
   if (body.liquidacion) {
       // Recalcular total automáticamente en el backend para seguridad
       const nuevoTotal = body.liquidacion.reduce((acc, i) => acc + (Number(i.valor_total)||0), 0);
@@ -1057,6 +1583,27 @@ exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
   await sequelize.transaction(async (t) => {
       // Merge profundo
       const nuevosDetalles = { ...detallesAnteriores, ...body };
+
+      if (tipoCodigo === "maleza" && nuevosDetalles.metodo !== undefined) {
+          nuevosDetalles.metodo = normalizarMetodoMaleza(nuevosDetalles.metodo);
+          delete nuevosDetalles.altura_corte_cm;
+      }
+
+      if (tipoCodigo === "cosecha") {
+          if (nuevosDetalles.grado_maduracion !== undefined || nuevosDetalles.grado_madurez !== undefined) {
+              nuevosDetalles.grado_maduracion = validarYNormalizarGradoMaduracion(
+                nuevosDetalles.grado_maduracion ?? nuevosDetalles.grado_madurez
+              );
+              delete nuevosDetalles.grado_madurez;
+          }
+          if (nuevosDetalles.rechazos !== undefined) {
+              nuevosDetalles.rechazos = normalizarRechazos(nuevosDetalles.rechazos);
+          }
+          if (nuevosDetalles.liquidacion !== undefined) {
+              nuevosDetalles.liquidacion = normalizarLiquidacion(nuevosDetalles.liquidacion);
+          }
+          delete nuevosDetalles.filas_recolectadas;
+      }
       
       if (body.entrega) {
           nuevosDetalles.entrega = { ...(detallesAnteriores.entrega || {}), ...body.entrega };

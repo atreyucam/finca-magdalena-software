@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner"; // O tu librería de toast preferida
 
 /**
@@ -7,6 +7,7 @@ import { toast } from "sonner"; // O tu librería de toast preferida
  * @param {Object} estadoInicialFiltros - Objeto con filtros iniciales
  */
 export default function useListado(apiFunction, estadoInicialFiltros = {}) {
+  const initialFiltrosRef = useRef(estadoInicialFiltros);
   const [datos, setDatos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState(null);
@@ -25,17 +26,15 @@ const cargarDatos = useCallback(async () => {
   setError(null);
 
   try {
+    const desiredLimit = Number(filtros?.limit ?? filtros?.pageSize ?? 20);
     const params = {
-  page: pagina,
-  ...filtros,
-  pageSize: filtros?.pageSize ?? 20,
-  limit: filtros?.limit ?? 20,
-};
+      page: pagina,
+      ...filtros,
+      limit: desiredLimit,
+    };
 
 
     const respuesta = await apiFunction(params);
-    console.log("📥 respuesta listar:", respuesta);
-console.log("📥 respuesta.data:", respuesta?.data);
 
 
   const payload = respuesta?.data;
@@ -49,20 +48,31 @@ if (Array.isArray(payload)) {
   return; // 👈 salimos porque ya resolvimos
 }
 
-// ✅ Caso normal: objeto paginado { data: [], totalItems, totalPages... }
+const root =
+  payload?.data && !Array.isArray(payload.data) && typeof payload.data === "object"
+    ? payload.data
+    : payload || {};
+
+// ✅ Caso normal: objeto paginado { data: [], total, page, limit... }
 const lista =
+  root?.data ??
+  root?.rows ??
+  root?.items ??
   payload?.data ??
   payload?.rows ??
   payload?.items ??
   [];
 
 const totalItems =
-  payload?.totalItems ??
+  root?.total ??
+  root?.totalItems ??
+  root?.count ??
   payload?.total ??
+  payload?.totalItems ??
   payload?.count ??
   (Array.isArray(lista) ? lista.length : 0);
 
-const pageSizeResp = payload?.pageSize ?? params.pageSize;
+const pageSizeResp = root?.limit ?? root?.pageSize ?? payload?.limit ?? payload?.pageSize ?? params.limit;
 
 const totalPages =
   payload?.totalPages ??
@@ -89,15 +99,19 @@ setTotalRegistros(totalItems);
   }, [cargarDatos]);
 
   // Helpers para filtros
-  const actualizarFiltro = (nombre, valor) => {
-    setFiltros((prev) => ({ ...prev, [nombre]: valor }));
-    setPagina(1); // Resetear a página 1 al filtrar
-  };
+  const actualizarFiltro = useCallback((nombre, valor) => {
+    setFiltros((prev) => {
+      // Evita re-render/loops cuando el filtro no cambió realmente
+      if (prev?.[nombre] === valor) return prev;
+      return { ...prev, [nombre]: valor };
+    });
+    setPagina((prev) => (prev === 1 ? prev : 1)); // Resetear a página 1 al filtrar
+  }, []);
 
-  const limpiarFiltros = () => {
-    setFiltros(estadoInicialFiltros);
-    setPagina(1);
-  };
+  const limpiarFiltros = useCallback(() => {
+    setFiltros(initialFiltrosRef.current);
+    setPagina((prev) => (prev === 1 ? prev : 1));
+  }, []);
 
   return {
     datos,

@@ -2,6 +2,7 @@
 const { app } = require("./app");
 const { config } = require("./config/env");
 const db = require("./db");
+const notifs = require("./modules/notificaciones/notificaciones.service");
 const http = require("http");
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
@@ -41,6 +42,8 @@ const jwt = require("jsonwebtoken");
 
   // ✅ disponible en controladores via req.app.get("io")
   app.set("io", io);
+  // ✅ disponible para servicios que crean notificaciones sin recibir io por parámetro
+  notifs.setSocketServer(io);
 
   // ============================
   // ✅ Socket Auth (JWT)

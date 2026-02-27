@@ -7,10 +7,10 @@ module.exports = (sequelize) => {
     cosecha_id: { type: DataTypes.BIGINT, allowNull: false },
     nombre: {
       type: DataTypes.ENUM(
-        'Pre-Floración',
-        'Floración',
-        'Crecimiento',
-        'Cosecha/Recuperación'
+        'pre-floracion',
+        'floracion',
+        'desarrollo',
+        'cosecha'
       ),
       allowNull: false,
     },

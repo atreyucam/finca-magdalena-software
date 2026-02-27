@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from "react"; 
+import { useEffect, useState, useMemo, useRef, useCallback } from "react"; 
 import useToast from "../hooks/useToast";
 
 import {
@@ -49,12 +49,59 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
     lote_id: "", 
     tipo_codigo: "", 
     titulo: "", 
-    descripcion: "",
+    metodologia: "",
     fecha_programada: new Date().toISOString().slice(0, 16), 
     asignados: [],
   });
   
   const [detalle, setDetalle] = useState({});
+
+  const resetForm = useCallback(() => {
+    setForm({
+      finca_id: "", cosecha_id: "", periodo_id: "", lote_id: "", tipo_codigo: "", titulo: "", metodologia: "",
+      fecha_programada: new Date().toISOString().slice(0, 16), asignados: [],
+    });
+    setDetalle({});
+    setRecursosSel([]);
+    setLotes([]);
+    setCosechaActiva(null);
+  }, []);
+
+  const cargarCatalogosGlobales = useCallback(async () => {
+    try {
+      const [fRes, tRes, uRes] = await Promise.all([
+        listarFincas(),
+        listarTiposActividad(),
+        listarUsuarios({ estado: "Activo", pageSize: 100 }),
+      ]);
+      setFincas(fRes.data || []);
+      setTiposActividad(tRes.data || []);
+      const users = (uRes.data?.data || []).filter((u) => ["Trabajador", "Tecnico"].includes(u.role));
+      setUsuarios(users);
+    } catch {
+      notify.error("Error cargando datos iniciales");
+    }
+  }, [notify]);
+
+  const cargarInventario = useCallback(async (categoria) => {
+    try {
+      const res = await listarItemsInventario({ categoria, activos: true });
+
+      // ✅ Normalizar a array sí o sí
+      const raw = res?.data;
+      const items =
+        Array.isArray(raw) ? raw :
+        Array.isArray(raw?.data) ? raw.data :
+        Array.isArray(raw?.items) ? raw.items :
+        Array.isArray(raw?.data?.data) ? raw.data.data :
+        [];
+
+      setInventario(items);
+    } catch (err) {
+      console.error(err);
+      setInventario([]); // ✅ evita dejar basura
+    }
+  }, []);
 
   // 1. Cargar datos globales al abrir
   useEffect(() => {
@@ -63,7 +110,7 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
       cargarCatalogosGlobales(); 
       cargarInventario("Insumo");
     }
-  }, [open]);
+  }, [open, resetForm, cargarCatalogosGlobales, cargarInventario]);
 
   // ✅ Manejadores de cierre (Esc, click outside)
   useEffect(() => {
@@ -120,59 +167,13 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
         }
     };
     cargarContexto();
-  }, [form.finca_id]);
+  }, [form.finca_id, notify]);
 
   // 3. Resetear detalle al cambiar actividad
   useEffect(() => { setDetalle({}); }, [form.tipo_codigo]);
 
   // 4. Cargar inventario al cambiar tab
-  useEffect(() => { if(open) cargarInventario(tabRecursos); }, [tabRecursos]);
-
-  const cargarCatalogosGlobales = async () => {
-    try {
-      const [fRes, tRes, uRes] = await Promise.all([
-        listarFincas(),
-        listarTiposActividad(), 
-        listarUsuarios({ estado: "Activo", pageSize: 100 }),
-      ]);
-      setFincas(fRes.data || []);
-      setTiposActividad(tRes.data || []);
-      const users = (uRes.data?.data || []).filter((u) => ["Trabajador", "Tecnico"].includes(u.role));
-      setUsuarios(users);
-    } catch (err) { notify.error("Error cargando datos iniciales"); }
-  };
-
- const cargarInventario = async (categoria) => {
-  try {
-    const res = await listarItemsInventario({ categoria, activos: true });
-
-    // ✅ Normalizar a array sí o sí
-    const raw = res?.data;
-    const items =
-      Array.isArray(raw) ? raw :
-      Array.isArray(raw?.data) ? raw.data :
-      Array.isArray(raw?.items) ? raw.items :
-      Array.isArray(raw?.data?.data) ? raw.data.data :
-      [];
-
-    setInventario(items);
-  } catch (err) {
-    console.error(err);
-    setInventario([]); // ✅ evita dejar basura
-  }
-};
-
-
-  const resetForm = () => {
-    setForm({
-      finca_id: "", cosecha_id: "", periodo_id: "", lote_id: "", tipo_codigo: "", titulo: "", descripcion: "",
-      fecha_programada: new Date().toISOString().slice(0, 16), asignados: [],
-    });
-    setDetalle({});
-    setRecursosSel([]);
-    setLotes([]);
-    setCosechaActiva(null);
-  };
+  useEffect(() => { if (open) cargarInventario(tabRecursos); }, [tabRecursos, open, cargarInventario]);
 
   const handleChange = (e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
@@ -195,7 +196,17 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
       const detalleSanitizado = {};
       Object.keys(detalle).forEach((key) => {
         const val = detalle[key];
-        if (['porcentaje_plantas_plan_pct', 'cobertura_planificada_pct', 'kg_planificados', 'periodo_carencia_dias', 'periodo_reingreso_horas'].includes(key)) {
+        if (
+          [
+            "cobertura_planificada_pct",
+            "kg_planificados",
+            "periodo_carencia_dias",
+            "periodo_reingreso_horas",
+            "numero_plantas_intervenir",
+            "numero_fundas_colocadas",
+            "grado_maduracion",
+          ].includes(key)
+        ) {
           detalleSanitizado[key] = val === "" ? null : Number(val);
         } else {
           detalleSanitizado[key] = val;
@@ -329,8 +340,8 @@ const listaRecursosFiltrada = useMemo(() => {
                    <Input label="Título (Opcional)" name="titulo" value={form.titulo} onChange={handleChange} placeholder="Ej. Fumigación preventiva" />
                 </div>
                 <div>
-                   <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Descripción</label>
-                   <textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows={2} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Detalles..."/>
+                   <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Metodología</label>
+                   <textarea name="metodologia" value={form.metodologia} onChange={handleChange} rows={2} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Describe la metodología de ejecución..."/>
                 </div>
                
                 <SelectUsuariosChecklist usuarios={usuarios} value={form.asignados} onChange={(arr) => setForm(prev => ({ ...prev, asignados: arr }))} />

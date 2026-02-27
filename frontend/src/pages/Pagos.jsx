@@ -1,5 +1,5 @@
 // src/pages/Pagos.jsx
-import { useMemo, useState } from "react";
+import { createElement, useMemo, useState } from "react";
 import {
   DollarSign,
   Calendar,
@@ -232,7 +232,7 @@ const descargarReporteSemana = async (nominaId) => {
       >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Icono size={18} className={iconColors[color] || iconColors.gris} />
+            {createElement(Icono, { size: 18, className: iconColors[color] || iconColors.gris })}
             <p
               className={`text-[11px] font-bold uppercase tracking-wide ${
                 color === "negro" ? "text-white/80" : "opacity-80"

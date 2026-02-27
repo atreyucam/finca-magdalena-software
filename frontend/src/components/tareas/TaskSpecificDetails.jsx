@@ -2,8 +2,8 @@ import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   ShieldCheck, CloudSun, Leaf, Scale, AlertTriangle, CheckCircle2, 
-  AlertCircle, Clock, XCircle, Droplets, Sun, Beaker, Tractor,
-  Layers, Truck, DollarSign, Edit2, Save, Trash2, Plus, Lock, Scissors
+  AlertCircle, Clock, XCircle, Beaker, Tractor,
+  Truck, DollarSign, Edit2, Save, Trash2, Plus, Lock
 } from "lucide-react";
 import { actualizarDetalles } from "../../api/apiClient"; 
 import Input from "../ui/Input";
@@ -13,13 +13,56 @@ import { Tabla, TablaCabecera, TablaHead, TablaCuerpo, TablaFila, TablaCelda } f
 const fmtPct = (v) => (v != null ? `${Number(v).toFixed(1)} %` : "—");
 const fmtKg = (v) => (v != null ? `${Number(v).toFixed(2)} kg` : "—");
 const fmtUSD = (v) => (v != null ? `$${Number(v).toFixed(2)}` : "$0.00");
+const CALIDADES_POR_TIPO_ENTREGA = {
+  exportacion: ["grande", "pequeno"],
+  nacional: ["primera", "segunda", "tercera", "cuarta", "quinta", "rechazo"],
+};
+const LABELS_TIPO_ENTREGA = { exportacion: "Exportación", nacional: "Nacional" };
+const LABELS_CALIDAD = {
+  grande: "Grande",
+  pequeno: "Pequeño",
+  primera: "Primera",
+  segunda: "Segunda",
+  tercera: "Tercera",
+  cuarta: "Cuarta",
+  quinta: "Quinta",
+  rechazo: "Rechazo",
+};
+const LABELS_CAUSA_RECHAZO = {
+  DanoFisico: "Daño físico",
+  Plaga: "Plaga / enfermedad",
+  Calibre: "Calibre fuera de estándar",
+  Otro: "Otro",
+};
+
+const inferirTipoEntregaPorCalidad = (calidad) => {
+  const c = String(calidad || "").toLowerCase();
+  if (CALIDADES_POR_TIPO_ENTREGA.exportacion.includes(c)) return "exportacion";
+  return "nacional";
+};
+
+const normalizarFilaLiquidacion = (row = {}) => {
+  const tipo = String(row.tipo_entrega || "").toLowerCase() || inferirTipoEntregaPorCalidad(row.calidad);
+  const calidades = CALIDADES_POR_TIPO_ENTREGA[tipo] || CALIDADES_POR_TIPO_ENTREGA.nacional;
+  const calidad = String(row.calidad || "").toLowerCase();
+  return {
+    tipo_entrega: tipo,
+    calidad: calidades.includes(calidad) ? calidad : calidades[0],
+    gabetas: row.gabetas ?? "",
+    novedad: row.novedad ?? "",
+    valor_total: row.valor_total ?? "",
+  };
+};
 
 // --- COMPONENTES UI GENÉRICOS ---
 
-const SectionHeader = ({ icon: Icon, title, onEdit, isEditing, loading, canEdit, disabledMessage }) => (
+const SectionHeader = ({ icon, title, onEdit, isEditing, loading, canEdit, disabledMessage }) => (
+    (() => {
+      const iconNode = icon ? React.createElement(icon, { size: 16, className: "text-emerald-600" }) : null;
+      return (
     <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100 mt-8">
         <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2 uppercase tracking-wide">
-            <Icon size={16} className="text-emerald-600"/> {title}
+            {iconNode} {title}
         </h4>
         {canEdit ? (
              <button 
@@ -37,12 +80,16 @@ const SectionHeader = ({ icon: Icon, title, onEdit, isEditing, loading, canEdit,
              disabledMessage && <span className="text-[10px] text-slate-400 italic flex items-center gap-1"><Lock size={10}/> {disabledMessage}</span>
         )}
     </div>
+      );
+    })()
 );
 
-const DetailRow = ({ label, value, subValue, icon: Icon }) => (
+const DetailRow = ({ label, value, subValue, icon }) => {
+  const iconNode = icon ? React.createElement(icon, { size: 14, className: "text-slate-400" }) : null;
+  return (
   <div className="flex justify-between py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors px-2 rounded-lg">
     <div className="flex items-center gap-2">
-        {Icon && <Icon size={14} className="text-slate-400"/>}
+        {iconNode}
         <span className="text-slate-500 text-sm font-medium">{label}</span>
     </div>
     <div className="text-right">
@@ -50,7 +97,8 @@ const DetailRow = ({ label, value, subValue, icon: Icon }) => (
       {subValue && <span className="text-xs text-slate-400 block mt-0.5">{subValue}</span>}
     </div>
   </div>
-);
+  );
+};
 
 const PlanRealCards = ({ plan, real, unit = "kg", realLabel = "Real" }) => {
   const planNum = Number(plan) || 0;
@@ -116,7 +164,7 @@ const BPACards = ({ clima, epp, reingreso, isWorker }) => (
 );
 
 // --- COMPONENTES DE OTRAS TAREAS ---
-const DetailsPoda = ({ data }) => (<><div className="mb-4 flex items-center justify-between"><div><span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Tipo de Poda</span><div className="text-lg font-bold text-slate-800 capitalize">{data.tipo}</div></div></div><PlanRealCards plan={data.porcentaje_plantas_plan_pct} real={data.porcentaje_plantas_real_pct} unit="%" realLabel="Avance Real" /><div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4"><div className={`p-4 rounded-xl border shadow-sm flex flex-col justify-center items-center text-center h-full min-h-[100px] ${data.herramientas_desinfectadas ? "bg-emerald-50 border-emerald-100" : "bg-rose-50 border-rose-100"}`}><div className={`text-[10px] uppercase font-bold tracking-wider mb-1 flex items-center justify-center gap-1 ${data.herramientas_desinfectadas ? "text-emerald-700" : "text-rose-700"}`}><ShieldCheck size={14}/> Herramientas</div><div className={`font-bold text-base flex items-center justify-center gap-2 ${data.herramientas_desinfectadas ? "text-emerald-800" : "text-rose-800"}`}>{data.herramientas_desinfectadas ? <>Desinfectadas <CheckCircle2 size={18}/></> : <>Pendiente <XCircle size={18}/></>}</div></div><div className="bg-amber-50 p-4 rounded-xl border border-amber-100 shadow-sm flex flex-col justify-center items-center text-center h-full min-h-[100px]"><div className="text-[10px] uppercase font-bold text-amber-700 tracking-wider mb-1 flex items-center justify-center gap-1"><Leaf size={14}/> Restos</div><div className="font-bold text-base text-amber-900 capitalize">{data.disposicion_restos || "No registrado"}</div></div></div></>);
+const DetailsPoda = ({ data }) => (<><div className="mb-4 flex items-center justify-between"><div><span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Tipo de Poda</span><div className="text-lg font-bold text-slate-800 capitalize">{data.tipo}</div></div></div><PlanRealCards plan={data.numero_plantas_intervenir ?? data.porcentaje_plantas_plan_pct} real={data.numero_plantas_intervenidas_real ?? data.porcentaje_plantas_real_pct} unit="plantas" realLabel="Intervenidas" /><div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4"><div className={`p-4 rounded-xl border shadow-sm flex flex-col justify-center items-center text-center h-full min-h-[100px] ${data.herramientas_desinfectadas ? "bg-emerald-50 border-emerald-100" : "bg-rose-50 border-rose-100"}`}><div className={`text-[10px] uppercase font-bold tracking-wider mb-1 flex items-center justify-center gap-1 ${data.herramientas_desinfectadas ? "text-emerald-700" : "text-rose-700"}`}><ShieldCheck size={14}/> Herramientas</div><div className={`font-bold text-base flex items-center justify-center gap-2 ${data.herramientas_desinfectadas ? "text-emerald-800" : "text-rose-800"}`}>{data.herramientas_desinfectadas ? <>Desinfectadas <CheckCircle2 size={18}/></> : <>Pendiente <XCircle size={18}/></>}</div></div><div className="bg-amber-50 p-4 rounded-xl border border-amber-100 shadow-sm flex flex-col justify-center items-center text-center h-full min-h-[100px]"><div className="text-[10px] uppercase font-bold text-amber-700 tracking-wider mb-1 flex items-center justify-center gap-1"><Leaf size={14}/> Restos</div><div className="font-bold text-base text-amber-900 capitalize">{data.disposicion_restos || "No registrado"}</div></div></div></>);
 const DetailsMaleza = ({ data }) => (
   <>
     {/* Card Full Width para Método */}
@@ -126,22 +174,10 @@ const DetailsMaleza = ({ data }) => (
     </div>
 
     <PlanRealCards plan={data.cobertura_planificada_pct} real={data.cobertura_real_pct} unit="%" realLabel="Cobertura" />
-    
-    {/* Card para Altura de Corte */}
-    <div className="mt-4">
-        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col items-center justify-center text-center">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <Scissors size={14}/> Altura de Corte
-            </span>
-            <div className="text-xl font-bold text-slate-800">
-                {data.altura_corte_cm ? `${data.altura_corte_cm} cm` : "—"}
-            </div>
-        </div>
-    </div>
   </>
 );
 
-const DetailsEnfundado = ({ data }) => (<PlanRealCards plan={data.porcentaje_frutos_plan_pct} real={data.porcentaje_frutos_real_pct} unit="%" realLabel="Frutos enfundados" />);
+const DetailsEnfundado = ({ data }) => (<PlanRealCards plan={data.numero_fundas_colocadas ?? data.porcentaje_frutos_plan_pct} real={data.numero_fundas_colocadas_real ?? data.porcentaje_frutos_real_pct} unit="fundas" realLabel="Fundas colocadas" />);
 const DetailsNutricion = ({ data, isWorker }) => (
   <>
     {/* Card Full Width para Método */}
@@ -182,10 +218,9 @@ const ClassificationManager = ({ clasificacion = [], rechazos = [], kgBascula = 
     ];
 
     const CAUSAS = [
-        { value: "DanoMecanico", label: "Daño mecánico" },
+        { value: "DanoFisico", label: "Daño físico" },
         { value: "Plaga", label: "Plaga / enfermedad" },
         { value: "Calibre", label: "Calibre fuera de estándar" },
-        { value: "Manipulacion", label: "Mala manipulación" },
         { value: "Otro", label: "Otro" },
     ];
 
@@ -212,8 +247,7 @@ const ClassificationManager = ({ clasificacion = [], rechazos = [], kgBascula = 
             if (onRefresh) await onRefresh();
             setIsEditing(false);
             toast.success("Clasificación guardada");
-        } catch (e) {
-            console.error(e);
+        } catch {
             toast.error("Error al guardar clasificación");
         } finally {
             setLoading(false);
@@ -355,7 +389,7 @@ const ClassificationManager = ({ clasificacion = [], rechazos = [], kgBascula = 
                                                 <option value="">Seleccione</option>
                                                 {CAUSAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                                             </select>
-                                        ) : <span className="text-slate-700">{row.causa}</span>}
+                                        ) : <span className="text-slate-700">{LABELS_CAUSA_RECHAZO[row.causa] || row.causa}</span>}
                                     </TablaCelda>
                                     <TablaCelda>{isEditing ? <input className="w-full text-xs border rounded p-1" value={row.observacion || ""} onChange={e => updateRechazo(i, 'observacion', e.target.value)}/> : <span className="italic text-xs text-slate-500">{row.observacion}</span>}</TablaCelda>
                                     
@@ -408,7 +442,7 @@ const PesoBasculaCard = ({ plan, real, unit = "kg", tareaId, canEdit, onRefresh 
       if (onRefresh) await onRefresh();
       setIsEditing(false);
       toast.success("Peso registrado correctamente");
-    } catch (e) {
+    } catch {
       toast.error("Error al guardar peso");
     } finally {
       setLoading(false);
@@ -503,86 +537,6 @@ const PesoBasculaCard = ({ plan, real, unit = "kg", tareaId, canEdit, onRefresh 
 
 
 
-// --- 2. GESTOR DE FILAS (UI TABLA) ---
-const RowsManager = ({ filas = [], tareaId, canEdit, onRefresh }) => {
-    const [isEditing, setIsEditing] = useState(false);
-    const [localData, setLocalData] = useState(filas);
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => { if(!isEditing) setLocalData(filas); }, [filas, isEditing]);
-
-    const handleSave = async () => {
-        const invalid = localData.some(f => !f.gabetas || Number(f.gabetas) <= 0);
-        if (invalid) return toast.error("Todas las filas deben tener gabetas registradas (>0).");
-
-        setLoading(true);
-        try {
-            await actualizarDetalles(tareaId, { filas_recolectadas: localData });
-            if (onRefresh) await onRefresh();
-            setIsEditing(false);
-            toast.success("Filas registradas correctamente");
-        } catch (e) { toast.error("Error guardando filas"); }
-        finally { setLoading(false); }
-    };
-
-    const updateRow = (idx, val) => {
-        const newData = [...localData];
-        newData[idx].gabetas = val;
-        setLocalData(newData);
-    };
-    const addRow = () => setLocalData([...localData, { numero: localData.length + 1, gabetas: "" }]);
-    const removeRow = (idx) => setLocalData(localData.filter((_, i) => i !== idx).map((f, i) => ({ ...f, numero: i + 1 })));
-
-    if (!isEditing && localData.length === 0) {
-        return (
-            <div className="mb-8">
-                <SectionHeader icon={Layers} title="Registro de Filas" onEdit={() => setIsEditing(true)} isEditing={isEditing} canEdit={canEdit} />
-                <div className="text-center p-6 border-2 border-dashed border-slate-100 rounded-2xl text-slate-400 text-sm">No se han registrado filas aún.</div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="mb-8 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <SectionHeader icon={Layers} title="Registro de Filas" onEdit={isEditing ? handleSave : () => setIsEditing(true)} isEditing={isEditing} loading={loading} canEdit={canEdit} />
-            
-            <Tabla>
-                <TablaCabecera>
-                    <TablaHead>Fila</TablaHead>
-                    <TablaHead align="center">Gabetas</TablaHead>
-                    {isEditing && <TablaHead align="right">Acción</TablaHead>}
-                </TablaCabecera>
-                <TablaCuerpo>
-                    {localData.map((f, i) => (
-                        <TablaFila key={i}>
-                            <TablaCelda className="font-bold text-slate-700">Fila {f.numero}</TablaCelda>
-                            <TablaCelda align="center">
-                                {isEditing ? (
-                                    // ✅ FIX: Controlled input
-                                    <input type="number" className="w-20 text-center border border-slate-300 rounded px-2 py-1 font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500" value={f.gabetas || ""} onChange={(e) => updateRow(i, e.target.value)} />
-                                ) : (
-                                    <span className="font-mono text-emerald-700 font-bold bg-emerald-50 px-2 py-1 rounded">{f.gabetas}</span>
-                                )}
-                            </TablaCelda>
-                            {isEditing && (
-                                <TablaCelda align="right">
-                                    <button onClick={() => removeRow(i)} className="text-rose-400 hover:text-rose-600 bg-rose-50 p-1.5 rounded"><Trash2 size={16}/></button>
-                                </TablaCelda>
-                            )}
-                        </TablaFila>
-                    ))}
-                </TablaCuerpo>
-            </Tabla>
-            
-            {isEditing && (
-                <button onClick={addRow} className="mt-3 w-full py-2 border border-dashed border-slate-300 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-emerald-600 text-xs font-bold flex justify-center items-center gap-2">
-                    <Plus size={14}/> Agregar Fila
-                </button>
-            )}
-        </div>
-    );
-};
-
 // --- 3. LOGÍSTICA (Inputs + Tabla) ---
 const LogisticsManager = ({ entrega = {}, tareaId, canEdit, onRefresh }) => {
     const [isEditing, setIsEditing] = useState(false);
@@ -607,7 +561,7 @@ const LogisticsManager = ({ entrega = {}, tareaId, canEdit, onRefresh }) => {
             if (onRefresh) await onRefresh();
             setIsEditing(false);
             toast.success("Logística actualizada");
-        } catch (e) { toast.error("Error guardando logística"); }
+        } catch { toast.error("Error guardando logística"); }
         finally { setLoading(false); }
     };
 
@@ -656,27 +610,50 @@ const LogisticsManager = ({ entrega = {}, tareaId, canEdit, onRefresh }) => {
 // --- 4. LIQUIDACIÓN (Tabla) ---
 const SettlementManager = ({ liquidacion = [], tareaId, canEdit, onRefresh }) => {
     const [isEditing, setIsEditing] = useState(false);
-    const [localData, setLocalData] = useState(liquidacion);
+    const [localData, setLocalData] = useState((liquidacion || []).map(normalizarFilaLiquidacion));
     const [loading, setLoading] = useState(false);
 
-    useEffect(() => { if(!isEditing) setLocalData(liquidacion); }, [liquidacion, isEditing]);
+    useEffect(() => {
+        if(!isEditing) setLocalData((liquidacion || []).map(normalizarFilaLiquidacion));
+    }, [liquidacion, isEditing]);
 
     const handleSave = async () => {
         const invalid = localData.some(i => !i.gabetas || Number(i.gabetas) <= 0);
         if (invalid) return toast.error("La cantidad de gabetas debe ser positiva.");
+        for (let i = 0; i < localData.length; i += 1) {
+            const row = normalizarFilaLiquidacion(localData[i]);
+            const permitidas = CALIDADES_POR_TIPO_ENTREGA[row.tipo_entrega] || [];
+            if (!permitidas.includes(row.calidad)) {
+                return toast.error(`Calidad inválida para el tipo de entrega en la fila ${i + 1}.`);
+            }
+        }
 
         setLoading(true);
         try {
-            await actualizarDetalles(tareaId, { liquidacion: localData });
+            await actualizarDetalles(tareaId, { liquidacion: localData.map(normalizarFilaLiquidacion) });
             if (onRefresh) await onRefresh();
             setIsEditing(false);
             toast.success("Liquidación registrada");
-        } catch (e) { toast.error("Error guardando liquidación"); }
+        } catch { toast.error("Error guardando liquidación"); }
         finally { setLoading(false); }
     };
 
-    const updateRow = (idx, field, val) => setLocalData(prev => prev.map((item, i) => i === idx ? { ...item, [field]: val } : item));
-    const addRow = () => setLocalData([...localData, { calidad: "Primera", gabetas: "", novedad: "", valor_total: "" }]);
+    const updateRow = (idx, field, val) => {
+        setLocalData((prev) =>
+            prev.map((item, i) => {
+                if (i !== idx) return item;
+                const next = { ...item, [field]: val };
+                if (field === "tipo_entrega") {
+                    const calidades = CALIDADES_POR_TIPO_ENTREGA[val] || CALIDADES_POR_TIPO_ENTREGA.nacional;
+                    if (!calidades.includes(String(next.calidad || "").toLowerCase())) {
+                        next.calidad = calidades[0];
+                    }
+                }
+                return next;
+            })
+        );
+    };
+    const addRow = () => setLocalData([...localData, { tipo_entrega: "nacional", calidad: "primera", gabetas: "", novedad: "", valor_total: "" }]);
     const removeRow = (idx) => setLocalData(prev => prev.filter((_, i) => i !== idx));
     const totalDinero = localData.reduce((acc, item) => acc + (Number(item.valor_total) || 0), 0);
 
@@ -686,6 +663,7 @@ const SettlementManager = ({ liquidacion = [], tareaId, canEdit, onRefresh }) =>
             
             <Tabla>
                 <TablaCabecera>
+                    <TablaHead>Tipo</TablaHead>
                     <TablaHead>Calidad</TablaHead>
                     <TablaHead align="center">Cant.</TablaHead>
                     <TablaHead>Novedad</TablaHead>
@@ -697,10 +675,37 @@ const SettlementManager = ({ liquidacion = [], tareaId, canEdit, onRefresh }) =>
                         <TablaFila key={i}>
                             <TablaCelda>
                                 {isEditing ? (
-                                    <select className="w-full text-xs border rounded p-1" value={item.calidad || ""} onChange={(e) => updateRow(i, "calidad", e.target.value)}>
-                                        <option>Primera</option><option>Segunda</option><option>Tercera</option><option>Rechazo</option>
+                                    <select
+                                      className="w-full text-xs border rounded p-1"
+                                      value={item.tipo_entrega || "nacional"}
+                                      onChange={(e) => updateRow(i, "tipo_entrega", e.target.value)}
+                                    >
+                                        {Object.entries(LABELS_TIPO_ENTREGA).map(([value, label]) => (
+                                          <option key={value} value={value}>{label}</option>
+                                        ))}
                                     </select>
-                                ) : <span className="font-bold text-slate-700">{item.calidad}</span>}
+                                ) : <span className="font-bold text-slate-700">{LABELS_TIPO_ENTREGA[item.tipo_entrega] || item.tipo_entrega}</span>}
+                            </TablaCelda>
+                            <TablaCelda>
+                                {(() => {
+                                  const tipoEntrega = String(item.tipo_entrega || "nacional").toLowerCase();
+                                  const calidades = CALIDADES_POR_TIPO_ENTREGA[tipoEntrega] || CALIDADES_POR_TIPO_ENTREGA.nacional;
+                                  const calidadActual = String(item.calidad || "").toLowerCase();
+                                  const calidadFinal = calidades.includes(calidadActual) ? calidadActual : calidades[0];
+                                  return isEditing ? (
+                                    <select
+                                      className="w-full text-xs border rounded p-1"
+                                      value={calidadFinal}
+                                      onChange={(e) => updateRow(i, "calidad", e.target.value)}
+                                    >
+                                      {calidades.map((q) => (
+                                        <option key={q} value={q}>{LABELS_CALIDAD[q] || q}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span className="font-bold text-slate-700">{LABELS_CALIDAD[calidadFinal] || calidadFinal}</span>
+                                  );
+                                })()}
                             </TablaCelda>
                             <TablaCelda align="center">
                                 {/* ✅ FIX: Controlled input */}
@@ -718,7 +723,7 @@ const SettlementManager = ({ liquidacion = [], tareaId, canEdit, onRefresh }) =>
                         </TablaFila>
                     ))}
                     <tr className="bg-emerald-50 border-t border-emerald-100">
-                        <td colSpan={isEditing ? 3 : 3} className="px-4 py-3 text-right text-xs font-bold text-emerald-800 uppercase">Total Recibido</td>
+                        <td colSpan={isEditing ? 4 : 4} className="px-4 py-3 text-right text-xs font-bold text-emerald-800 uppercase">Total Recibido</td>
                         <td className="px-4 py-3 text-right font-black text-emerald-700 text-lg">{fmtUSD(totalDinero)}</td>
                         {isEditing && <td></td>}
                     </tr>
@@ -751,13 +756,6 @@ const DetailsCosecha = ({ data, tareaId, onRefresh, estado }) => {
             <PesoBasculaCard 
                 plan={data.kg_planificados} 
                 real={data.kg_cosechados} 
-                tareaId={tareaId} 
-                canEdit={canEdit} 
-                onRefresh={onRefresh} 
-            />
-
-            <RowsManager 
-                filas={data.filas_recolectadas || []} 
                 tareaId={tareaId} 
                 canEdit={canEdit} 
                 onRefresh={onRefresh} 
