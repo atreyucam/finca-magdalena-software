@@ -1,27 +1,55 @@
 services:
   db:
+    image: postgres:16-alpine
+    container_name: finca_db
     environment:
+      TZ: America/Guayaquil
       POSTGRES_DB: "${DB_NAME:?DB_NAME is required}"
       POSTGRES_USER: "${DB_USER:?DB_USER is required}"
       POSTGRES_PASSWORD: "${DB_PASS:?DB_PASS is required}"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - finca_network
 
   api:
     build:
+      context: ./backend
       dockerfile: Dockerfile.prod
+    container_name: finca_api
     environment:
       TZ: America/Guayaquil
       NODE_ENV: production
-      PORT: ${PORT:-3000}
-      DB_HOST: "${DB_HOST:?DB_HOST is required}"
-      DB_PORT: "${DB_PORT:?DB_PORT is required}"
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
       DB_NAME: "${DB_NAME:?DB_NAME is required}"
       DB_USER: "${DB_USER:?DB_USER is required}"
       DB_PASS: "${DB_PASS:?DB_PASS is required}"
-      DB_LOGGING: ${DB_LOGGING:-false}
+      DB_LOGGING: false
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}"
-      JWT_ACCESS_EXPIRES: ${JWT_ACCESS_EXPIRES:-15m}
-      JWT_REFRESH_EXPIRES: ${JWT_REFRESH_EXPIRES:-7d}
+      JWT_ACCESS_EXPIRES: 2h
+      JWT_REFRESH_EXPIRES: 7d
       FRONTEND_URL: "${FRONTEND_URL:?FRONTEND_URL is required}"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
     ports:
-      - "${API_PORT:-8080}:3000"
+      - "8080:3000"
+    networks:
+      - finca_network
+
+volumes:
+  db_data:
+
+networks:
+  finca_network:
+    driver: bridge

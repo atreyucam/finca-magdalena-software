@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const { config } = require('./config/env');
+const { buildAllowedOrigins, isOriginAllowed } = require("./utils/cors");
 
 const app = express();
 
@@ -48,30 +49,18 @@ app.use(cookieParser());
 //   exposedHeaders: ["Content-Disposition"],
 // }));
 
-const isProd = process.env.NODE_ENV === "production";
-
-const allowedOriginsDev = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-];
-
-const allowedOriginsProd = [
-  "https://app.finca-lamagdalena.com",
-  "http://app.finca-lamagdalena.com",
-];
-
-const allowedOrigins = isProd ? allowedOriginsProd : allowedOriginsDev;
+const allowedOrigins = buildAllowedOrigins(config.env, config.frontendUrl);
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true); // Postman / server to server
 
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (isOriginAllowed(origin, allowedOrigins)) return callback(null, true);
 
     console.log("Bloqueado por CORS:", origin, "NODE_ENV:", process.env.NODE_ENV);
     return callback(new Error("Not allowed by CORS"));
   },
-  credentials: false,
+  credentials: true,
   methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "x-refresh-token"],
   exposedHeaders: ["Content-Disposition"],

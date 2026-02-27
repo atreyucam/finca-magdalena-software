@@ -6,7 +6,7 @@
     "scripts": {
         "seed": "node scripts/seed.js",
         "dev": "nodemon -L --watch src --ext js,json src/server.js",
-        "start": "cross-env NODE_ENV=production node src/server.js",
+        "start": "node src/server.js",
         "db:sync": "cross-env NODE_ENV=development node -e \"require('./src/db').sync()\"",
         "db:seed": "cross-env NODE_ENV=development node -e \"require('./src/db').seed()\"",
         "test": "cross-env NODE_ENV=test jest --runInBand",

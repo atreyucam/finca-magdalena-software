@@ -6,6 +6,7 @@ const notifs = require("./modules/notificaciones/notificaciones.service");
 const http = require("http");
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
+const { buildAllowedOrigins, isOriginAllowed } = require("./utils/cors");
 
 (async () => {
   console.log("--------------------------------------------------");
@@ -30,11 +31,16 @@ const jwt = require("jsonwebtoken");
 
   // ⚙️ Crear servidor HTTP
   const server = http.createServer(app);
+  const allowedOrigins = buildAllowedOrigins(config.env, config.frontendUrl);
 
   // 🔌 socket.io
   const io = new Server(server, {
     cors: {
-      origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (isOriginAllowed(origin, allowedOrigins)) return callback(null, true);
+        return callback(new Error("Not allowed by CORS"));
+      },
       credentials: true,
       methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     },
