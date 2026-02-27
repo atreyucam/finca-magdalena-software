@@ -42,8 +42,25 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    expose:
+      - "3000"
+    networks:
+      - finca_network
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-/api}"
+        VITE_APP_NAME: "${VITE_APP_NAME:-FincaMagdalena}"
+    container_name: finca_web
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
     ports:
-      - "8080:3000"
+      - "80:80"
     networks:
       - finca_network
 

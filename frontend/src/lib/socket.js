@@ -1,7 +1,25 @@
 import { io } from "socket.io-client";
 import useAuthStore from "../store/authStore";
 
-const SOCKET_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+function resolveSocketUrl() {
+  const configured = import.meta.env.VITE_API_BASE_URL;
+
+  if (configured && /^https?:\/\//i.test(configured)) {
+    return configured;
+  }
+
+  if (configured && configured.startsWith("/") && typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
+  return "http://localhost:3001";
+}
+
+const SOCKET_URL = resolveSocketUrl();
 const MAX_AUTH_RECOVERY_ATTEMPTS = 1;
 
 let socketSingleton = null;

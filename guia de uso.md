@@ -5,8 +5,8 @@ Comandos para operar el proyecto con Docker en:
 - Windows PowerShell
 
 ## 0) Revisión rápida actual (importante)
-- `docker-compose.prod.yml` levanta `db` + `api` (no levanta `frontend`).
-- `api` expone `8080:3000`.
+- `docker-compose.prod.yml` levanta `db` + `api` + `web` (frontend con Nginx).
+- En `prod`, `web` expone `80:80` y hace proxy de `/api` y `/socket.io` hacia `api`.
 - `prod` siempre usa `backend/.env.prod` (`./prod` y `.\prod.cmd`).
 - En `backend/.env.prod` debes cambiar secretos placeholder (`prod_secret_change_me`).
 - En `frontend/.env.prod`, para VPS NO uses `http://localhost:8080`.
@@ -93,7 +93,7 @@ Bajar y borrar DB (limpio total):
 
 Health:
 ```bash
-curl -i http://127.0.0.1:8080/health
+curl -i http://127.0.0.1/api/health
 ```
 
 Seed en prod (solo inicialización):
@@ -163,7 +163,7 @@ Bajar y borrar DB (limpio total):
 
 Health:
 ```powershell
-curl.exe -i http://127.0.0.1:8080/health
+curl.exe -i http://127.0.0.1/api/health
 ```
 
 Seed en prod (solo inicialización):
@@ -229,7 +229,7 @@ Editar `backend/.env.prod` con valores reales y luego:
 ./prod up --build -d
 ./prod ps
 ./prod logs -f api db
-curl -i http://127.0.0.1:8080/health
+curl -i http://127.0.0.1/api/health
 ```
 
 Si es instalación limpia y necesitas datos base:
@@ -249,7 +249,7 @@ git pull --ff-only origin main
 ./prod up --build -d
 ./prod ps
 ./prod logs --tail=150 api
-curl -i http://127.0.0.1:8080/health
+curl -i http://127.0.0.1/api/health
 ```
 
 ### Flujo recomendado en cada actualización
@@ -274,3 +274,4 @@ curl -i http://127.0.0.1:8080/health
 - El seed de este proyecto usa `RESET=true` en tablas base del seed.
 - En producción, corre seed solo en inicialización o reinicio controlado.
 - Si ves warning por `version:` en compose, no bloquea; puedes eliminar esa línea para evitar ruido.
+- En `prod`, el frontend queda servido por `http://TU_IP/` y el backend por `http://TU_IP/api/...`.
