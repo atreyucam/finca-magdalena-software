@@ -1,7 +1,7 @@
 services:
   db:
     environment:
-      DB_NAME: finca_test
+      POSTGRES_DB: finca_test
 
   api:
     env_file:

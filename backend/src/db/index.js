@@ -187,7 +187,13 @@ async function connect() {
     await sequelize.authenticate();
     console.log('✅ Conexión DB establecida correctamente.');
   } catch (error) {
-    console.error('❌ No se pudo conectar a la DB:', error);
+    console.error("❌ No se pudo conectar a la DB. Abortando arranque.", {
+      host: config.db.host,
+      port: config.db.port,
+      database: config.db.name,
+      error: error.message,
+    });
+    process.exit(1);
   }
 }
 

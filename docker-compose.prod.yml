@@ -1,16 +1,27 @@
 services:
   db:
     environment:
-      DB_NAME: finca_prod
+      POSTGRES_DB: "${DB_NAME:?DB_NAME is required}"
+      POSTGRES_USER: "${DB_USER:?DB_USER is required}"
+      POSTGRES_PASSWORD: "${DB_PASS:?DB_PASS is required}"
 
   api:
-    env_file:
-      - ./backend/.env.prod
+    build:
+      dockerfile: Dockerfile.prod
     environment:
       TZ: America/Guayaquil
       NODE_ENV: production
-    # En prod normalmente NO montas el código, usas solo la imagen
-    volumes: []
-    # Y podrías cambiar el puerto mapeado si quieres:
+      PORT: ${PORT:-3000}
+      DB_HOST: "${DB_HOST:?DB_HOST is required}"
+      DB_PORT: "${DB_PORT:?DB_PORT is required}"
+      DB_NAME: "${DB_NAME:?DB_NAME is required}"
+      DB_USER: "${DB_USER:?DB_USER is required}"
+      DB_PASS: "${DB_PASS:?DB_PASS is required}"
+      DB_LOGGING: ${DB_LOGGING:-false}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}"
+      JWT_ACCESS_EXPIRES: ${JWT_ACCESS_EXPIRES:-15m}
+      JWT_REFRESH_EXPIRES: ${JWT_REFRESH_EXPIRES:-7d}
+      FRONTEND_URL: "${FRONTEND_URL:?FRONTEND_URL is required}"
     ports:
-      - "8080:3000"
+      - "${API_PORT:-8080}:3000"

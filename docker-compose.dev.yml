@@ -2,11 +2,32 @@ services:
   db:
     environment:
       TZ: America/Guayaquil
-      DB_NAME: finca_dev
+      POSTGRES_DB: finca_dev
 
   api:
+    build:
+      dockerfile: Dockerfile.dev
     env_file:
       - ./backend/.env.dev
     environment:
       TZ: America/Guayaquil
       NODE_ENV: development
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./backend:/usr/src/app
+      - /usr/src/app/node_modules
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: finca_pgadmin
+    environment:
+      TZ: America/Guayaquil
+      PGADMIN_DEFAULT_EMAIL: admin@local.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped

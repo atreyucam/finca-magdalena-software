@@ -19,28 +19,25 @@ app.use(helmet({
 app.use(cookieParser());
 
 // --- 2. CORS (Crucial) ---
-// En desarrollo, permitimos localhost explícitamente y wildcard si hace falta
-const allowedOrigins = [
-  "http://localhost:5173", 
-  "http://127.0.0.1:5173"
-];
+const isProduction = config.env === "production";
+const allowedOrigins = isProduction
+  ? [config.frontendUrl].filter(Boolean)
+  : ["http://localhost:5173", "http://127.0.0.1:5173"];
 
 app.use(cors({
   origin: function (origin, callback) {
     // Permitir requests sin origen (como Postman o Server-to-Server)
     if (!origin) return callback(null, true);
     
-    if (process.env.NODE_ENV === 'development') {
-        // En desarrollo, ser más laxos o permitir explícitamente el origen del frontend
-        return callback(null, true); 
+    if (!isProduction) {
+      // En desarrollo, mantener modo permisivo.
+      return callback(null, true);
     }
 
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log("Bloqueado por CORS:", origin);
-      callback(new Error('Not allowed by CORS'));
-    }
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    console.warn("Bloqueado por CORS:", origin);
+    return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -57,10 +54,13 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Auth Limiter (Suavizado)
+// Auth Limiter (login)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  max: 100, // 👈 Aumentado para desarrollo
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { code: "TOO_MANY_REQUESTS", message: "Demasiados intentos de login. Intenta de nuevo en 1 minuto." },
 });
 app.use('/auth/login', authLimiter);
 
