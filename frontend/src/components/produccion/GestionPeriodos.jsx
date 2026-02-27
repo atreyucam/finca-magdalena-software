@@ -7,7 +7,7 @@ import Boton from "../ui/Boton";
 import Select from "../ui/Select";
 
 // Opciones estandarizadas según tu lógica de negocio
-const OPCIONES = ["Pre-Floración", "Floración", "Crecimiento", "Cosecha/Recuperación"];
+const OPCIONES = ["Pre-Floración", "Floración", "Desarrollo", "Cosecha"];
 
 export default function GestionPeriodos({ cosecha, onUpdated }) {
   const [periodos, setPeriodos] = useState([]);

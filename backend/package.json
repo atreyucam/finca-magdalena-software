@@ -6,11 +6,11 @@
     "scripts": {
         "seed": "node scripts/seed.js",
         "dev": "nodemon -L --watch src --ext js,json src/server.js",
-        "start": "NODE_ENV=production node src/server.js",
-        "db:sync": "NODE_ENV=development node -e \"require('./src/db').sync()\"",
-        "db:seed": "NODE_ENV=development node -e \"require('./src/db').seed()\"",
-        "test": "NODE_ENV=test jest --runInBand",
-        "test:watch": "NODE_ENV=test jest --watch"
+        "start": "cross-env NODE_ENV=production node src/server.js",
+        "db:sync": "cross-env NODE_ENV=development node -e \"require('./src/db').sync()\"",
+        "db:seed": "cross-env NODE_ENV=development node -e \"require('./src/db').seed()\"",
+        "test": "cross-env NODE_ENV=test jest --runInBand",
+        "test:watch": "cross-env NODE_ENV=test jest --watch"
     },
     "dependencies": {
         "bcryptjs": "^2.4.3",
@@ -29,6 +29,7 @@
         "zod": "^4.1.12"
     },
     "devDependencies": {
+        "cross-env": "^10.0.0",
         "jest": "^30.2.0",
         "nodemon": "^3.1.0",
         "supertest": "^7.1.4"

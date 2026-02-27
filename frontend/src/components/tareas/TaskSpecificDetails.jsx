@@ -16,10 +16,13 @@ const fmtUSD = (v) => (v != null ? `$${Number(v).toFixed(2)}` : "$0.00");
 
 // --- COMPONENTES UI GENÉRICOS ---
 
-const SectionHeader = ({ icon: Icon, title, onEdit, isEditing, loading, canEdit, disabledMessage }) => (
+const SectionHeader = ({ icon, title, onEdit, isEditing, loading, canEdit, disabledMessage }) => (
+    (() => {
+      const iconNode = icon ? React.createElement(icon, { size: 16, className: "text-emerald-600" }) : null;
+      return (
     <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100 mt-8">
         <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2 uppercase tracking-wide">
-            <Icon size={16} className="text-emerald-600"/> {title}
+            {iconNode} {title}
         </h4>
         {canEdit ? (
              <button 
@@ -37,12 +40,16 @@ const SectionHeader = ({ icon: Icon, title, onEdit, isEditing, loading, canEdit,
              disabledMessage && <span className="text-[10px] text-slate-400 italic flex items-center gap-1"><Lock size={10}/> {disabledMessage}</span>
         )}
     </div>
+      );
+    })()
 );
 
-const DetailRow = ({ label, value, subValue, icon: Icon }) => (
+const DetailRow = ({ label, value, subValue, icon }) => {
+  const iconNode = icon ? React.createElement(icon, { size: 14, className: "text-slate-400" }) : null;
+  return (
   <div className="flex justify-between py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors px-2 rounded-lg">
     <div className="flex items-center gap-2">
-        {Icon && <Icon size={14} className="text-slate-400"/>}
+        {iconNode}
         <span className="text-slate-500 text-sm font-medium">{label}</span>
     </div>
     <div className="text-right">
@@ -50,7 +57,8 @@ const DetailRow = ({ label, value, subValue, icon: Icon }) => (
       {subValue && <span className="text-xs text-slate-400 block mt-0.5">{subValue}</span>}
     </div>
   </div>
-);
+  );
+};
 
 const PlanRealCards = ({ plan, real, unit = "kg", realLabel = "Real" }) => {
   const planNum = Number(plan) || 0;
@@ -212,8 +220,7 @@ const ClassificationManager = ({ clasificacion = [], rechazos = [], kgBascula = 
             if (onRefresh) await onRefresh();
             setIsEditing(false);
             toast.success("Clasificación guardada");
-        } catch (e) {
-            console.error(e);
+        } catch {
             toast.error("Error al guardar clasificación");
         } finally {
             setLoading(false);
@@ -408,7 +415,7 @@ const PesoBasculaCard = ({ plan, real, unit = "kg", tareaId, canEdit, onRefresh 
       if (onRefresh) await onRefresh();
       setIsEditing(false);
       toast.success("Peso registrado correctamente");
-    } catch (e) {
+    } catch {
       toast.error("Error al guardar peso");
     } finally {
       setLoading(false);
@@ -521,7 +528,7 @@ const RowsManager = ({ filas = [], tareaId, canEdit, onRefresh }) => {
             if (onRefresh) await onRefresh();
             setIsEditing(false);
             toast.success("Filas registradas correctamente");
-        } catch (e) { toast.error("Error guardando filas"); }
+        } catch { toast.error("Error guardando filas"); }
         finally { setLoading(false); }
     };
 
@@ -607,7 +614,7 @@ const LogisticsManager = ({ entrega = {}, tareaId, canEdit, onRefresh }) => {
             if (onRefresh) await onRefresh();
             setIsEditing(false);
             toast.success("Logística actualizada");
-        } catch (e) { toast.error("Error guardando logística"); }
+        } catch { toast.error("Error guardando logística"); }
         finally { setLoading(false); }
     };
 
@@ -671,7 +678,7 @@ const SettlementManager = ({ liquidacion = [], tareaId, canEdit, onRefresh }) =>
             if (onRefresh) await onRefresh();
             setIsEditing(false);
             toast.success("Liquidación registrada");
-        } catch (e) { toast.error("Error guardando liquidación"); }
+        } catch { toast.error("Error guardando liquidación"); }
         finally { setLoading(false); }
     };
 

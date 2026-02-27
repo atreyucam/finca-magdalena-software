@@ -200,8 +200,8 @@ const year = String(d.getFullYear());
     const periodosBase = [
       { nombre: 'Pre-Floración' },
       { nombre: 'Floración' },
-      { nombre: 'Crecimiento' },
-      { nombre: 'Cosecha/Recuperación' },
+      { nombre: 'Desarrollo' },
+      { nombre: 'Cosecha' },
     ];
 
     await Promise.all(

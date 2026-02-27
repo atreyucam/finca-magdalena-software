@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { obtenerCosecha, cerrarCosecha } from "../api/apiClient";
 import { Tractor, CheckCircle2, Lock, ArrowLeft, Info, Sprout } from "lucide-react";
@@ -16,21 +16,21 @@ export default function DetalleCosecha() {
 
   const notify = useToast();
 
-  const cargarCosecha = async () => {
+  const cargarCosecha = useCallback(async () => {
     setLoading(true);
     try {
       const res = await obtenerCosecha(id);
       setCosecha(res.data || res);
-    } catch (e) {
+    } catch {
       notify.error("Error al cargar el ciclo de cosecha");
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, notify]);
 
   useEffect(() => {
     cargarCosecha();
-  }, [id]);
+  }, [cargarCosecha]);
 
   const handleCerrar = async () => {
     if (!cosecha?.metricas?.puedeCerrar) return;
@@ -45,7 +45,7 @@ export default function DetalleCosecha() {
       await cerrarCosecha(id, { fecha_fin: fecha });
       notify.success("Ciclo cerrado exitosamente");
       cargarCosecha();
-    } catch (e) {
+    } catch {
       notify.error("Error al cerrar ciclo");
     }
   };

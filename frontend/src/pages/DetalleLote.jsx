@@ -66,7 +66,7 @@ export default function DetalleLote() {
       setTotalTareas(t.count || 0);
       setTotalPages(t.totalPages || 1);
       setResumenTareas(data.resumenTareas || { total: 0 });
-    } catch (err) {
+    } catch {
       setError("No se pudo cargar la información del lote.");
     } finally {
       setLoading(false);
@@ -129,7 +129,7 @@ export default function DetalleLote() {
       } else {
         notify.success(`Lote "${lote.nombre}" activado`, { duration: 2500 });
       }
-    } catch (err) {
+    } catch {
       notify.error("No se pudo cambiar el estado del lote", { duration: 3500 });
     } finally {
       setConfirmLoading(false);

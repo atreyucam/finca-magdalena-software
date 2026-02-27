@@ -5,7 +5,6 @@ import Boton from "../ui/Boton";
 import Input from "../ui/input";
 import Select from "../ui/Select";
 import Badge from "../ui/Badge";
-import api from "../../api/apiClient"; // ajusta ruta real
 const METODOS = [
   { value: "Efectivo", label: "Efectivo" },
   { value: "Transferencia", label: "Transferencia" },
@@ -24,8 +23,10 @@ export default function FilaPago({
 }) {
   const [editando, setEditando] = useState(false);
 
-  const pendiente = pendientes?.[detalle.id] || {};
-  const merged = useMemo(() => ({ ...detalle, ...pendiente }), [detalle, pendiente]);
+  const pendiente = pendientes?.[detalle.id];
+  const merged = useMemo(() => ({ ...detalle, ...(pendiente || {}) }), [detalle, pendiente]);
+  const ajusteMonto = merged.ajustes?.[0]?.monto ?? 0;
+  const ajusteMotivo = merged.ajustes?.[0]?.motivo ?? "";
 
   const [valores, setValores] = useState({
     base: merged.monto_base ?? 0,
@@ -39,21 +40,19 @@ export default function FilaPago({
     if (!editando) {
       setValores({
         base: merged.monto_base ?? 0,
-        ajuste: merged.ajustes?.[0]?.monto ?? 0,
-        motivo: merged.ajustes?.[0]?.motivo ?? "",
+        ajuste: ajusteMonto,
+        motivo: ajusteMotivo,
         metodo_pago: merged.metodo_pago || "Efectivo",
         metodo_pago_otro: merged.metodo_pago_otro || "",
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     editando,
     merged.monto_base,
     merged.metodo_pago,
     merged.metodo_pago_otro,
-    merged.ajustes?.[0]?.monto,
-    merged.ajustes?.[0]?.motivo,
-    detalle.id,
+    ajusteMonto,
+    ajusteMotivo,
   ]);
 
   const total = Math.max(0, Number(valores.base || 0) + Number(valores.ajuste || 0));

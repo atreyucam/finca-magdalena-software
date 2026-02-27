@@ -30,6 +30,15 @@ const PlannedCard = ({ label, value, unit }) => (
   </div>
 );
 
+const formatCantidad = (valor, maxDecimals = 3) => {
+  const n = Number(valor ?? 0);
+  if (!Number.isFinite(n)) return "0";
+  return new Intl.NumberFormat("es-EC", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+  }).format(n);
+};
+
 const RealInputCard = ({ label, value, onChange, unit, ...props }) => {
   const safeValue = value ?? ""; // nunca undefined/null
 
@@ -542,7 +551,7 @@ export default function CompletarVerificarTareaModal({
                     {it.nombre}
                   </span>
                   <span className="text-[10px] text-slate-400">
-                    Plan: {it.cantidad_planificada} {it.unidad}
+                    Plan: {formatCantidad(it.cantidad_planificada)} {it.unidad}
                   </span>
                 </div>
 

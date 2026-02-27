@@ -7,7 +7,7 @@ import Boton from "../ui/Boton";
 import { X, Box } from "lucide-react";
 import { crearItemInventario, editarItemInventario } from "../../api/apiClient";
 
-export default function FormularioItem({ unidades = [], item = null, alCancelar, alGuardar, mostrarTitulo = false }) {
+export default function FormularioItem({ unidades = [], item = null, alCancelar, alGuardar }) {
   const notify = useToast();
   const [guardando, setGuardando] = useState(false);
 

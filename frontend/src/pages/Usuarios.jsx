@@ -26,9 +26,8 @@ export default function Usuarios() {
   const navigate = useNavigate();
   const [crearModalOpen, setCrearModalOpen] = useState(false);
   const [usuarioAEditar, setUsuarioAEditar] = useState(null);
-  const [stats, setStats] = useState({ registrados: 0, activos: 0, inactivos: 0 });
+const [stats, setStats] = useState({ registrados: 0, activos: 0, inactivos: 0 });
 const me = useAuthStore((s) => s.user);
-const myId = Number(me?.id);
 
 const base =
   location.pathname.startsWith("/tech") ? "/tech" :
@@ -97,7 +96,7 @@ const tecnicoBloqueadoContraAdmin = (u) => me?.role === "Tecnico" && u?.role ===
       else await editarUsuario(u.id, { estado: "Activo" });
       recargar();
       cargarStats();
-    } catch (e) {
+    } catch {
       alert("Error al cambiar estado");
     }
   };

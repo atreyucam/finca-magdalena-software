@@ -1,9 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import VentanaModal from "./ui/VentanaModal";
 import Boton from "./ui/Boton";
-import { Package, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { listarItemsInventario, listarTareaItems, configurarTareaItems } from "../api/apiClient";
+
+function toArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+function dedupeByItemId(list = []) {
+  const byId = new Map();
+  for (const row of list) {
+    const id = Number(row?.item_id ?? row?.id);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    byId.set(id, row);
+  }
+  return Array.from(byId.values());
+}
 
 export default function InsumosRequerimientosModal({ tareaId, open, onClose, onSaved }) {
   const [tab, setTab] = useState("Insumo");
@@ -13,34 +30,64 @@ export default function InsumosRequerimientosModal({ tareaId, open, onClose, onS
 
   useEffect(() => {
     if (!open || !tareaId) return;
-    listarTareaItems(tareaId).then(res => {
-        setItems((res.data || []).map(i => ({
-            item_id: i.item_id, nombre: i.nombre, categoria: i.categoria,
-            unidad: i.unidad, cantidad_planificada: Number(i.cantidad_planificada) || 0
-        })));
-    });
+    listarTareaItems(tareaId)
+      .then((res) => {
+        const rows = dedupeByItemId(toArray(res?.data));
+        setItems(
+          rows.map((i) => ({
+            item_id: Number(i.item_id ?? i.id),
+            nombre: i.nombre,
+            categoria: i.categoria,
+            unidad: i.unidad,
+            cantidad_planificada: Number(i.cantidad_planificada) || 0,
+          }))
+        );
+      })
+      .catch(() => setItems([]));
   }, [open, tareaId]);
 
   useEffect(() => {
     if (!open) return;
-    listarItemsInventario({ categoria: tab, activos: true }).then(res => setInventario(res.data || []));
+    listarItemsInventario({ categoria: tab, activos: true })
+      .then((res) => setInventario(toArray(res?.data)))
+      .catch(() => setInventario([]));
   }, [open, tab]);
 
-  const filtered = (inventario || []).filter(i => i.nombre.toLowerCase().includes(busqueda.toLowerCase()));
-  const yaExiste = (id) => items.some(i => i.item_id === id && i.categoria === tab);
+  const filtered = (Array.isArray(inventario) ? inventario : []).filter((i) =>
+    (i?.nombre || "").toLowerCase().includes(busqueda.toLowerCase())
+  );
+  const yaExiste = (id) => items.some((i) => Number(i.item_id) === Number(id));
 
   const agregar = (it) => {
     if (yaExiste(it.id)) return;
-    setItems(prev => [...prev, { item_id: it.id, nombre: it.nombre, categoria: tab, unidad: it.unidad, cantidad_planificada: 1 }]);
+    setItems((prev) => [
+      ...prev,
+      {
+        item_id: Number(it.id),
+        nombre: it.nombre,
+        categoria: it.categoria || tab,
+        unidad: it.unidad,
+        cantidad_planificada: 1,
+      },
+    ]);
   };
 
   const guardar = async () => {
     try {
-      await configurarTareaItems(tareaId, { items: items.filter(i => i.cantidad_planificada > 0) });
+      const payloadMap = new Map();
+      for (const i of items) {
+        const itemId = Number(i.item_id);
+        const cantidad = Number(i.cantidad_planificada);
+        if (!Number.isInteger(itemId) || itemId <= 0) continue;
+        if (!Number.isFinite(cantidad) || cantidad <= 0) continue;
+        payloadMap.set(itemId, { item_id: itemId, cantidad_planificada: cantidad });
+      }
+
+      await configurarTareaItems(tareaId, { items: Array.from(payloadMap.values()) });
       toast.success("Recursos guardados");
       onSaved?.();
       onClose();
-    } catch (e) { toast.error("Error al guardar"); }
+    } catch { toast.error("Error al guardar"); }
   };
 
   return (
@@ -70,12 +117,12 @@ export default function InsumosRequerimientosModal({ tareaId, open, onClose, onS
             <div className="border rounded-xl flex flex-col overflow-hidden bg-slate-50/50">
                 <div className="p-3 border-b bg-white font-bold text-xs uppercase text-slate-500">Seleccionados</div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                    {items.filter(i => i.categoria === tab).map(i => (
-                        <div key={i.item_id} className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                    {items.filter(i => i.categoria === tab).map((i, idx) => (
+                        <div key={`${i.item_id}-${idx}`} className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
                             <span className="flex-1 text-sm font-medium">{i.nombre}</span>
-                            <input type="number" value={i.cantidad_planificada} onChange={e => setItems(prev => prev.map(x => x.item_id === i.item_id ? {...x, cantidad_planificada: e.target.value} : x))} className="w-16 text-center border rounded py-1 text-sm"/>
+                            <input type="number" value={i.cantidad_planificada} onChange={e => setItems(prev => prev.map(x => Number(x.item_id) === Number(i.item_id) ? {...x, cantidad_planificada: e.target.value} : x))} className="w-16 text-center border rounded py-1 text-sm"/>
                             <span className="text-xs text-slate-500 w-8">{i.unidad}</span>
-                            <button onClick={() => setItems(prev => prev.filter(x => x.item_id !== i.item_id))} className="text-rose-400 hover:text-rose-600"><Trash2 size={16}/></button>
+                            <button onClick={() => setItems(prev => prev.filter(x => Number(x.item_id) !== Number(i.item_id)))} className="text-rose-400 hover:text-rose-600"><Trash2 size={16}/></button>
                         </div>
                     ))}
                 </div>

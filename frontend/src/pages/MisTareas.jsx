@@ -1,9 +1,9 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { io } from "socket.io-client";
+import { connectSocket, getSocket } from "../lib/socket";
 import { 
   ClipboardList, CheckCircle2, Clock, PlayCircle, MapPin, 
-  Calendar, Filter, Eye, Tractor, ShieldCheck, XCircle
+  Calendar, Filter, Tractor, ShieldCheck, XCircle
 } from "lucide-react";
 import { listarTareas, listarLotes, listarFincas, resumenTareas } from "../api/apiClient"; // ✅ Importar resumenTareas
 import { Tabla, TablaCabecera, TablaHead, TablaCuerpo, TablaFila, TablaCelda, TablaVacia } from "../components/ui/Tabla";
@@ -31,10 +31,10 @@ export default function MisTareas() {
   // Filtros (Agregado fecha_rango)
   const [filtros, setFiltros] = useState({ estado: "", lote_id: "", finca_id: "", fecha_rango: "" });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const q = { soloMias: true, page, pageSize: 20 };
+      const q = { soloMias: true, page, limit: 20 };
       if (filtros.estado) q.estado = filtros.estado;
       if (filtros.lote_id) q.lote_id = filtros.lote_id;
       if (filtros.finca_id) q.finca_id = filtros.finca_id;
@@ -49,25 +49,45 @@ export default function MisTareas() {
       ]);
 
       const data = resTareas.data?.data || [];
+      const total = Number(resTareas.data?.total || data.length);
+      const limit = Number(resTareas.data?.limit || q.limit || 20);
       setTareas(data);
-      setTotalPages(resTareas.data?.totalPages || 1);
-      setTotalRegistros(resTareas.data?.totalItems || data.length);
+      setTotalPages(Math.max(1, Math.ceil(total / Math.max(1, limit))));
+      setTotalRegistros(total);
       
       setLotes(resLotes.data || []);
       setFincas(resFincas.data || []);
       setResumen(resResumen.data || { porFinca: {} });
 
     } catch (err) { console.error("Error", err); } finally { setLoading(false); }
-  };
+  }, [filtros, page]);
 
   useEffect(() => { setPage(1); }, [filtros]);
-  
+
   useEffect(() => {
     fetchData();
-    const socket = io(import.meta.env.VITE_API_BASE_URL || "http://localhost:3001");
-    socket.on("tareas:update", fetchData); 
-    return () => socket.disconnect();
-  }, [page, filtros]);
+  }, [fetchData]);
+
+  useEffect(() => {
+    connectSocket();
+    const socket = getSocket();
+
+    const onUpdate = () => {
+      fetchData();
+    };
+    const onNotifNueva = (notif) => {
+      if (notif?.tipo === "Tarea") {
+        fetchData();
+      }
+    };
+
+    socket.on("tareas:update", onUpdate);
+    socket.on("notif:nueva", onNotifNueva);
+    return () => {
+      socket.off("tareas:update", onUpdate);
+      socket.off("notif:nueva", onNotifNueva);
+    };
+  }, [fetchData]);
 
   // Métricas calculadas para las cards superiores
   // Métricas calculadas: Agrupamos Pendientes y Asignadas en "porHacer"
@@ -330,11 +350,3 @@ export default function MisTareas() {
   );
 }
 
-const MetricCard = ({ color, icon: Icon, label, val }) => (
-    <div className={`bg-${color}-50 rounded-2xl p-4 border border-${color}-100`}>
-        <div className={`flex items-center gap-2 mb-2 text-${color}-600`}>
-            <Icon size={18} /> <span className="text-[10px] font-bold uppercase tracking-wider">{label}</span>
-        </div>
-        <div className={`text-2xl font-black text-${color}-800`}>{val}</div>
-    </div>
-);

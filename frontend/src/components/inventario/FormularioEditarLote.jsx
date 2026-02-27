@@ -92,7 +92,7 @@ export default function FormularioEditarLote({
       codigo_lote_proveedor: lote?.codigo_lote_proveedor || "",
       fecha_vencimiento: (lote?.fecha_vencimiento || "").slice(0, 10),
     });
-  }, [lote?.id]);
+  }, [lote]);
 
   const norm = (s) => String(s || "").trim().toUpperCase();
 

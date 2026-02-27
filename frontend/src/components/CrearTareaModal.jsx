@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from "react"; 
+import { useEffect, useState, useMemo, useRef, useCallback } from "react"; 
 import useToast from "../hooks/useToast";
 
 import {
@@ -56,6 +56,53 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
   
   const [detalle, setDetalle] = useState({});
 
+  const resetForm = useCallback(() => {
+    setForm({
+      finca_id: "", cosecha_id: "", periodo_id: "", lote_id: "", tipo_codigo: "", titulo: "", descripcion: "",
+      fecha_programada: new Date().toISOString().slice(0, 16), asignados: [],
+    });
+    setDetalle({});
+    setRecursosSel([]);
+    setLotes([]);
+    setCosechaActiva(null);
+  }, []);
+
+  const cargarCatalogosGlobales = useCallback(async () => {
+    try {
+      const [fRes, tRes, uRes] = await Promise.all([
+        listarFincas(),
+        listarTiposActividad(),
+        listarUsuarios({ estado: "Activo", pageSize: 100 }),
+      ]);
+      setFincas(fRes.data || []);
+      setTiposActividad(tRes.data || []);
+      const users = (uRes.data?.data || []).filter((u) => ["Trabajador", "Tecnico"].includes(u.role));
+      setUsuarios(users);
+    } catch {
+      notify.error("Error cargando datos iniciales");
+    }
+  }, [notify]);
+
+  const cargarInventario = useCallback(async (categoria) => {
+    try {
+      const res = await listarItemsInventario({ categoria, activos: true });
+
+      // ✅ Normalizar a array sí o sí
+      const raw = res?.data;
+      const items =
+        Array.isArray(raw) ? raw :
+        Array.isArray(raw?.data) ? raw.data :
+        Array.isArray(raw?.items) ? raw.items :
+        Array.isArray(raw?.data?.data) ? raw.data.data :
+        [];
+
+      setInventario(items);
+    } catch (err) {
+      console.error(err);
+      setInventario([]); // ✅ evita dejar basura
+    }
+  }, []);
+
   // 1. Cargar datos globales al abrir
   useEffect(() => {
     if (open) { 
@@ -63,7 +110,7 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
       cargarCatalogosGlobales(); 
       cargarInventario("Insumo");
     }
-  }, [open]);
+  }, [open, resetForm, cargarCatalogosGlobales, cargarInventario]);
 
   // ✅ Manejadores de cierre (Esc, click outside)
   useEffect(() => {
@@ -120,59 +167,13 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
         }
     };
     cargarContexto();
-  }, [form.finca_id]);
+  }, [form.finca_id, notify]);
 
   // 3. Resetear detalle al cambiar actividad
   useEffect(() => { setDetalle({}); }, [form.tipo_codigo]);
 
   // 4. Cargar inventario al cambiar tab
-  useEffect(() => { if(open) cargarInventario(tabRecursos); }, [tabRecursos]);
-
-  const cargarCatalogosGlobales = async () => {
-    try {
-      const [fRes, tRes, uRes] = await Promise.all([
-        listarFincas(),
-        listarTiposActividad(), 
-        listarUsuarios({ estado: "Activo", pageSize: 100 }),
-      ]);
-      setFincas(fRes.data || []);
-      setTiposActividad(tRes.data || []);
-      const users = (uRes.data?.data || []).filter((u) => ["Trabajador", "Tecnico"].includes(u.role));
-      setUsuarios(users);
-    } catch (err) { notify.error("Error cargando datos iniciales"); }
-  };
-
- const cargarInventario = async (categoria) => {
-  try {
-    const res = await listarItemsInventario({ categoria, activos: true });
-
-    // ✅ Normalizar a array sí o sí
-    const raw = res?.data;
-    const items =
-      Array.isArray(raw) ? raw :
-      Array.isArray(raw?.data) ? raw.data :
-      Array.isArray(raw?.items) ? raw.items :
-      Array.isArray(raw?.data?.data) ? raw.data.data :
-      [];
-
-    setInventario(items);
-  } catch (err) {
-    console.error(err);
-    setInventario([]); // ✅ evita dejar basura
-  }
-};
-
-
-  const resetForm = () => {
-    setForm({
-      finca_id: "", cosecha_id: "", periodo_id: "", lote_id: "", tipo_codigo: "", titulo: "", descripcion: "",
-      fecha_programada: new Date().toISOString().slice(0, 16), asignados: [],
-    });
-    setDetalle({});
-    setRecursosSel([]);
-    setLotes([]);
-    setCosechaActiva(null);
-  };
+  useEffect(() => { if (open) cargarInventario(tabRecursos); }, [tabRecursos, open, cargarInventario]);
 
   const handleChange = (e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 

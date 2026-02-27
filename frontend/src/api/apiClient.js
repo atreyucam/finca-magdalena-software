@@ -7,7 +7,7 @@ import useAuthStore from "../store/authStore";
 // ==========================
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:3001",
-  withCredentials: false,
+  withCredentials: true,
 });
 
 // ==========================
@@ -15,7 +15,10 @@ const api = axios.create({
 // ==========================
 api.interceptors.request.use((config) => {
   const { accessToken } = useAuthStore.getState();
-  if (accessToken) config.headers.Authorization = `Bearer ${accessToken}`;
+  if (accessToken) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${accessToken}`;
+  }
   return config;
 });
 
@@ -29,7 +32,10 @@ function processQueue(error, token = null) {
   pendingQueue.forEach(({ resolve, reject, config }) => {
     if (error) reject(error);
     else {
-      if (token) config.headers.Authorization = `Bearer ${token}`;
+      if (token) {
+        config.headers = config.headers || {};
+        config.headers.Authorization = `Bearer ${token}`;
+      }
       resolve(api(config));
     }
   });
@@ -51,41 +57,45 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    const originalRequest = error.config;
-
-
+    const originalRequest = error.config || {};
+    const status = error.response?.status;
+    const requestUrl = originalRequest?.url || "";
 
     // ✅ Si el backend dice que el usuario está INACTIVO/BLOQUEADO => logout inmediato (sin refresh)
-    if (error.response?.status === 401) {
+    if (status === 401) {
       const code = error.response?.data?.code;
       if (code === "USER_INACTIVE") {
         useAuthStore.getState().logout({
-    silent: false,
-    message: "Tu usuario fue desactivado. Se cerró tu sesión.",
-  });
+          silent: false,
+          message: "Tu usuario fue desactivado. Se cerró tu sesión.",
+        });
         return Promise.reject(error);
       }
     }
 
-    
-      if (error.response?.status === 401 && originalRequest?.url?.includes("/auth/login")) {
-  return Promise.reject(error);
-}
-    // ✅ Manejo 401 con refresh (una sola vez)
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Requests marcadas para no refrescar jamás (evita loops)
+    if (originalRequest.skipAuthRefresh) {
+      return Promise.reject(error);
+    }
+
+    // Login no dispara refresh automático
+    if (status === 401 && requestUrl.includes("/auth/login")) {
+      return Promise.reject(error);
+    }
+
+    // Si falla refresh explícitamente, cerrar sesión
+    if (status === 401 && requestUrl.includes("/auth/refresh")) {
+      useAuthStore.getState().logout({
+        silent: false,
+        message: "Tu sesión expiró. Inicia sesión nuevamente.",
+      });
+      return Promise.reject(error);
+    }
+
+    // ✅ Manejo 401 con refresh (una sola vez por request)
+    if (status === 401 && !originalRequest._retry) {
       const { refresh, logout } = useAuthStore.getState();
 
-      // Si falló el refresh => logout
-      if (originalRequest.url?.includes("/auth/refresh")) {
-  useAuthStore.getState().logout({
-    silent: false,
-    message: "Tu sesión expiró. Inicia sesión nuevamente.",
-  });
-  return Promise.reject(error);
-}
-
-
-      // Si ya estamos refrescando, encolamos la request
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           pendingQueue.push({ resolve, reject, config: originalRequest });
@@ -96,17 +106,21 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const newAccess = await refresh(); // debe retornar accessToken
-        isRefreshing = false;
+        const newAccess = await refresh({ skipSchedule: true });
         processQueue(null, newAccess);
 
+        originalRequest.headers = originalRequest.headers || {};
         originalRequest.headers.Authorization = `Bearer ${newAccess}`;
         return api(originalRequest);
       } catch (refreshErr) {
-        isRefreshing = false;
         processQueue(refreshErr, null);
-        logout();
+        logout({
+          silent: false,
+          message: "Tu sesión expiró. Inicia sesión nuevamente.",
+        });
         return Promise.reject(refreshErr);
+      } finally {
+        isRefreshing = false;
       }
     }
 
@@ -122,8 +136,6 @@ api.interceptors.response.use(
 
 // ================= AUTH =================
 export const login = (data) => api.post("/auth/login", data);
-export const refreshToken = () => api.post("/auth/refresh");
-export const logoutApi = () => api.post("/auth/logout");
 
 
 

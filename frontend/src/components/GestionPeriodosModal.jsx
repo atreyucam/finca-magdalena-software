@@ -11,8 +11,8 @@ import {
 const OPCIONES_PERIODOS = [
   "Pre-Floración",
   "Floración",
-  "Crecimiento",
-  "Cosecha/Recuperación",
+  "Desarrollo",
+  "Cosecha",
 ];
 
 export default function GestionPeriodosModal({

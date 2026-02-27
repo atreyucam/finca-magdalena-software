@@ -19,6 +19,15 @@ function normalizarUnidad(u) {
   return (u || "").toString().trim().toLowerCase();
 }
 
+function formatNumeroLocale(valor, maxDecimals = 2) {
+  const n = Number(valor ?? 0);
+  if (!Number.isFinite(n)) return "0";
+  return new Intl.NumberFormat("es-EC", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+  }).format(n);
+}
+
 function formatCantidad(valor, unidadRaw) {
   const n = Number(valor ?? 0);
   const unidad = normalizarUnidad(unidadRaw);
@@ -27,18 +36,24 @@ function formatCantidad(valor, unidadRaw) {
 
   // Si es unidad/ítems → entero
   if (UNIDADES_ENTERAS.has(unidad) || unidad === "") {
-    return String(Math.trunc(n));
+    return formatNumeroLocale(Math.trunc(n), 0);
   }
 
   // Si es insumo por peso/volumen → 2 decimales máx (sin ceros innecesarios)
   if (UNIDADES_DECIMALES.has(unidad)) {
-    const fijo = n.toFixed(2);
-    return fijo.replace(/\.?0+$/, ""); // 10.00 -> 10 ; 10.50 -> 10.5
+    return formatNumeroLocale(n, 2);
   }
 
   // Fallback: 2 decimales máx igual
-  const fijo = n.toFixed(2);
-  return fijo.replace(/\.?0+$/, "");
+  return formatNumeroLocale(n, 2);
+}
+
+function renderReferencia(m) {
+  const ref = m?.referencia || {};
+  if (ref?.tarea_id) return `Tarea #${ref.tarea_id}`;
+  if (ref?.prestamo_id) return `Préstamo #${ref.prestamo_id}`;
+  if (ref?.ajuste) return "Ajuste manual";
+  return "—";
 }
 
 function tipoMovimientoKey(tipo) {
@@ -147,7 +162,10 @@ export default function VistaHistorial() {
                   </TablaCelda>
 
                   <TablaCelda className="text-xs text-slate-500 truncate max-w-xs">
-                    {m.motivo || "—"}
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-700">{renderReferencia(m)}</span>
+                      <span className="text-slate-500">{m.motivo || "—"}</span>
+                    </div>
                   </TablaCelda>
                 </TablaFila>
               );

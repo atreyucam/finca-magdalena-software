@@ -9,8 +9,8 @@ module.exports = (sequelize) => {
       type: DataTypes.ENUM(
         'Pre-Floración',
         'Floración',
-        'Crecimiento',
-        'Cosecha/Recuperación'
+        'Desarrollo',
+        'Cosecha'
       ),
       allowNull: false,
     },

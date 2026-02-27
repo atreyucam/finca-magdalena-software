@@ -41,7 +41,7 @@ export default function FormularioFinca({ finca = null, alGuardar, alCancelar })
       ubicacion: finca?.ubicacion ?? "",
     });
     setError("");
-  }, [finca?.id]);
+  }, [finca]);
 
   const onChangeField = (key) => (e) => {
     const value = e.target.value;

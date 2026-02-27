@@ -42,7 +42,7 @@ const fincasVisibles = mostrarArchivadas
       const [resF, resC] = await Promise.all([listarFincas(), listarCosechas()]);
       setFincas(resF.data || []);
       setCosechas(resC.data || []);
-    } catch (e) {
+    } catch {
       toast.error("Error al sincronizar datos de producción");
     } finally {
       setLoading(false);
@@ -212,7 +212,12 @@ const fincasVisibles = mostrarArchivadas
                       {cosechas.filter(c => c.finca_id === finca.id).length > 0 ? (
                         cosechas
                           .filter(c => c.finca_id === finca.id)
-                          .sort((a, b) => (a.estado === 'Activa' ? -1 : 1))
+                          .sort((a, b) => {
+                            if (a.estado === b.estado) return 0;
+                            if (a.estado === "Activa") return -1;
+                            if (b.estado === "Activa") return 1;
+                            return 0;
+                          })
                           .map(c => (
                             <TablaFila key={c.id} className="bg-white"> 
                               <TablaCelda>

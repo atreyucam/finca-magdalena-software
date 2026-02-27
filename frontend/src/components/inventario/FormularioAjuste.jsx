@@ -120,7 +120,7 @@ export default function FormularioAjuste({
   // Set unidad por defecto
   useEffect(() => {
     setForm((f) => ({ ...f, unidad_codigo: f.unidad_codigo || unidadDefault }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [unidadDefault]);
 
   // Si deja de requerir lote, limpiar
@@ -129,7 +129,7 @@ export default function FormularioAjuste({
       setForm((f) => ({ ...f, codigo_lote: "", fecha_vencimiento: "" }));
       setLoteState({ loading: false, existe: false, lote: null, error: null });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [requiereLote]);
 
   // Debounce validar lote
@@ -181,7 +181,7 @@ export default function FormularioAjuste({
     }, 450);
 
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [form.codigo_lote, form.fecha_vencimiento, requiereLote, item?.id]);
 
   const handleSubmit = async (e) => {

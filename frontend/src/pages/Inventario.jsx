@@ -165,12 +165,12 @@ export default function Inventario() {
         titulo: "Total Ítems",
         valor: resumen.total,
         icono: Layers,
-        cls: (active) =>
+        cls: () =>
           [
             baseCard,
             "bg-slate-800 text-white border-slate-800 shadow-lg shadow-slate-200",
           ].join(" "),
-        iconCls: (active) => "text-slate-200 opacity-80",
+        iconCls: () => "text-slate-200 opacity-80",
         onClick: () => setTab("Insumo"),
       },
       {

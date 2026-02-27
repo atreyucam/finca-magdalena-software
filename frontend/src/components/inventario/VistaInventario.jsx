@@ -37,7 +37,10 @@ function fmtDate(dateStr) {
 function fmtQty(n) {
   const num = Number(n);
   if (Number.isNaN(num)) return n ?? "0";
-  return num.toFixed(2);
+  return new Intl.NumberFormat("es-EC", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  }).format(num);
 }
 
 function loteLabel(l) {
@@ -77,11 +80,11 @@ export default function VistaInventario({
 
   useEffect(() => {
     actualizarFiltro("categoria", categoria);
-  }, [categoria]);
+  }, [categoria, actualizarFiltro]);
 
   useEffect(() => {
     actualizarFiltro("activos", activosFiltro);
-  }, [activosFiltro]);
+  }, [activosFiltro, actualizarFiltro]);
 
   const itemsOrdenados = useMemo(() => {
     const arr = Array.isArray(items) ? [...items] : [];

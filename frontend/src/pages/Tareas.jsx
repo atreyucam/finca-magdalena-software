@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { io } from "socket.io-client";
+import { connectSocket, getSocket } from "../lib/socket";
 
 import { useNavigate, useLocation } from "react-router-dom";
 import { 
@@ -53,10 +53,9 @@ const recargarTodo = useCallback(() => {
 }, [recargar]);
 
 
-  useEffect(() => {
-  const socket = io(import.meta.env.VITE_API_BASE_URL || "http://localhost:3000", {
-    transports: ["websocket", "polling"], // opcional pero ayuda
-  });
+useEffect(() => {
+  connectSocket();
+  const socket = getSocket();
 
   const onUpdate = () => {
     // refresca tabla + cards/tabs
@@ -67,7 +66,6 @@ const recargarTodo = useCallback(() => {
 
   return () => {
     socket.off("tareas:update", onUpdate);
-    socket.disconnect();
   };
   // 👇 importante: recargarTodo debe existir antes (como ya lo tienes)
 }, [recargarTodo]);

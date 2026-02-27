@@ -1,6 +1,43 @@
 // backend/src/modules/notificaciones/notificaciones.service.js
 const { models } = require('../../db');
 
+let socketServer = null;
+
+function emitirEnTiempoReal(io, usuario_id, notif) {
+  if (!io || !notif || !usuario_id) return;
+  io.to(`user:${usuario_id}`).emit('notif:nueva', notif);
+  io.to(`user:${usuario_id}`).emit('notif:refresh');
+}
+
+async function crearBase({ io, usuario_id, payload = {} }) {
+  const {
+    tipo = 'General',
+    titulo,
+    mensaje = '',
+    referencia = {},
+    prioridad = 'Info',
+  } = payload;
+
+  if (!usuario_id || !titulo) return null;
+
+  const notif = await models.Notificacion.create({
+    usuario_id,
+    tipo,
+    titulo,
+    mensaje,
+    referencia,
+    prioridad,
+  });
+
+  const json = notif.toJSON();
+  emitirEnTiempoReal(io || socketServer, usuario_id, json);
+  return json;
+}
+
+exports.setSocketServer = (io) => {
+  socketServer = io || null;
+};
+
 exports.crear = async (usuario_id, {
   tipo = 'General',
   titulo,
@@ -8,30 +45,19 @@ exports.crear = async (usuario_id, {
   referencia = {},
   prioridad = 'Info'
 }) => {
-  if (!usuario_id || !titulo) return null;
-  const notif = await models.Notificacion.create({
+  return crearBase({
     usuario_id,
-    tipo,
-    titulo,
-    mensaje,
-    referencia,
-    prioridad
+    payload: { tipo, titulo, mensaje, referencia, prioridad },
   });
-  return notif.toJSON();
 };
 
 // ✅ NUEVO: crear + emitir socket
 exports.crearYEmitir = async (io, usuario_id, payload) => {
-  const notif = await exports.crear(usuario_id, payload);
-  if (io && notif) {
-    io.to(`user:${usuario_id}`).emit("notif:nueva", notif);
-    io.to(`user:${usuario_id}`).emit("notif:refresh"); // opcional para que el front recargue lista/contador
-  }
-  return notif;
+  return crearBase({ io, usuario_id, payload });
 };
 
 
-exports.crearParaRoles = async (roles = [], payload = {}) => {
+exports.crearParaRoles = async (roles = [], payload = {}, io) => {
   if (!Array.isArray(roles) || roles.length === 0) return [];
   const users = await models.Usuario.findAll({
     include: [{ model: models.Role, where: { nombre: roles } }],
@@ -39,7 +65,9 @@ exports.crearParaRoles = async (roles = [], payload = {}) => {
     attributes: ['id'],
   });
   const res = [];
-  for (const u of users) res.push(await exports.crear(u.id, payload));
+  for (const u of users) {
+    res.push(await crearBase({ io, usuario_id: u.id, payload }));
+  }
   return res;
 };
 

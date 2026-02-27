@@ -1,5 +1,5 @@
 // frontend/src/components/reportes/panels/PagosManoObraPanel.jsx
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback } from "react";
 import {
   BarChart3,
   Calendar,
@@ -208,10 +208,10 @@ export default function PagosManoObraPanel({ titulo = "Mano de obra" }) {
     []
   );
 
-  const serieSemana = resumen?.series_total_por_semana || [];
-  const barras = resumen?.barras_base_ajustes_total || [];
-  const pieMetodos = resumen?.metodos_pago || [];
-  const topTrab = resumen?.top_trabajadores || [];
+  const serieSemana = useMemo(() => resumen?.series_total_por_semana ?? [], [resumen?.series_total_por_semana]);
+  const barras = useMemo(() => resumen?.barras_base_ajustes_total ?? [], [resumen?.barras_base_ajustes_total]);
+  const pieMetodos = useMemo(() => resumen?.metodos_pago ?? [], [resumen?.metodos_pago]);
+  const topTrab = useMemo(() => resumen?.top_trabajadores ?? [], [resumen?.top_trabajadores]);
 
   const catSemana = useMemo(() => serieSemana.map((x) => x.semana_iso), [serieSemana]);
   const catBarras = useMemo(() => barras.map((x) => x.semana_iso), [barras]);

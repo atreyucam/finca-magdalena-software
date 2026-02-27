@@ -1,7 +1,7 @@
 // frontend/src/hooks/usePagos.js
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import api ,{
+import {
   obtenerSemana,
   consolidarSemana,
   aprobarSemana,
@@ -31,7 +31,9 @@ const readBlobErrorMessage = async (err) => {
       const json = JSON.parse(text);
       return json?.message || json?.error || text;
     }
-  } catch {}
+  } catch {
+    // Ignorar parse de blob; se usa fallback abajo.
+  }
   return err?.response?.data?.message || err?.message || "Error";
 };
 

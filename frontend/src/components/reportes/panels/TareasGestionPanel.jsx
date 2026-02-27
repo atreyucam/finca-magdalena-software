@@ -439,8 +439,10 @@ export default function TareasGestionPanel({
 
     try {
       await generar(nextHook);
-    } catch (e) {}
-  }, [draft, generar, setFiltros]);
+    } catch {
+      notify.error("No se pudo consultar el reporte de tareas");
+    }
+  }, [draft, generar, setFiltros, notify]);
 
   const onLimpiar = useCallback(() => {
     setHasConsulted(false);

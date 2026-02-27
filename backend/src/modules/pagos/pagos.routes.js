@@ -3,8 +3,19 @@ const { Router } = require("express");
 const controller = require("./pagos.controller");
 const { requireAuth } = require("../../middlewares/auth.middleware");
 const { requireRole } = require("../../middlewares/rbac.middleware");
+const { rateLimitByUser } = require("../../middlewares/rateLimitByUser.middleware");
 
 const router = Router();
+const nominaWriteLimiter = rateLimitByUser({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { code: "TOO_MANY_REQUESTS", message: "Demasiadas operaciones de nomina. Intenta de nuevo en 1 minuto." },
+});
+const pagosPdfLimiter = rateLimitByUser({
+  windowMs: 60 * 1000,
+  max: 20,
+  message: { code: "TOO_MANY_REQUESTS", message: "Demasiadas solicitudes de PDF. Intenta de nuevo en 1 minuto." },
+});
 
 // =====================
 // TAB 1: Gestión nómina
@@ -12,7 +23,7 @@ const router = Router();
 
 // Crear / consolidar semana (Propietario)
 // body: { semana_iso: "2025-W37", cosecha_id?: 1 }
-router.post("/semana", requireAuth, requireRole("Propietario", "Tecnico"), controller.consolidarSemana);
+router.post("/semana", requireAuth, nominaWriteLimiter, requireRole("Propietario", "Tecnico"), controller.consolidarSemana);
 
 // Obtener semana + detalles
 // query: semana_iso=2025-W37 OR nomina_id=123
@@ -22,6 +33,7 @@ router.get("/semana", requireAuth, requireRole("Propietario", "Tecnico"), contro
 router.patch(
   "/semana/:nominaId/detalles/:detalleId/excluir",
   requireAuth,
+  nominaWriteLimiter,
   requireRole("Propietario", "Tecnico"),
   controller.toggleExcluirDetalle
 );
@@ -30,6 +42,7 @@ router.patch(
 router.patch(
   "/semana/:nominaId/detalles/:detalleId",
   requireAuth,
+  nominaWriteLimiter,
   requireRole("Propietario", "Tecnico"),
   controller.editarDetalle
 );
@@ -38,6 +51,7 @@ router.patch(
 router.patch(
   "/semana/:nominaId/detalles",
   requireAuth,
+  nominaWriteLimiter,
   requireRole("Propietario", "Tecnico"),
   controller.bulkUpdateDetalles
 );
@@ -46,6 +60,7 @@ router.patch(
 router.post(
   "/semana/:nominaId/aprobar",
   requireAuth,
+  nominaWriteLimiter,
   requireRole("Propietario"),
   controller.aprobarSemana
 );
@@ -70,6 +85,7 @@ router.get(
 router.get(
   "/recibos/:detalleId",
   requireAuth,
+  pagosPdfLimiter,
   requireRole("Propietario", "Tecnico", "Trabajador"),
   controller.descargarRecibo
 );
@@ -78,6 +94,7 @@ router.get(
 router.get(
   "/semana/:nominaId/reporte",
   requireAuth,
+  pagosPdfLimiter,
   requireRole("Propietario", "Tecnico"),
   controller.reporteSemanaPDF
 );
@@ -99,6 +116,7 @@ router.get(
 router.delete(
   "/semana/:nominaId",
   requireAuth,
+  nominaWriteLimiter,
   requireRole("Propietario", "Tecnico"),
   controller.eliminarSemana
 );
