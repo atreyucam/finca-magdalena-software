@@ -212,6 +212,7 @@ VITE_API_BASE_URL=http://localhost:8080
 - No dejar secretos de ejemplo (`prod_secret_change_me`).
 - En VPS final, quitar `localhost` de `FRONTEND_URL`.
 - El warning de `version:` en `docker-compose.prod.yml` no bloquea, pero conviene eliminar esa línea.
+- Si `80` está ocupado en VPS, define `WEB_PORT=8081` en `backend/.env.prod`.
 
 ---
 
