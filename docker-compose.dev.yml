@@ -2,7 +2,11 @@ services:
   db:
     environment:
       TZ: America/Guayaquil
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: finca_dev
+    volumes:
+      - db_data_dev:/var/lib/postgresql/data
 
   api:
     build:
@@ -31,3 +35,6 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  db_data_dev:

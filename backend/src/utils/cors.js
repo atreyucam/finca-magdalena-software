@@ -29,7 +29,24 @@ function buildAllowedOrigins(env, frontendUrl) {
 function isOriginAllowed(origin, allowedOrigins = []) {
   const target = normalizeOrigin(origin);
   if (!target) return true;
-  return allowedOrigins.includes(target);
+  if (allowedOrigins.includes(target)) return true;
+
+  // En desarrollo/testing permitimos localhost/127.0.0.1 en cualquier puerto.
+  // Evita errores CORS al alternar Vite (5173) o previews locales (4173, etc).
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      const parsed = new URL(target);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+          return true;
+        }
+      }
+    } catch {
+      // ignore invalid origin format
+    }
+  }
+
+  return false;
 }
 
 module.exports = {
