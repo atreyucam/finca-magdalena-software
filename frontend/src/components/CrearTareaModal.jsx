@@ -49,7 +49,7 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
     lote_id: "", 
     tipo_codigo: "", 
     titulo: "", 
-    descripcion: "",
+    metodologia: "",
     fecha_programada: new Date().toISOString().slice(0, 16), 
     asignados: [],
   });
@@ -58,7 +58,7 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
 
   const resetForm = useCallback(() => {
     setForm({
-      finca_id: "", cosecha_id: "", periodo_id: "", lote_id: "", tipo_codigo: "", titulo: "", descripcion: "",
+      finca_id: "", cosecha_id: "", periodo_id: "", lote_id: "", tipo_codigo: "", titulo: "", metodologia: "",
       fecha_programada: new Date().toISOString().slice(0, 16), asignados: [],
     });
     setDetalle({});
@@ -196,7 +196,17 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
       const detalleSanitizado = {};
       Object.keys(detalle).forEach((key) => {
         const val = detalle[key];
-        if (['porcentaje_plantas_plan_pct', 'cobertura_planificada_pct', 'kg_planificados', 'periodo_carencia_dias', 'periodo_reingreso_horas'].includes(key)) {
+        if (
+          [
+            "cobertura_planificada_pct",
+            "kg_planificados",
+            "periodo_carencia_dias",
+            "periodo_reingreso_horas",
+            "numero_plantas_intervenir",
+            "numero_fundas_colocadas",
+            "grado_maduracion",
+          ].includes(key)
+        ) {
           detalleSanitizado[key] = val === "" ? null : Number(val);
         } else {
           detalleSanitizado[key] = val;
@@ -330,8 +340,8 @@ const listaRecursosFiltrada = useMemo(() => {
                    <Input label="Título (Opcional)" name="titulo" value={form.titulo} onChange={handleChange} placeholder="Ej. Fumigación preventiva" />
                 </div>
                 <div>
-                   <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Descripción</label>
-                   <textarea name="descripcion" value={form.descripcion} onChange={handleChange} rows={2} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Detalles..."/>
+                   <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Metodología</label>
+                   <textarea name="metodologia" value={form.metodologia} onChange={handleChange} rows={2} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Describe la metodología de ejecución..."/>
                 </div>
                
                 <SelectUsuariosChecklist usuarios={usuarios} value={form.asignados} onChange={(arr) => setForm(prev => ({ ...prev, asignados: arr }))} />

@@ -34,10 +34,9 @@ export default function CosechaClasificacionModal({
   ];
 
   const CAUSAS = [
-    { value: "DanoMecanico", label: "Daño mecánico" },
+    { value: "DanoFisico", label: "Daño físico" },
     { value: "Plaga", label: "Plaga / enfermedad" },
     { value: "Calibre", label: "Calibre fuera de estándar" },
-    { value: "Manipulacion", label: "Mala manipulación" },
     { value: "Otro", label: "Otro" },
   ];
 

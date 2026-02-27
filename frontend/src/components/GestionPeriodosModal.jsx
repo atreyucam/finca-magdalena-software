@@ -9,10 +9,10 @@ import {
 
 // Opciones válidas según el ENUM del backend
 const OPCIONES_PERIODOS = [
-  "Pre-Floración",
-  "Floración",
-  "Desarrollo",
-  "Cosecha",
+  "pre-floracion",
+  "floracion",
+  "desarrollo",
+  "cosecha",
 ];
 
 export default function GestionPeriodosModal({
@@ -239,7 +239,7 @@ export default function GestionPeriodosModal({
             </h3>
             <p className="mb-3 text-[11px] text-slate-500">
               Los periodos representan etapas fenológicas de la cosecha
-              (pre-floración, floración, crecimiento y cosecha/recuperación).
+              (pre-floracion, floracion, desarrollo y cosecha).
               Puedes agregar los periodos base que faltan para esta cosecha.
             </p>
 

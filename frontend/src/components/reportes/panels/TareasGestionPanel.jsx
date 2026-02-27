@@ -73,9 +73,9 @@ const deepEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const TIPOS = [
   { codigo: "", nombre: "Todas" },
   { codigo: "poda", nombre: "Poda" },
-  { codigo: "maleza", nombre: "Control de maleza" },
-  { codigo: "nutricion", nombre: "Nutrición" },
-  { codigo: "fitosanitario", nombre: "Fitosanitario" },
+  { codigo: "maleza", nombre: "Control de malezas" },
+  { codigo: "nutricion", nombre: "Fertilizacion" },
+  { codigo: "fitosanitario", nombre: "Control fitosanitario" },
   { codigo: "enfundado", nombre: "Enfundado" },
   { codigo: "cosecha", nombre: "Cosecha" },
 ];
@@ -230,8 +230,8 @@ export default function TareasGestionPanel({
       cols = [
         ...base,
         { key: "poda_tipo", label: "Tipo poda" },
-        { key: "poda_plan", label: "% Plan" },
-        { key: "poda_real", label: "% Real" },
+        { key: "poda_plan", label: "Plantas plan" },
+        { key: "poda_real", label: "Plantas real" },
         { key: "poda_desinf", label: "Desinfectadas" },
       ];
 
@@ -264,8 +264,8 @@ export default function TareasGestionPanel({
       cols = [
         ...base,
         { key: "enf_material", label: "Material" },
-        { key: "enf_plan", label: "% Plan" },
-        { key: "enf_real", label: "% Real" },
+        { key: "enf_plan", label: "Fundas plan" },
+        { key: "enf_real", label: "Fundas real" },
       ];
 
     if (t === "cosecha")
@@ -288,8 +288,8 @@ export default function TareasGestionPanel({
         ...r,
         fecha_programada: r.fecha_programada ? String(r.fecha_programada).slice(0, 10) : "",
         poda_tipo: d.tipo || "",
-        poda_plan: d.porcentaje_plantas_plan_pct ?? "",
-        poda_real: d.porcentaje_plantas_real_pct ?? "",
+        poda_plan: d.numero_plantas_intervenir ?? d.porcentaje_plantas_plan_pct ?? "",
+        poda_real: d.numero_plantas_intervenidas_real ?? d.porcentaje_plantas_real_pct ?? "",
         poda_desinf: d.herramientas_desinfectadas ? "Sí" : "No",
         maleza_metodo: d.metodo || "",
         maleza_plan: d.cobertura_planificada_pct ?? "",
@@ -302,8 +302,8 @@ export default function TareasGestionPanel({
         fito_carencia: d.periodo_carencia_dias ?? "",
         fito_epp: d.epp_verificado ? "Sí" : "No",
         enf_material: d.material_funda || "",
-        enf_plan: d.porcentaje_frutos_plan_pct ?? "",
-        enf_real: d.porcentaje_frutos_real_pct ?? "",
+        enf_plan: d.numero_fundas_colocadas ?? d.porcentaje_frutos_plan_pct ?? "",
+        enf_real: d.numero_fundas_colocadas_real ?? d.porcentaje_frutos_real_pct ?? "",
         cos_kg_plan: d.kg_planificados ?? "",
         cos_kg_real: d.kg_cosechados ?? "",
         cos_centro: d.entrega?.centro_acopio || "",

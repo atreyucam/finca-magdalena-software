@@ -106,20 +106,23 @@ export default function CompletarVerificarTareaModal({
 
       if (tipoCodigo === "cosecha") {
         initDetalle.kg_cosechados = d.kg_cosechados || "";
-        initDetalle.grado_madurez = d.grado_madurez || "";
+        initDetalle.grado_maduracion = d.grado_maduracion ?? d.grado_madurez ?? "";
         initDetalle.higiene_verificada = !!d.higiene_verificada;
-      } else if (["poda", "nutricion", "fitosanitario"].includes(tipoCodigo)) {
+      } else if (tipoCodigo === "poda") {
+        initDetalle.numero_plantas_intervenidas_real =
+          d.numero_plantas_intervenidas_real ??
+          d.numero_plantas_intervenir ??
+          d.porcentaje_plantas_real_pct ??
+          d.porcentaje_plantas_plan_pct ??
+          0;
+        initDetalle.herramientas_desinfectadas = !!d.herramientas_desinfectadas;
+        initDetalle.disposicion_restos = d.disposicion_restos || "";
+      } else if (["nutricion", "fitosanitario"].includes(tipoCodigo)) {
         // Avance (porcentaje)
         initDetalle.porcentaje_plantas_real_pct =
           d.porcentaje_plantas_real_pct ??
           d.porcentaje_plantas_plan_pct ??
           100;
-
-        // Poda
-        if (tipoCodigo === "poda") {
-          initDetalle.herramientas_desinfectadas = !!d.herramientas_desinfectadas;
-          initDetalle.disposicion_restos = d.disposicion_restos || "";
-        }
 
         // Nutrición / Fito
         if (["nutricion", "fitosanitario"].includes(tipoCodigo)) {
@@ -132,10 +135,13 @@ export default function CompletarVerificarTareaModal({
       } else if (tipoCodigo === "maleza") {
         initDetalle.cobertura_real_pct =
           d.cobertura_real_pct ?? d.cobertura_planificada_pct ?? 100;
-        initDetalle.altura_corte_cm = d.altura_corte_cm || "";
       } else if (tipoCodigo === "enfundado") {
-        initDetalle.porcentaje_frutos_real_pct =
-          d.porcentaje_frutos_real_pct ?? d.porcentaje_frutos_plan_pct ?? 100;
+        initDetalle.numero_fundas_colocadas_real =
+          d.numero_fundas_colocadas_real ??
+          d.numero_fundas_colocadas ??
+          d.porcentaje_frutos_real_pct ??
+          d.porcentaje_frutos_plan_pct ??
+          0;
       }
 
       setValoresDetalle(initDetalle);
@@ -186,6 +192,12 @@ export default function CompletarVerificarTareaModal({
         (!payload.detalle?.kg_cosechados || Number(payload.detalle.kg_cosechados) <= 0)
       ) {
         throw new Error("El peso en báscula es obligatorio.");
+      }
+      if (tipoCodigo === "cosecha") {
+        const grado = Number(payload.detalle?.grado_maduracion);
+        if (!Number.isInteger(grado) || grado < 1 || grado > 8) {
+          throw new Error("El grado de maduración debe ser un entero entre 1 y 8.");
+        }
       }
 
       if (esCompletar) await completarTarea(tarea.id, payload);
@@ -243,10 +255,13 @@ export default function CompletarVerificarTareaModal({
                 unit="kg"
               />
               <Input
-                label="Grado Madurez"
+                label="Grado maduración (1-8)"
                 type="number"
-                value={valoresDetalle.grado_madurez}
-                onChange={(e) => handleChangeDetalle("grado_madurez", e.target.value)}
+                min="1"
+                max="8"
+                step="1"
+                value={valoresDetalle.grado_maduracion}
+                onChange={(e) => handleChangeDetalle("grado_maduracion", e.target.value)}
               />
             </div>
 
@@ -273,17 +288,17 @@ export default function CompletarVerificarTareaModal({
         return (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <PlannedCard label="Plan (Plantas)" value={d.porcentaje_plantas_plan_pct} unit="%" />
+              <PlannedCard label="Plan (Plantas)" value={d.numero_plantas_intervenir ?? d.porcentaje_plantas_plan_pct} unit="" />
               <RealInputCard
                 label="Real Ejecutado"
-                value={valoresDetalle.porcentaje_plantas_real_pct}
+                value={valoresDetalle.numero_plantas_intervenidas_real}
                 onChange={(e) =>
-                  handleChangeDetalle("porcentaje_plantas_real_pct", e.target.value)
+                  handleChangeDetalle("numero_plantas_intervenidas_real", e.target.value)
                 }
                 type="number"
                 min="0"
-                max="100"
-                unit="%"
+                step="1"
+                unit="plantas"
               />
             </div>
 
@@ -357,15 +372,6 @@ export default function CompletarVerificarTareaModal({
                 unit="%"
               />
             </div>
-
-            <Input
-              label="Altura Corte (cm)"
-              type="number"
-              value={valoresDetalle.altura_corte_cm}
-              onChange={(e) =>
-                handleChangeDetalle("altura_corte_cm", e.target.value)
-              }
-            />
           </div>
         );
 
@@ -476,17 +482,17 @@ export default function CompletarVerificarTareaModal({
       case "enfundado":
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <PlannedCard label="Plan (Frutos)" value={d.porcentaje_frutos_plan_pct} unit="%" />
+            <PlannedCard label="Plan (Fundas)" value={d.numero_fundas_colocadas ?? d.porcentaje_frutos_plan_pct} unit="" />
             <RealInputCard
-              label="Frutos Enfundados"
-              value={valoresDetalle.porcentaje_frutos_real_pct}
+              label="Fundas Colocadas"
+              value={valoresDetalle.numero_fundas_colocadas_real}
               onChange={(e) =>
-                handleChangeDetalle("porcentaje_frutos_real_pct", e.target.value)
+                handleChangeDetalle("numero_fundas_colocadas_real", e.target.value)
               }
               type="number"
               min="0"
-              max="100"
-              unit="%"
+              step="1"
+              unit="fundas"
             />
           </div>
         );

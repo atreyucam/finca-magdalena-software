@@ -424,10 +424,10 @@ const handleEnviarNovedad = async () => {
                       </div>
                   </div>
 
-                  {tarea.descripcion && (
+                  {(tarea.metodologia || tarea.descripcion) && (
                     <div className="mt-6 bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-600 text-sm leading-relaxed">
-                       <span className="block font-bold text-slate-700 mb-1 text-xs uppercase">Instrucciones:</span>
-                       {tarea.descripcion}
+                       <span className="block font-bold text-slate-700 mb-1 text-xs uppercase">Metodología:</span>
+                       {tarea.metodologia || tarea.descripcion}
                     </div>
                   )}
               </div>

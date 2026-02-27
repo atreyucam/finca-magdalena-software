@@ -12,6 +12,176 @@ function forbidden(msg) { const e = new Error(msg || "Prohibido"); e.status = 40
 function notFound(msg) { const e = new Error(msg || "No encontrado"); e.status = 404; e.code = "NOT_FOUND"; return e; }
 function forbiddenTaskAccess() { return forbidden("No tienes permiso para acceder a esta tarea"); }
 
+const TIPO_NOMBRES = {
+  poda: "Poda",
+  maleza: "Control de malezas",
+  nutricion: "Fertilizacion",
+  fitosanitario: "Control fitosanitario",
+  enfundado: "Enfundado",
+  cosecha: "Cosecha",
+};
+
+const METODOS_MALEZA_VALIDOS = new Set(["manual", "quimico"]);
+
+const CALIDADES_POR_TIPO_ENTREGA = {
+  exportacion: ["grande", "pequeno"],
+  nacional: ["primera", "segunda", "tercera", "cuarta", "quinta", "rechazo"],
+};
+
+const CAUSAS_RECHAZO_VALIDAS = new Set(["DanoFisico", "Plaga", "Calibre", "Otro"]);
+
+function asText(value) {
+  return String(value ?? "").trim();
+}
+
+function asLower(value) {
+  return asText(value).toLowerCase();
+}
+
+function asPositiveInteger(value, fieldName) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw badRequest(`${fieldName} debe ser un entero positivo`);
+  }
+  return n;
+}
+
+function asIntegerInRange(value, min, max, fieldName) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw badRequest(`${fieldName} debe ser un entero entre ${min} y ${max}`);
+  }
+  return n;
+}
+
+function mapTipoNombre(codigo, fallback) {
+  if (!codigo) return fallback || "";
+  return TIPO_NOMBRES[String(codigo).toLowerCase()] || fallback || "";
+}
+
+function normalizarMetodoMaleza(value) {
+  const metodo = asLower(value);
+  if (!METODOS_MALEZA_VALIDOS.has(metodo)) {
+    throw badRequest("MALEZA: metodo debe ser 'manual' o 'quimico'.");
+  }
+  return metodo;
+}
+
+function normalizarCausaRechazo(value) {
+  const causa = asLower(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (!causa) return "Otro";
+  if (causa === "danomecanico") return "DanoFisico";
+  if (causa === "danofisico") return "DanoFisico";
+  if (causa === "manipulacion") return "Otro";
+  if (causa === "plaga") return "Plaga";
+  if (causa === "calibre") return "Calibre";
+  return "Otro";
+}
+
+function inferirTipoEntrega(calidadNorm) {
+  if (CALIDADES_POR_TIPO_ENTREGA.exportacion.includes(calidadNorm)) return "exportacion";
+  if (CALIDADES_POR_TIPO_ENTREGA.nacional.includes(calidadNorm)) return "nacional";
+  return null;
+}
+
+function normalizarLiquidacion(liquidacion = []) {
+  if (!Array.isArray(liquidacion)) throw badRequest("COSECHA: liquidacion debe ser un arreglo.");
+
+  return liquidacion.map((l, idx) => {
+    const calidadNorm = asLower(l?.calidad);
+    const tipoEntrega = asLower(l?.tipo_entrega) || inferirTipoEntrega(calidadNorm) || "nacional";
+
+    if (!CALIDADES_POR_TIPO_ENTREGA[tipoEntrega]) {
+      throw badRequest(`COSECHA: tipo_entrega inválido en fila ${idx + 1}.`);
+    }
+
+    const calidad = calidadNorm;
+    if (!CALIDADES_POR_TIPO_ENTREGA[tipoEntrega].includes(calidad)) {
+      throw badRequest(
+        `COSECHA: calidad '${l?.calidad || ""}' no permitida para tipo_entrega '${tipoEntrega}'.`
+      );
+    }
+
+    return {
+      tipo_entrega: tipoEntrega,
+      calidad,
+      gabetas: Number(l?.gabetas) || 0,
+      novedad: asText(l?.novedad),
+      valor_total: Number(l?.valor_total) || 0,
+    };
+  });
+}
+
+function normalizarRechazos(rechazos = []) {
+  if (!Array.isArray(rechazos)) throw badRequest("COSECHA: rechazos debe ser un arreglo.");
+
+  return rechazos.map((r) => {
+    const causa = normalizarCausaRechazo(r?.causa);
+    if (!CAUSAS_RECHAZO_VALIDAS.has(causa)) {
+      throw badRequest("COSECHA: causa de rechazo inválida.");
+    }
+
+    return {
+      causa,
+      observacion: asText(r?.observacion),
+      kg: Number(r?.kg) || 0,
+    };
+  });
+}
+
+function validarYNormalizarGradoMaduracion(value) {
+  if (value === undefined || value === null || value === "") return null;
+  return asIntegerInRange(value, 1, 8, "grado_maduracion");
+}
+
+function normalizarDetalleParaRespuesta(tipoCodigo, detalle = {}) {
+  const out = { ...(detalle || {}) };
+
+  if (tipoCodigo === "poda") {
+    if (out.numero_plantas_intervenir === undefined && out.porcentaje_plantas_plan_pct !== undefined) {
+      out.numero_plantas_intervenir = out.porcentaje_plantas_plan_pct;
+    }
+    if (
+      out.numero_plantas_intervenidas_real === undefined &&
+      out.porcentaje_plantas_real_pct !== undefined
+    ) {
+      out.numero_plantas_intervenidas_real = out.porcentaje_plantas_real_pct;
+    }
+  }
+
+  if (tipoCodigo === "enfundado") {
+    if (out.numero_fundas_colocadas === undefined && out.porcentaje_frutos_plan_pct !== undefined) {
+      out.numero_fundas_colocadas = out.porcentaje_frutos_plan_pct;
+    }
+    if (
+      out.numero_fundas_colocadas_real === undefined &&
+      out.porcentaje_frutos_real_pct !== undefined
+    ) {
+      out.numero_fundas_colocadas_real = out.porcentaje_frutos_real_pct;
+    }
+  }
+
+  if (tipoCodigo === "cosecha") {
+    if (out.grado_maduracion === undefined && out.grado_madurez !== undefined) {
+      out.grado_maduracion = out.grado_madurez;
+    }
+    delete out.grado_madurez;
+    delete out.filas_recolectadas;
+
+    if (Array.isArray(out.rechazos)) {
+      out.rechazos = out.rechazos.map((r) => ({
+        ...r,
+        causa: normalizarCausaRechazo(r?.causa),
+      }));
+    }
+  }
+
+  return out;
+}
+
 // --- Utilidad Socket ---
 function emitTarea(io, tareaId, type, payload = {}) {
   if (!io) return;
@@ -233,23 +403,24 @@ exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
 const REGLAS_BPA = {
   poda: (d) => {
     if (!d.tipo) throw badRequest("PODA: El 'tipo' (Formación/Sanitaria/Producción) es obligatorio.");
-    // Validamos que el porcentaje sea lógico
-    if (d.porcentaje_plantas_plan_pct > 100) throw badRequest("PODA: No puedes planificar más del 100% del lote.");
+    const numeroPlantas = asPositiveInteger(
+      d.numero_plantas_intervenir ?? d.porcentaje_plantas_plan_pct,
+      "PODA: numero_plantas_intervenir"
+    );
     return {
       tipo: d.tipo,
       herramientas_desinfectadas: d.herramientas_desinfectadas || false,
       disposicion_restos: d.disposicion_restos || 'Compostaje en sitio',
-      porcentaje_plantas_plan_pct: Number(d.porcentaje_plantas_plan_pct) || 0,
-      porcentaje_plantas_real_pct: 0 // Inicializa en 0
+      numero_plantas_intervenir: numeroPlantas,
+      numero_plantas_intervenidas_real: 0,
     };
   },
   maleza: (d) => {
     if (!d.metodo) throw badRequest("MALEZA: El 'metodo' es obligatorio.");
     return {
-      metodo: d.metodo,
+      metodo: normalizarMetodoMaleza(d.metodo),
       cobertura_planificada_pct: Number(d.cobertura_planificada_pct || d.cobertura_estimada_pct) || 0,
       cobertura_real_pct: 0,
-      altura_corte_cm: d.altura_corte_cm || null
     };
   },
   nutricion: (d) => {
@@ -281,9 +452,13 @@ const REGLAS_BPA = {
     };
   },
   enfundado: (d) => {
+    const numeroFundas = asPositiveInteger(
+      d.numero_fundas_colocadas ?? d.porcentaje_frutos_plan_pct,
+      "ENFUNDADO: numero_fundas_colocadas"
+    );
     return {
-      porcentaje_frutos_plan_pct: Number(d.porcentaje_frutos_plan_pct) || 100,
-      porcentaje_frutos_real_pct: 0,
+      numero_fundas_colocadas: numeroFundas,
+      numero_fundas_colocadas_real: 0,
       material_funda: d.material_funda || 'Estándar'
     };
   },
@@ -291,19 +466,14 @@ const REGLAS_BPA = {
   // 🟢 MODIFICACIÓN: Actualizar esquema de Cosecha
   // ---------------------------------------------------------
   cosecha: (d) => {
+    const gradoMaduracion = validarYNormalizarGradoMaduracion(
+      d.grado_maduracion ?? d.grado_madurez
+    );
     return {
       kg_planificados: Number(d.kg_planificados) || 0,
       kg_cosechados: Number(d.kg_cosechados) || 0,
-      grado_madurez: Number(d.grado_madurez) || 0,
+      grado_maduracion: gradoMaduracion,
       higiene_verificada: !!d.higiene_verificada,
-      
-      // Conteo por Filas
-      filas_recolectadas: Array.isArray(d.filas_recolectadas) 
-        ? d.filas_recolectadas.map(f => ({
-            numero: f.numero || 1,
-            gabetas: Number(f.gabetas) || 0
-          })) 
-        : [],
 
       // ✅ NUEVO: Clasificación Comercial (Antes en Modal)
       clasificacion: Array.isArray(d.clasificacion)
@@ -315,12 +485,7 @@ const REGLAS_BPA = {
         })) : [],
 
       // ✅ NUEVO: Rechazos / Merma (Antes en Modal)
-      rechazos: Array.isArray(d.rechazos)
-        ? d.rechazos.map(r => ({
-            causa: r.causa || "Otro",
-            observacion: r.observacion || "",
-            kg: Number(r.kg) || 0
-        })) : [],
+      rechazos: normalizarRechazos(d.rechazos || []),
 
       // Logística de Entrega
       entrega: {
@@ -331,14 +496,7 @@ const REGLAS_BPA = {
       },
 
       // Liquidación Financiera
-      liquidacion: Array.isArray(d.liquidacion)
-        ? d.liquidacion.map(l => ({
-            calidad: l.calidad || "General",
-            gabetas: Number(l.gabetas) || 0,
-            novedad: l.novedad || "",
-            valor_total: Number(l.valor_total) || 0
-          }))
-        : [],
+      liquidacion: normalizarLiquidacion(d.liquidacion || []),
         
       total_dinero: Number(d.total_dinero) || 0
     };
@@ -366,7 +524,7 @@ exports.crearTarea = async (currentUser, data, io) => {
 
   const {
     titulo, fecha_programada, lote_id, cosecha_id, periodo_id,
-    tipo_codigo, tipo_id, descripcion, asignados = [], detalle = {}, items = []
+    tipo_codigo, tipo_id, descripcion, metodologia, asignados = [], detalle = {}, items = []
   } = data;
 
   if (!lote_id || !fecha_programada || !cosecha_id) {
@@ -403,6 +561,7 @@ exports.crearTarea = async (currentUser, data, io) => {
   }
 
   const detallesJSON = validarDetalles(finalTipoCodigo, detalle);
+  const metodologiaFinal = asText(metodologia ?? descripcion) || null;
 
   // 1) Crear dentro de TX
   const result = await sequelize.transaction(async (t) => {
@@ -413,7 +572,7 @@ exports.crearTarea = async (currentUser, data, io) => {
       cosecha_id,
       periodo_id: periodo_id || null,
       fecha_programada: new Date(fecha_programada),
-      descripcion,
+      descripcion: metodologiaFinal,
       creador_id: currentUser.sub,
       estado: "Pendiente",
       detalles: detallesJSON,
@@ -565,6 +724,7 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
 exports.completarTarea = async (currentUser, tareaId, body, io) => {
   const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
   if (!tarea) throw notFound();
+  const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
   
   if (currentUser.role === 'Trabajador') {
     const asign = await models.TareaAsignacion.findOne({ where: { tarea_id: tareaId, usuario_id: currentUser.sub } });
@@ -597,13 +757,66 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
     const detallesActuales = tarea.detalles || {};
     const nuevosDetalles = { ...detallesActuales, ...detalleReal };
 
-    // (Opcional) Asegurar tipos numéricos para consistencia en reportes
-    if (nuevosDetalles.porcentaje_plantas_real_pct !== undefined) 
-        nuevosDetalles.porcentaje_plantas_real_pct = Number(nuevosDetalles.porcentaje_plantas_real_pct);
+    // Asegurar tipos numéricos para consistencia en reportes
+    if (nuevosDetalles.porcentaje_plantas_real_pct !== undefined)
+      nuevosDetalles.porcentaje_plantas_real_pct = Number(nuevosDetalles.porcentaje_plantas_real_pct);
     if (nuevosDetalles.cobertura_real_pct !== undefined)
         nuevosDetalles.cobertura_real_pct = Number(nuevosDetalles.cobertura_real_pct);
     if (nuevosDetalles.kg_cosechados !== undefined)
         nuevosDetalles.kg_cosechados = Number(nuevosDetalles.kg_cosechados);
+    if (nuevosDetalles.grado_maduracion !== undefined || nuevosDetalles.grado_madurez !== undefined) {
+      nuevosDetalles.grado_maduracion = validarYNormalizarGradoMaduracion(
+        nuevosDetalles.grado_maduracion ?? nuevosDetalles.grado_madurez
+      );
+      delete nuevosDetalles.grado_madurez;
+    }
+
+    if (tipoCodigo === "poda") {
+      if (nuevosDetalles.numero_plantas_intervenir !== undefined) {
+        nuevosDetalles.numero_plantas_intervenir = asPositiveInteger(
+          nuevosDetalles.numero_plantas_intervenir,
+          "PODA: numero_plantas_intervenir"
+        );
+      }
+      if (nuevosDetalles.numero_plantas_intervenidas_real !== undefined) {
+        const real = Number(nuevosDetalles.numero_plantas_intervenidas_real);
+        if (!Number.isInteger(real) || real < 0) {
+          throw badRequest("PODA: numero_plantas_intervenidas_real debe ser entero mayor o igual a 0.");
+        }
+        nuevosDetalles.numero_plantas_intervenidas_real = real;
+      }
+    }
+
+    if (tipoCodigo === "enfundado") {
+      if (nuevosDetalles.numero_fundas_colocadas !== undefined) {
+        nuevosDetalles.numero_fundas_colocadas = asPositiveInteger(
+          nuevosDetalles.numero_fundas_colocadas,
+          "ENFUNDADO: numero_fundas_colocadas"
+        );
+      }
+      if (nuevosDetalles.numero_fundas_colocadas_real !== undefined) {
+        const real = Number(nuevosDetalles.numero_fundas_colocadas_real);
+        if (!Number.isInteger(real) || real < 0) {
+          throw badRequest("ENFUNDADO: numero_fundas_colocadas_real debe ser entero mayor o igual a 0.");
+        }
+        nuevosDetalles.numero_fundas_colocadas_real = real;
+      }
+    }
+
+    if (tipoCodigo === "maleza" && nuevosDetalles.metodo !== undefined) {
+      nuevosDetalles.metodo = normalizarMetodoMaleza(nuevosDetalles.metodo);
+      delete nuevosDetalles.altura_corte_cm;
+    }
+
+    if (tipoCodigo === "cosecha") {
+      if (nuevosDetalles.rechazos !== undefined) {
+        nuevosDetalles.rechazos = normalizarRechazos(nuevosDetalles.rechazos);
+      }
+      if (nuevosDetalles.liquidacion !== undefined) {
+        nuevosDetalles.liquidacion = normalizarLiquidacion(nuevosDetalles.liquidacion);
+      }
+      delete nuevosDetalles.filas_recolectadas;
+    }
 
     // Guardar el JSON actualizado
     tarea.detalles = nuevosDetalles;
@@ -656,8 +869,9 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
   // ✅ 1. Extraemos 'detalle' del body (antes no se hacía)
   const { comentario, force = false, detalle, items: itemsReal = [] } = body || {};
 
-  const tarea = await models.Tarea.findByPk(tareaId);
+  const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
   if (!tarea || tarea.estado !== "Completada") throw badRequest("La tarea debe estar Completada para verificar.");
+  const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
 
   // Verificar si ya se descontó inventario
   const yaMovido = await models.InventarioMovimiento.findOne({
@@ -703,7 +917,31 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
     if (detalle && Object.keys(detalle).length > 0) {
         const detallesActuales = tarea.detalles || {};
         // Mezclamos lo viejo con lo nuevo
-        tarea.detalles = { ...detallesActuales, ...detalle };
+        const nuevosDetalles = { ...detallesActuales, ...detalle };
+
+        if (nuevosDetalles.grado_maduracion !== undefined || nuevosDetalles.grado_madurez !== undefined) {
+          nuevosDetalles.grado_maduracion = validarYNormalizarGradoMaduracion(
+            nuevosDetalles.grado_maduracion ?? nuevosDetalles.grado_madurez
+          );
+          delete nuevosDetalles.grado_madurez;
+        }
+
+        if (tipoCodigo === "maleza" && nuevosDetalles.metodo !== undefined) {
+          nuevosDetalles.metodo = normalizarMetodoMaleza(nuevosDetalles.metodo);
+          delete nuevosDetalles.altura_corte_cm;
+        }
+
+        if (tipoCodigo === "cosecha") {
+          if (nuevosDetalles.rechazos !== undefined) {
+            nuevosDetalles.rechazos = normalizarRechazos(nuevosDetalles.rechazos);
+          }
+          if (nuevosDetalles.liquidacion !== undefined) {
+            nuevosDetalles.liquidacion = normalizarLiquidacion(nuevosDetalles.liquidacion);
+          }
+          delete nuevosDetalles.filas_recolectadas;
+        }
+
+        tarea.detalles = nuevosDetalles;
     }
 
     // 3. Registrar consumo/uso real en inventario
@@ -849,6 +1087,7 @@ exports.obtenerTarea = async (currentUser, id) => {
 
   const response = {
     ...json,
+    metodologia: json.descripcion ?? null,
     // Atributos de ubicación simplificados para el Frontend
     finca_nombre: json.Lote?.finca?.nombre, // 🔹 Nombre de la finca origen
     lote_nombre: json.Lote?.nombre,
@@ -885,7 +1124,7 @@ exports.obtenerTarea = async (currentUser, id) => {
   if (tipoCodigo) {
     response[tipoCodigo] = {
       id: tarea.id,
-      ...tarea.detalles
+      ...normalizarDetalleParaRespuesta(tipoCodigo, tarea.detalles)
     };
   }
 
@@ -1024,7 +1263,7 @@ exports.listarTareas = async (currentUser, query = {}) => {
         finca: j.Lote?.finca?.nombre,
         finca_id: j.Lote?.finca?.id,
         lote: j.Lote?.nombre,
-        tipo: j.TipoActividad?.nombre,
+        tipo: mapTipoNombre(j.TipoActividad?.codigo, j.TipoActividad?.nombre),
         tipo_codigo: j.TipoActividad?.codigo,
         cosecha: j.Cosecha?.nombre,
         fecha_programada: j.fecha_programada,
@@ -1292,8 +1531,9 @@ exports.listarNovedades = async (currentUser, tareaId) => {
 };
 
 exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
-  const tarea = await models.Tarea.findByPk(tareaId);
+  const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
   if (!tarea) throw notFound();
+  const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
 
   // 1. Validación de Estado y Permisos
   if (["Verificada", "Cancelada"].includes(tarea.estado)) {
@@ -1317,13 +1557,7 @@ exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
       }
   }
 
-  // B. FILAS
-  if (body.filas_recolectadas) {
-      const diff = diffFilas(detallesAnteriores.filas_recolectadas, body.filas_recolectadas);
-      if (diff) mensajesBitacora.push(diff);
-  }
-
-  // C. LOGÍSTICA
+  // B. LOGÍSTICA
   if (body.entrega) {
       // Merge temporal para comparar bien, ya que body puede traer parciales
       const nextEntrega = { ...(detallesAnteriores.entrega || {}), ...body.entrega };
@@ -1331,7 +1565,7 @@ exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
       if (diff) mensajesBitacora.push(diff);
   }
 
-  // D. LIQUIDACIÓN
+  // C. LIQUIDACIÓN
   if (body.liquidacion) {
       // Recalcular total automáticamente en el backend para seguridad
       const nuevoTotal = body.liquidacion.reduce((acc, i) => acc + (Number(i.valor_total)||0), 0);
@@ -1349,6 +1583,27 @@ exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
   await sequelize.transaction(async (t) => {
       // Merge profundo
       const nuevosDetalles = { ...detallesAnteriores, ...body };
+
+      if (tipoCodigo === "maleza" && nuevosDetalles.metodo !== undefined) {
+          nuevosDetalles.metodo = normalizarMetodoMaleza(nuevosDetalles.metodo);
+          delete nuevosDetalles.altura_corte_cm;
+      }
+
+      if (tipoCodigo === "cosecha") {
+          if (nuevosDetalles.grado_maduracion !== undefined || nuevosDetalles.grado_madurez !== undefined) {
+              nuevosDetalles.grado_maduracion = validarYNormalizarGradoMaduracion(
+                nuevosDetalles.grado_maduracion ?? nuevosDetalles.grado_madurez
+              );
+              delete nuevosDetalles.grado_madurez;
+          }
+          if (nuevosDetalles.rechazos !== undefined) {
+              nuevosDetalles.rechazos = normalizarRechazos(nuevosDetalles.rechazos);
+          }
+          if (nuevosDetalles.liquidacion !== undefined) {
+              nuevosDetalles.liquidacion = normalizarLiquidacion(nuevosDetalles.liquidacion);
+          }
+          delete nuevosDetalles.filas_recolectadas;
+      }
       
       if (body.entrega) {
           nuevosDetalles.entrega = { ...(detallesAnteriores.entrega || {}), ...body.entrega };
