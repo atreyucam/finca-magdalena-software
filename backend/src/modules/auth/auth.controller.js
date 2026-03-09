@@ -22,7 +22,10 @@ function toMilliseconds(duration, fallbackMs) {
 }
 
 const refreshCookiePath = config.env === 'production' ? '/api/auth/refresh' : '/auth/refresh';
-const refreshCookieMaxAge = toMilliseconds(config.jwt.refreshExpiresIn, 7 * 24 * 60 * 60 * 1000);
+const refreshCookieMaxAge = Math.min(
+  toMilliseconds(config.jwt.refreshExpiresIn, 8 * 60 * 60 * 1000),
+  config.session.maxTotalMs
+);
 
 function getRefreshCookieOptions() {
   return {
@@ -52,7 +55,14 @@ exports.login = async (req, res, next) => {
     const result = await service.login(email, password);
     res.cookie('refresh_token', result.tokens.refresh, getRefreshCookieOptions());
 
-    return res.json({ user: result.user, access_token: result.tokens.access });
+    return res.json({
+      user: result.user,
+      access_token: result.tokens.access,
+      session_policy: {
+        max_total_ms: config.session.maxTotalMs,
+        inactivity_ms: config.session.inactivityMs,
+      },
+    });
   } catch (err) {
     // ✅ RESPUESTA JSON CLARA
     const msg = err.message || "Credenciales inválidas";
@@ -72,14 +82,20 @@ exports.refresh = async (req, res, next) => {
       return res.status(401).json({ code: 'AUTH_REFRESH_REQUIRED', message: 'Refresh token requerido' });
     }
 
-    const result = await service.refresh(token);
+    const result = await service.refresh(token, {
+      activityHint: req.get("x-last-activity-at"),
+    });
 
     // Rotación de refresh token + sobreescritura de cookie
     res.cookie('refresh_token', result.tokens.refresh, getRefreshCookieOptions());
 
     res.json({
       user: result.user,
-      access_token: result.tokens.access
+      access_token: result.tokens.access,
+      session_policy: {
+        max_total_ms: config.session.maxTotalMs,
+        inactivity_ms: config.session.inactivityMs,
+      },
     });
   } catch (err) {
     // Si falla refresh (inválido/expirado), limpiar cookie y devolver 401

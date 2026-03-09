@@ -8,6 +8,7 @@ module.exports = (sequelize) => {
     tipo: {
       type: DataTypes.ENUM(
         'ENTRADA','SALIDA',
+        'ENTRADA_COMPRA',
         'AJUSTE_ENTRADA','AJUSTE_SALIDA',
         'PRESTAMO_SALIDA','PRESTAMO_DEVUELTA',
         'BAJA'

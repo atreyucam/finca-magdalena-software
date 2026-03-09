@@ -35,12 +35,19 @@ services:
       DB_LOGGING: false
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}"
-      JWT_ACCESS_EXPIRES: 2h
-      JWT_REFRESH_EXPIRES: 7d
+      JWT_ACCESS_EXPIRES: "${JWT_ACCESS_EXPIRES:-15m}"
+      JWT_REFRESH_EXPIRES: "${JWT_REFRESH_EXPIRES:-8h}"
+      SESSION_MAX_TOTAL: "${SESSION_MAX_TOTAL:-8h}"
+      SESSION_INACTIVITY: "${SESSION_INACTIVITY:-60m}"
       FRONTEND_URL: "${FRONTEND_URL:?FRONTEND_URL is required}"
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q '\"ok\":true'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     expose:
       - "3000"

@@ -4,8 +4,6 @@ import {
   CheckCircle,
   ShieldCheck,
   AlertTriangle,
-  Droplets,
-  Truck,
   Info,
   CloudSun,
 } from "lucide-react";
@@ -65,6 +63,21 @@ const RealInputCard = ({ label, value, onChange, unit, ...props }) => {
   );
 };
 
+function normalizarRegistroCosecha(detalle = {}) {
+  const base =
+    detalle?.clasificacion &&
+    typeof detalle.clasificacion === "object" &&
+    !Array.isArray(detalle.clasificacion)
+      ? detalle.clasificacion
+      : detalle || {};
+
+  return {
+    exportacion: Math.max(0, Number(base.exportacion || 0)),
+    nacional: Math.max(0, Number(base.nacional || 0)),
+    rechazo: Math.max(0, Number(base.rechazo || 0)),
+  };
+}
+
 /* =========================
    Modal principal
 ========================= */
@@ -105,9 +118,10 @@ export default function CompletarVerificarTareaModal({
       const initDetalle = { ...d };
 
       if (tipoCodigo === "cosecha") {
-        initDetalle.kg_cosechados = d.kg_cosechados || "";
-        initDetalle.grado_maduracion = d.grado_maduracion ?? d.grado_madurez ?? "";
-        initDetalle.higiene_verificada = !!d.higiene_verificada;
+        const registro = normalizarRegistroCosecha(d);
+        initDetalle.exportacion = registro.exportacion;
+        initDetalle.nacional = registro.nacional;
+        initDetalle.rechazo = registro.rechazo;
       } else if (tipoCodigo === "poda") {
         initDetalle.numero_plantas_intervenidas_real =
           d.numero_plantas_intervenidas_real ??
@@ -152,7 +166,6 @@ export default function CompletarVerificarTareaModal({
         initItems[it.id] = {
           cantidad_real:
             it.cantidad_real > 0 ? it.cantidad_real : it.cantidad_planificada,
-          lote_insumo_manual: it.lote_insumo_manual || "",
         };
       });
       setValoresItems(initItems);
@@ -166,12 +179,20 @@ export default function CompletarVerificarTareaModal({
     setValoresItems((p) => ({ ...p, [id]: { ...p[id], [k]: v } }));
 
   const buildPayload = () => {
-    const detalleFinal = { ...(tarea?.detalles || {}), ...(valoresDetalle || {}) };
+    let detalleFinal = { ...(tarea?.detalles || {}), ...(valoresDetalle || {}) };
+    if (tipoCodigo === "cosecha") {
+      const exportacion = Math.max(0, Number(valoresDetalle?.exportacion || 0));
+      const nacional = Math.max(0, Number(valoresDetalle?.nacional || 0));
+      const rechazo = Math.max(0, Number(valoresDetalle?.rechazo || 0));
+      detalleFinal = {
+        clasificacion: { exportacion, nacional, rechazo },
+        total_gavetas: exportacion + nacional + rechazo,
+      };
+    }
 
     const itemsPayload = Object.entries(valoresItems || {}).map(([id, val]) => ({
       id: Number(id),
       cantidad_real: Number(val?.cantidad_real ?? 0),
-      lote_insumo_manual: val?.lote_insumo_manual || "",
     }));
 
     return {
@@ -185,20 +206,6 @@ export default function CompletarVerificarTareaModal({
     setLoading(true);
     try {
       const payload = buildPayload();
-
-      // Validación específica Cosecha
-      if (
-        tipoCodigo === "cosecha" &&
-        (!payload.detalle?.kg_cosechados || Number(payload.detalle.kg_cosechados) <= 0)
-      ) {
-        throw new Error("El peso en báscula es obligatorio.");
-      }
-      if (tipoCodigo === "cosecha") {
-        const grado = Number(payload.detalle?.grado_maduracion);
-        if (!Number.isInteger(grado) || grado < 1 || grado > 8) {
-          throw new Error("El grado de maduración debe ser un entero entre 1 y 8.");
-        }
-      }
 
       if (esCompletar) await completarTarea(tarea.id, payload);
       else if (esVerificar) await verificarTarea(tarea.id, payload);
@@ -243,45 +250,51 @@ export default function CompletarVerificarTareaModal({
 
     switch (tipoCodigo) {
       case "cosecha":
+        const exportacion = Number(valoresDetalle?.exportacion || 0);
+        const nacional = Number(valoresDetalle?.nacional || 0);
+        const rechazo = Number(valoresDetalle?.rechazo || 0);
+        const total = exportacion + nacional + rechazo;
         return (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-4">
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-600">
+              Registrar avance de cosecha solo con gavetas de exportación, nacional y rechazo.
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <RealInputCard
-                label="Kg Báscula"
-                value={valoresDetalle.kg_cosechados}
-                onChange={(e) => handleChangeDetalle("kg_cosechados", e.target.value)}
+                label="Gavetas exportación"
+                value={valoresDetalle.exportacion ?? 0}
+                onChange={(e) => handleChangeDetalle("exportacion", e.target.value)}
                 type="number"
-                step="0.01"
-                unit="kg"
-              />
-              <Input
-                label="Grado maduración (1-8)"
-                type="number"
-                min="1"
-                max="8"
+                min="0"
                 step="1"
-                value={valoresDetalle.grado_maduracion}
-                onChange={(e) => handleChangeDetalle("grado_maduracion", e.target.value)}
+                unit="gavetas"
+              />
+              <RealInputCard
+                label="Gavetas nacional"
+                value={valoresDetalle.nacional ?? 0}
+                onChange={(e) => handleChangeDetalle("nacional", e.target.value)}
+                type="number"
+                min="0"
+                step="1"
+                unit="gavetas"
+              />
+              <RealInputCard
+                label="Gavetas rechazo"
+                value={valoresDetalle.rechazo ?? 0}
+                onChange={(e) => handleChangeDetalle("rechazo", e.target.value)}
+                type="number"
+                min="0"
+                step="1"
+                unit="gavetas"
               />
             </div>
-
-            <div className="bg-sky-50 p-3 rounded-xl border border-sky-100 flex items-center gap-3">
-              <Droplets className="text-sky-600" size={20} />
-              <label className="flex items-center gap-2 cursor-pointer w-full">
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 text-sky-600"
-                  checked={!!valoresDetalle.higiene_verificada}
-                  onChange={(e) =>
-                    handleChangeDetalle("higiene_verificada", e.target.checked)
-                  }
-                />
-                <span className="text-sm font-bold text-sky-800">
-                  Higiene Verificada
-                </span>
-              </label>
+            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
+                Total de gavetas
+              </span>
+              <span className="text-2xl font-black text-emerald-800">{total}</span>
             </div>
-          </>
+          </div>
         );
 
       case "poda":
@@ -505,32 +518,11 @@ export default function CompletarVerificarTareaModal({
   const renderResumenCosecha = () => {
     if (tipoCodigo !== "cosecha") return null;
 
-    const d = tarea?.detalles || {};
-    const totalRecibido = d.total_dinero || 0;
-    const entregadas = d.entrega?.gabetas_entregadas || 0;
-
     return (
       <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-500">
-        {esVerificar && d.entrega?.centro_acopio ? (
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-            <div className="flex items-center gap-2">
-              <Truck size={12} />
-              <span>
-                Entrega: <strong>{d.entrega.centro_acopio}</strong> ({entregadas} gab.)
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span>Total:</span>
-              <strong className="text-emerald-600 bg-white px-2 py-0.5 rounded border shadow-sm">
-                ${Number(totalRecibido).toFixed(2)}
-              </strong>
-            </div>
-          </div>
-        ) : (
-          <div className="italic text-center flex items-center justify-center gap-2">
-            <Info size={12} /> Registra los detalles de filas y logística en la pantalla principal antes de verificar.
-          </div>
-        )}
+        <div className="italic text-center flex items-center justify-center gap-2">
+          <Info size={12} /> Flujo simplificado activo: exportación, nacional, rechazo y total automático.
+        </div>
       </div>
     );
   };
@@ -572,21 +564,6 @@ export default function CompletarVerificarTareaModal({
                     onChange={(e) =>
                       handleChangeItem(it.id, "cantidad_real", e.target.value)
                     }
-                  />
-                </div>
-
-                <div className="md:col-span-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">
-                    Lote / Batch (manual)
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full text-sm border rounded-lg px-2 py-1 font-medium text-slate-700 focus:ring-1 focus:ring-emerald-500 outline-none"
-                    value={val.lote_insumo_manual ?? ""}
-                    onChange={(e) =>
-                      handleChangeItem(it.id, "lote_insumo_manual", e.target.value)
-                    }
-                    placeholder="Ej. LOTE-2026-01"
                   />
                 </div>
               </div>

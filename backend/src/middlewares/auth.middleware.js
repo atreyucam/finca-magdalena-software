@@ -1,5 +1,6 @@
 const { verifyAccess } = require("../utils/jwt");
 const { models } = require("../db");
+const { assertSessionWithinBounds } = require("../modules/auth/session.policy");
 
 exports.requireAuth = async (req, res, next) => {
   try {
@@ -22,6 +23,23 @@ exports.requireAuth = async (req, res, next) => {
       return res.status(401).json({
         code: "AUTH_INVALID",
         message: "Token inválido",
+      });
+    }
+
+    const iatMs = Number(payload.iat) * 1000;
+    const sessionStartAt = Number.isFinite(Number(payload.session_start_at))
+      ? Number(payload.session_start_at)
+      : iatMs;
+    const lastActivityAt = Number.isFinite(Number(payload.last_activity_at))
+      ? Number(payload.last_activity_at)
+      : sessionStartAt;
+
+    try {
+      assertSessionWithinBounds({ sessionStartAt, lastActivityAt });
+    } catch (sessionError) {
+      return res.status(401).json({
+        code: sessionError.code || "AUTH_INVALID",
+        message: sessionError.message || "Sesión expirada",
       });
     }
 

@@ -18,6 +18,16 @@ import {
   AlertCircle, Sprout, ClipboardList, Tractor, X 
 } from "lucide-react";
 
+function getCurrentLocalDateTimeValue() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+}
+
 export default function CrearTareaModal({ open, onClose, onCreated }) {
   const panelRef = useRef(null);
 
@@ -50,7 +60,7 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
     tipo_codigo: "", 
     titulo: "", 
     metodologia: "",
-    fecha_programada: new Date().toISOString().slice(0, 16), 
+    fecha_programada: getCurrentLocalDateTimeValue(),
     asignados: [],
   });
   
@@ -59,7 +69,7 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
   const resetForm = useCallback(() => {
     setForm({
       finca_id: "", cosecha_id: "", periodo_id: "", lote_id: "", tipo_codigo: "", titulo: "", metodologia: "",
-      fecha_programada: new Date().toISOString().slice(0, 16), asignados: [],
+      fecha_programada: getCurrentLocalDateTimeValue(), asignados: [],
     });
     setDetalle({});
     setRecursosSel([]);
@@ -156,7 +166,7 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
                 setForm(prev => ({ ...prev, cosecha_id: String(cosechaActiva.id) }));
                 setPeriodos(cosechaActiva.PeriodoCosechas || []);
             } else {
-                notify.warning("⚠️ Esta finca no tiene una Cosecha Activa.");
+                notify.warning("⚠️ Esta finca no tiene un Periodo activo.");
                 setForm(prev => ({ ...prev, cosecha_id: "" }));
             }
         } catch (error) {
@@ -189,7 +199,7 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.cosecha_id) return notify.error("Debes seleccionar una finca con Cosecha Activa.");
+    if (!form.cosecha_id) return notify.error("Debes seleccionar una finca con Periodo activo.");
     
     setLoading(true);
     try {
@@ -199,12 +209,13 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
         if (
           [
             "cobertura_planificada_pct",
-            "kg_planificados",
             "periodo_carencia_dias",
             "periodo_reingreso_horas",
             "numero_plantas_intervenir",
             "numero_fundas_colocadas",
-            "grado_maduracion",
+            "exportacion",
+            "nacional",
+            "rechazo",
           ].includes(key)
         ) {
           detalleSanitizado[key] = val === "" ? null : Number(val);
@@ -220,6 +231,17 @@ export default function CrearTareaModal({ open, onClose, onCreated }) {
         if (equipoSeleccionado) {
           detalleSanitizado.equipo_aplicacion = equipoSeleccionado.nombre;
         }
+      }
+
+      if (form.tipo_codigo === "cosecha") {
+        detalleSanitizado.clasificacion = {
+          exportacion: Number(detalleSanitizado.exportacion || 0),
+          nacional: Number(detalleSanitizado.nacional || 0),
+          rechazo: Number(detalleSanitizado.rechazo || 0),
+        };
+        delete detalleSanitizado.exportacion;
+        delete detalleSanitizado.nacional;
+        delete detalleSanitizado.rechazo;
       }
 
       const payload = {
@@ -306,17 +328,17 @@ const listaRecursosFiltrada = useMemo(() => {
                 </div>
 
                 {loadingContexto ? (
-                    <div className="py-4 text-center text-xs text-slate-400 animate-pulse">Cargando lotes y cosecha...</div>
+                    <div className="py-4 text-center text-xs text-slate-400 animate-pulse">Cargando lotes y periodo...</div>
                 ) : (
                     <>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1">
-                                <label className="block text-xs font-bold text-slate-700 uppercase">Cosecha Activa</label>
+                                <label className="block text-xs font-bold text-slate-700 uppercase">Periodo</label>
                                 <div className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600">
-                                    {cosechaActiva ? cosechaActiva.nombre : "Sin Cosecha Activa"}
+                                    {cosechaActiva ? cosechaActiva.nombre : "Sin Periodo activo"}
                                 </div>
                             </div>
-                            <Select label="Etapa (Periodo)" name="periodo_id" value={form.periodo_id} onChange={handleChange}>
+                            <Select label="Etapa" name="periodo_id" value={form.periodo_id} onChange={handleChange}>
                                 <option value="">(General)</option>
                                 {periodos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                             </Select>
@@ -336,7 +358,7 @@ const listaRecursosFiltrada = useMemo(() => {
                 )}
 
                 <div className="grid grid-cols-1 gap-4">
-                   <Input label="Fecha Programada" type="datetime-local" name="fecha_programada" value={form.fecha_programada} onChange={handleChange} required icono={Calendar} />
+                   <Input label="Fecha programada" type="datetime-local" name="fecha_programada" value={form.fecha_programada} onChange={handleChange} required icono={Calendar} />
                    <Input label="Título (Opcional)" name="titulo" value={form.titulo} onChange={handleChange} placeholder="Ej. Fumigación preventiva" />
                 </div>
                 <div>
@@ -350,7 +372,7 @@ const listaRecursosFiltrada = useMemo(() => {
             {/* COLUMNA DERECHA */}
             <div className="lg:col-span-7 space-y-6 flex flex-col h-full">
                <div className={`transition-all duration-300 ${form.tipo_codigo ? 'opacity-100' : 'opacity-50 grayscale'}`}>
-                  <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2"><AlertCircle size={14}/> Detalles Técnicos</h4>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2"><AlertCircle size={14}/> {form.tipo_codigo === "cosecha" ? "Registros dentro de tarea" : "Detalle técnico"}</h4>
                   {form.tipo_codigo ? <FormularioDetalleActividad tipo={form.tipo_codigo} detalle={detalle} setDetalle={setDetalle} /> : 
                   <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-6 text-center text-slate-400 text-sm">Selecciona una actividad para configurar parámetros BPA.</div>}
                </div>

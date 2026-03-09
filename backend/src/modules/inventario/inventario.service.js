@@ -11,6 +11,9 @@ function badRequest(m = "Solicitud inválida") {
 function notFound(m = "No encontrado") {
     const e = new Error(m); e.status = 404; e.code = "NOT_FOUND"; return e;
 }
+function deprecated(m = "Endpoint obsoleto en el dominio simplificado") {
+    const e = new Error(m); e.status = 410; e.code = "DEPRECATED"; return e;
+}
 
 // --- Helper de Conversión (Puente DB <-> Utils) ---
 // Helper Conversión Seguro
@@ -39,111 +42,21 @@ async function getFactorDinamico(unidadIdOrigen, unidadIdDestino) {
 // ============================================================
 // 🧠 CORE: MOVER STOCK
 // ============================================================
-async function moverStock({ t, item, tipo, cantidad, unidad_id, motivo, referencia, datosLote }) {
+async function moverStock({ t, item, tipo, cantidad, unidad_id, motivo, referencia }) {
     const factor = await getFactorDinamico(unidad_id, item.unidad_id);
     const cantBase = Number(cantidad) * factor;
 
     if (cantBase <= 0 && tipo !== 'AJUSTE_SALIDA') throw badRequest("La cantidad debe ser mayor a 0");
 
     let stockResultante = Number(item.stock_actual);
-    let loteIdMovimiento = null;
-    
-    // Detectar si es entrada positiva al stock
-    const esEntrada = ['ENTRADA', 'AJUSTE_ENTRADA', 'PRESTAMO_DEVUELTA'].includes(tipo);
 
-    // --- A. ENTRADAS ---
+    // Dominio simplificado: sin lotes/FEFO en el flujo operativo.
+    const esEntrada = ['ENTRADA', 'ENTRADA_COMPRA', 'AJUSTE_ENTRADA', 'PRESTAMO_DEVUELTA'].includes(tipo);
     if (esEntrada) {
-        // Gestión de lotes para insumos (OPCIÓN B: sumar si el lote ya existe)
-if (item.categoria === 'Insumo' && tipo !== 'PRESTAMO_DEVUELTA') {
-  const codigoLote =
-    datosLote?.codigo_lote_proveedor ||
-    datosLote?.codigo_lote ||
-    `GEN-${new Date().toISOString().split('T')[0]}`;
-
-  const fechaVenc = datosLote?.fecha_vencimiento || null;
-
-  // ✅ Regla recomendada: si es Insumo y es Entrada, exigir fecha de vencimiento
-  // (si tienes insumos NO perecibles, me avisas y lo hacemos condicional por meta)
-  if (!fechaVenc) {
-    throw badRequest("Para ENTRADAS de insumos, la fecha de vencimiento es obligatoria");
-  }
-
-  // ✅ Buscar si ya existe ese lote EXACTO (mismo código + mismo vencimiento)
-  let lote = await models.InventarioLote.findOne({
-    where: {
-      item_id: item.id,
-      codigo_lote_proveedor: codigoLote,
-      fecha_vencimiento: fechaVenc
-    },
-    transaction: t,
-    lock: t.LOCK.UPDATE
-  });
-
-  if (lote) {
-    // ✅ SUMAR al lote existente
-    lote.cantidad_inicial = (Number(lote.cantidad_inicial) + cantBase).toFixed(3);
-    lote.cantidad_actual  = (Number(lote.cantidad_actual) + cantBase).toFixed(3);
-    lote.activo = true;
-
-    // opcional: acumular observaciones (si quieres)
-    if (motivo) {
-      const prev = lote.observaciones ? `${lote.observaciones}\n` : "";
-      lote.observaciones = `${prev}${new Date().toISOString()}: +${cantBase.toFixed(3)} (${motivo})`;
-    }
-
-    await lote.save({ transaction: t });
-  } else {
-    // ✅ Crear lote nuevo
-    lote = await models.InventarioLote.create({
-      item_id: item.id,
-      codigo_lote_proveedor: codigoLote,
-      fecha_vencimiento: fechaVenc,
-      cantidad_inicial: cantBase.toFixed(3),
-      cantidad_actual: cantBase.toFixed(3),
-      activo: true,
-      observaciones: motivo || null
-    }, { transaction: t });
-  }
-
-  loteIdMovimiento = lote.id;
-}
-
-stockResultante += cantBase;
-
-    } 
-    // --- B. SALIDAS ---
-    else {
-        // Validación Global
+        stockResultante += cantBase;
+    } else {
         if (stockResultante < cantBase) {
             throw badRequest(`Stock insuficiente. Tienes ${stockResultante}, intentas sacar ${cantBase}.`);
-        }
-
-        // FEFO (First Expired, First Out) para Insumos
-        if (item.categoria === 'Insumo') {
-            let restante = cantBase;
-            const lotes = await models.InventarioLote.findAll({
-                where: { item_id: item.id, activo: true, cantidad_actual: { [Op.gt]: 0 } },
-                order: [
-  ['fecha_vencimiento', 'ASC'],
-  ['created_at', 'ASC']
-],
- 
-                transaction: t,
-                lock: t.LOCK.UPDATE 
-            });
-
-            for (const lote of lotes) {
-                if (restante <= 0) break;
-                const disponible = Number(lote.cantidad_actual);
-                const aTomar = Math.min(restante, disponible);
-
-                lote.cantidad_actual = (disponible - aTomar).toFixed(3);
-                if (Number(lote.cantidad_actual) === 0) lote.activo = false;
-                
-                await lote.save({ transaction: t });
-                restante -= aTomar;
-                if (!loteIdMovimiento) loteIdMovimiento = lote.id;
-            }
         }
         stockResultante -= cantBase;
     }
@@ -155,7 +68,7 @@ stockResultante += cantBase;
     // Registro Histórico
     await models.InventarioMovimiento.create({
         item_id: item.id,
-        lote_id: loteIdMovimiento,
+        lote_id: null,
         tipo, 
         cantidad, 
         unidad_id,
@@ -173,7 +86,13 @@ stockResultante += cantBase;
                 tipo: 'Inventario',
                 titulo: `Stock bajo: ${item.nombre}`,
                 mensaje: `Quedan ${item.stock_actual}`,
-                prioridad: 'Alerta'
+                referencia: { item_id: item.id, categoria: item.categoria },
+                prioridad: 'Alerta',
+                dedupe: {
+                    // Evita spam por operaciones repetidas mientras el item sigue bajo mínimo.
+                    windowMs: 6 * 60 * 60 * 1000,
+                    match: { item_id: item.id },
+                },
             });
         } catch (e) { /* Ignorar error notif */ }
     }
@@ -186,12 +105,13 @@ stockResultante += cantBase;
 // ============================================================
 
 exports.crearItem = async (data) => {
-  const { nombre, categoria = "Insumo", unidad_id, stock_minimo = 0, stock_inicial = 0, lote_inicial } = data;
+  const { nombre, categoria = "Insumo", unidad_id, stock_minimo = 0, stock_inicial = 0 } = data;
 
   if (!nombre) throw badRequest("Nombre obligatorio");
   if (!unidad_id) throw badRequest("Unidad obligatoria");
 
   const creado = await sequelize.transaction(async (t) => {
+    const fabricante = (data.fabricante ?? data.proveedor ?? "").toString().trim() || null;
     const item = await models.InventarioItem.create({
         nombre,
         categoria,
@@ -199,9 +119,7 @@ exports.crearItem = async (data) => {
         stock_minimo,
         stock_actual: 0,
         meta: {
-            ingrediente_activo: data.ingrediente_activo || null,
-            formulacion: data.formulacion || null,
-            proveedor: data.proveedor || null,
+            fabricante: categoria === "Insumo" ? fabricante : null,
         },
       }, { transaction: t });
 
@@ -212,7 +130,6 @@ exports.crearItem = async (data) => {
         cantidad: stock_inicial,
         unidad_id,
         motivo: "Inventario Inicial",
-        datosLote: lote_inicial // Pasa directo el objeto { codigo_lote_proveedor, fecha_vencimiento }
       });
     }
     return item.toJSON();
@@ -256,15 +173,9 @@ exports.listarItems = async ({ q, categoria, activos, page = 1, pageSize = 15, l
 
   const { rows, count } = await models.InventarioItem.findAndCountAll({
     where,
-    distinct: true, // ✅ clave con include hasMany (Lotes) para que count no se infle
+    distinct: true,
     include: [
       { model: models.Unidad, attributes: ["codigo"] },
-      {
-        model: models.InventarioLote,
-        as: "Lotes",
-        where: { activo: true, cantidad_actual: { [Op.gt]: 0 } },
-        required: false,
-      },
     ],
     order: [["nombre", "ASC"]],
     limit: size,
@@ -285,11 +196,9 @@ exports.listarItems = async ({ q, categoria, activos, page = 1, pageSize = 15, l
       activo: it.activo,
       unidad: it.Unidad?.codigo,
       stock_actual: it.stock_actual,
+      stock_total: it.stock_actual,
       stock_minimo: it.stock_minimo,
-      lotes: it.Lotes || [],
-      proveedor: it.meta?.proveedor,
-      formulacion: it.meta?.formulacion,
-      ingrediente_activo: it.meta?.ingrediente_activo,
+      fabricante: it.meta?.fabricante || null,
     })),
   };
 };
@@ -298,12 +207,28 @@ exports.listarItems = async ({ q, categoria, activos, page = 1, pageSize = 15, l
 exports.editarItem = async (id, data) => {
     const item = await models.InventarioItem.findByPk(id);
     if (!item) throw notFound();
-    await item.update(data);
+    const patch = {};
+    if ("nombre" in data) patch.nombre = data.nombre;
+    if ("categoria" in data) patch.categoria = data.categoria;
+    if ("unidad_id" in data) patch.unidad_id = data.unidad_id;
+    if ("stock_minimo" in data) patch.stock_minimo = data.stock_minimo;
+    if ("activo" in data) patch.activo = data.activo;
+
+    const categoriaFinal = patch.categoria || item.categoria;
+    const fabricante =
+      ("fabricante" in data ? data.fabricante : data.proveedor) ?? item.meta?.fabricante ?? null;
+
+    patch.meta = {
+      ...(item.meta || {}),
+      fabricante: categoriaFinal === "Insumo" ? (String(fabricante || "").trim() || null) : null,
+    };
+
+    await item.update(patch);
     return item.toJSON();
 };
 
 exports.ajustarStock = async (currentUser, itemId, body) => {
-    const { tipo, cantidad, unidad_id, motivo, datos_lote } = body;
+    const { tipo, cantidad, unidad_id, motivo } = body;
     const item = await models.InventarioItem.findByPk(itemId);
     if (!item) throw notFound();
 
@@ -311,7 +236,6 @@ exports.ajustarStock = async (currentUser, itemId, body) => {
         return await moverStock({
             t, item, tipo, cantidad, unidad_id, motivo,
             referencia: { user_id: currentUser.sub, ajuste: true },
-            datosLote: datos_lote // Recibimos snake_case del front, pasamos camelCase al helper
         });
     });
 };
@@ -331,7 +255,6 @@ exports.listarMovimientos = async ({ item_id, desde, hasta, tipo, page = 1, page
         include: [
             { model: models.InventarioItem, attributes: ["nombre"] },
             { model: models.Unidad, attributes: ["codigo"] },
-            { model: models.InventarioLote, attributes: ["codigo_lote_proveedor"] } 
         ],
     });
 
@@ -342,7 +265,6 @@ exports.listarMovimientos = async ({ item_id, desde, hasta, tipo, page = 1, page
         data: rows.map((m) => ({
             id: m.id,
             item: m.InventarioItem?.nombre,
-            lote: m.InventarioLote?.codigo_lote_proveedor || 'N/A',
             tipo: m.tipo,
             cantidad: m.cantidad,
             unidad: m.Unidad?.codigo,
@@ -490,49 +412,13 @@ exports.alertasStockBajo = async () => {
       }));
 };
 
-exports.editarLote = async (loteId, data) => {
-  const lote = await models.InventarioLote.findByPk(loteId);
-  if (!lote) throw notFound("Lote no encontrado");
-
-  const fields = ["codigo_lote_proveedor", "fecha_vencimiento", "activo", "observaciones"];
-  fields.forEach((f) => {
-    if (f in data) lote[f] = data[f];
-  });
-
-  await lote.save();
-  return lote.toJSON();
+exports.editarLote = async () => {
+  throw deprecated("La edición de lotes está deshabilitada en el dominio simplificado de inventario.");
 };
 
 
-exports.buscarLote = async (itemId, { codigo, fecha_vencimiento }) => {
-  if (!itemId) throw badRequest("itemId inválido");
-  if (!codigo || !String(codigo).trim()) throw badRequest("codigo es obligatorio");
-
-  const where = {
-    item_id: itemId,
-    codigo_lote_proveedor: String(codigo).trim(),
-    activo: true,
-  };
-
-  // ✅ Si mandas fecha, valida coincidencia exacta (DATEONLY)
-  if (fecha_vencimiento) where.fecha_vencimiento = fecha_vencimiento;
-
-  const lote = await models.InventarioLote.findOne({
-    where,
-    order: [["created_at", "DESC"]],
-  });
-
-  if (!lote) return { existe: false };
-
-  return {
-    existe: true,
-    lote: {
-      id: lote.id,
-      codigo_lote_proveedor: lote.codigo_lote_proveedor,
-      fecha_vencimiento: lote.fecha_vencimiento,
-      cantidad_actual: lote.cantidad_actual,
-    },
-  };
+exports.buscarLote = async () => {
+  throw deprecated("La búsqueda de lotes está deshabilitada en el dominio simplificado de inventario.");
 };
 
 

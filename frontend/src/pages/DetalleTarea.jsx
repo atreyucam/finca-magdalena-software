@@ -1,19 +1,18 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import useToast from "../hooks/useToast";
 import usePageTitle from "../hooks/usePageTitle";
 
 import { 
-  ArrowLeft, Calendar, MapPin, Tag, 
+  Calendar, MapPin, Tag, 
   CheckCircle, User, ShieldCheck, 
   Package, Edit2, Play, Clock, Sprout, Tractor,
   AlertTriangle, XCircle,
-  Link
 } from "lucide-react";
 
 import { obtenerTarea, listarNovedadesTarea, crearNovedadTarea, iniciarTarea, cancelarTarea} from "../api/apiClient";
 import useAuthStore from "../store/authStore";
-import { connectSocket, getSocket } from "../lib/socket";
+import useTaskSocketRoom from "../hooks/useTaskSocketRoom";
 
 // --- Componentes ---
 import Avatar from "../components/Avatar";
@@ -26,10 +25,26 @@ import CompletarVerificarTareaModal from "../components/CompletarVerificarTareaM
 import AsignarTrabajadoresModal from "../components/AsignarTrabajadoresModal"; 
 import TareaItemsModal from "../components/GestionarItemsTareaModal"; 
 import LinkVolver from "../components/ui/LinkVolver";
+import VentanaModal from "../components/ui/VentanaModal";
 
 // --- Helpers de Formato ---
 const fmtDT = (v) => (v ? new Date(v).toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' }) : "—");
 const fmtFechaHora = (v) => (v ? new Date(v).toLocaleString('es-EC', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true }) : "—");
+const fmtHora12 = (v) =>
+  v
+    ? new Date(v).toLocaleTimeString("es-EC", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })
+    : "—";
+const fmtDuracion = (minutos) => {
+  const total = Math.max(0, Number(minutos) || 0);
+  if (total < 60) return `${total} min`;
+  const horas = Math.floor(total / 60);
+  const mins = total % 60;
+  return `${horas} h ${String(mins).padStart(2, "0")} min`;
+};
 
 const formatQty = (val, unitName) => {
     const num = Number(val);
@@ -95,12 +110,15 @@ export default function DetalleTarea() {
 
   
   const [modals, setModals] = useState({ items: false, asign: false, cosecha: false, action: false, actionKind: null });
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelMotivo, setCancelMotivo] = useState("");
+  const [cancelLoading, setCancelLoading] = useState(false);
 
   const toggleModal = (name, value = true, kind = null) => {
     setModals(prev => ({ ...prev, [name]: value, actionKind: kind || prev.actionKind }));
   };
 
-  const cargarDetalle = async () => {
+  const cargarDetalle = useCallback(async () => {
     try {
       const [resTarea, resNov] = await Promise.all([
         obtenerTarea(tareaId),
@@ -116,72 +134,63 @@ export default function DetalleTarea() {
       notify.error("Error cargando tarea");
       navigate(-1);
     }
+  }, [navigate, notify, tareaId]);
+
+  const handleCancelar = () => {
+    setCancelMotivo("");
+    setCancelModalOpen(true);
   };
 
-const handleCancelar = async () => {
-    if (!window.confirm("⚠️ ¿Estás seguro de que deseas CANCELAR esta tarea? Esta acción no se puede deshacer.")) return;
-    
-    // Pedimos motivo simple
-    const motivo = window.prompt("Por favor, ingresa el motivo de la cancelación:");
-    if (motivo === null) return; // Usuario canceló el prompt
-
+  const confirmarCancelacion = async () => {
+    setCancelLoading(true);
     try {
-      await cancelarTarea(tareaId, { motivo: motivo || "Sin motivo" });
+      await cancelarTarea(tareaId, { motivo: cancelMotivo.trim() || "Sin motivo" });
       notify.success("Tarea cancelada correctamente");
-      cargarDetalle();
+      setCancelModalOpen(false);
+      setCancelMotivo("");
+      await cargarDetalle();
     } catch (e) {
       console.error(e);
       notify.error(e?.response?.data?.message || "Error al cancelar");
+    } finally {
+      setCancelLoading(false);
     }
   };
 
-  // --- Lógica de Tiempo Real (Socket) ---
+  // --- Carga inicial / cambio de tarea ---
   useEffect(() => {
     setLoading(true);
     cargarDetalle();
+  }, [cargarDetalle]);
 
-    connectSocket();
-    const socket = getSocket();
-    socket.emit("join:tarea", tareaId);
-    
-    // Función centralizada de recarga
-    const refresh = () => {
-        console.log("🔄 Actualizando datos en tiempo real...");
-        cargarDetalle();
-    };
+  const refresh = useCallback(() => {
+    cargarDetalle();
+  }, [cargarDetalle]);
 
-    const onNovedad = (payload) => {
-        if(payload.novedad) {
-            const novedad = normalizarNovedad(payload.novedad);
-            setNovedades(prev => {
-                if (prev.some(n => n.id === novedad.id)) return prev;
-                return [novedad, ...prev];
-            });
-        }
-        refresh(); // Refrescamos todo por si cambió el estado también
-    };
+  const onNovedad = useCallback((payload) => {
+    if (payload?.novedad) {
+      const novedad = normalizarNovedad(payload.novedad);
+      setNovedades((prev) => {
+        if (prev.some((n) => n.id === novedad.id)) return prev;
+        return [novedad, ...prev];
+      });
+    }
+    refresh();
+  }, [refresh]);
 
-    // Listeners
-    socket.on("tarea:novedad", onNovedad);
-    socket.on("tarea:estado", refresh);
-    socket.on("tareas:update", refresh);      
-    socket.on("tarea:actualizada", refresh);  
-    socket.on("tarea:detalles", refresh);     
-    socket.on("tarea:insumos", refresh);
-    socket.on("tarea:asignaciones", refresh);
-
-    return () => {
-      socket.emit("leave:tarea", tareaId);
-      socket.off("tarea:novedad", onNovedad);
-      socket.off("tarea:estado", refresh);
-      socket.off("tareas:update", refresh);
-      socket.off("tarea:actualizada", refresh);
-      socket.off("tarea:detalles", refresh);
-      socket.off("tarea:insumos", refresh);
-      socket.off("tarea:asignaciones", refresh);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tareaId]);
+  useTaskSocketRoom(
+    tareaId,
+    {
+      "tarea:novedad": onNovedad,
+      "tarea:estado": refresh,
+      "tareas:update": refresh,
+      "tarea:actualizada": refresh,
+      "tarea:detalles": refresh,
+      "tarea:insumos": refresh,
+      "tarea:asignaciones": refresh,
+    },
+    [onNovedad, refresh]
+  );
 
   const handleIniciar = async () => {
     try {
@@ -242,6 +251,11 @@ const handleEnviarNovedad = async () => {
 
   if (loading) return <div className="min-h-screen grid place-content-center text-slate-400 animate-pulse">Cargando...</div>;
   if (!tarea) return null;
+
+  const tipoCodigo = (tarea.tipo_codigo || tarea.TipoActividad?.codigo || "").toLowerCase().trim();
+  const etiquetaActividad = tipoCodigo === "cosecha"
+    ? "PERIODO"
+    : (tarea.tipo_codigo || tarea.TipoActividad?.codigo || "N/A").toUpperCase();
 
   // Lógica de permisos
   const esAsignado = tarea.asignaciones?.some(a => Number(a.usuario?.id) === Number(user.id));
@@ -362,7 +376,7 @@ const handleEnviarNovedad = async () => {
                     </span>
                     <TaskBadge status={tarea.estado} />
                     <span className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1 border-l pl-3 border-slate-200">
-                      <Tag size={12}/> {(tarea.tipo_codigo || tarea.TipoActividad?.codigo || "N/A").toUpperCase()}
+                      <Tag size={12}/> {etiquetaActividad}
                     </span>
                   </div>
 
@@ -403,14 +417,14 @@ const handleEnviarNovedad = async () => {
                           <div className="flex items-start gap-3">
                               <div className="bg-amber-50 p-2 rounded-lg text-amber-600"><Sprout size={18}/></div>
                               <div>
-                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cosecha</p>
+                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Periodo</p>
                                   <p className="font-medium text-slate-800 text-sm">{tarea.Cosecha?.nombre || "N/A"}</p>
                               </div>
                           </div>
                           <div className="flex items-start gap-3">
                               <div className="bg-sky-50 p-2 rounded-lg text-sky-600"><Clock size={18}/></div>
                               <div>
-                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Etapa / Periodo</p>
+                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Etapa</p>
                                   <p className="font-medium text-slate-800 text-sm">{tarea.PeriodoCosecha?.nombre || "General"}</p>
                               </div>
                           </div>
@@ -474,7 +488,7 @@ const handleEnviarNovedad = async () => {
         <span className="text-slate-500 font-bold">INICIO</span>
         <span className="font-mono text-slate-700">
           {tarea.fecha_inicio_real
-            ? new Date(tarea.fecha_inicio_real).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            ? fmtHora12(tarea.fecha_inicio_real)
             : "—"}
         </span>
       </div>
@@ -483,13 +497,13 @@ const handleEnviarNovedad = async () => {
         <span className="text-slate-500 font-bold">FIN</span>
         <span className="font-mono text-slate-700">
           {tarea.fecha_fin_real
-            ? new Date(tarea.fecha_fin_real).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            ? fmtHora12(tarea.fecha_fin_real)
             : "—"}
         </span>
       </div>
 
       <div className="bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-100 text-xs text-emerald-800 font-bold flex items-center gap-1">
-        <Clock size={12} /> {tarea.duracion_real_min || 0} min
+        <Clock size={12} /> {fmtDuracion(tarea.duracion_real_min)}
       </div>
     </div>
 
@@ -522,7 +536,6 @@ const handleEnviarNovedad = async () => {
                                       <th className="px-4 py-3">Ítem</th>
                                       <th className="px-4 py-3 text-right">Plan</th>
                                       <th className="px-4 py-3 text-right">Real</th>
-                                      <th className="px-4 py-3 font-bold">Lote</th>
                                   </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
@@ -553,11 +566,6 @@ const handleEnviarNovedad = async () => {
                                                       </span>
                                                   );
                                               })()}
-                                          </td>
-                                          <td className="px-4 py-3">
-                                              {it.lote_insumo_manual ? (
-                                                  <span className="bg-yellow-50 text-yellow-800 border border-yellow-200 text-[11px] px-2 py-0.5 rounded font-mono">{it.lote_insumo_manual}</span>
-                                              ) : <span className="text-slate-300 text-xs">-</span>}
                                           </td>
                                       </tr>
                                   ))}
@@ -684,7 +692,9 @@ const handleEnviarNovedad = async () => {
           <div className="flex flex-col gap-1 pt-1">
             <div>
               <span className="block text-sm font-bold text-slate-900">{e.usuario?.nombre}</span>
-              <span className="block text-xs text-slate-400">{fechaObj.toLocaleDateString()} {fechaObj.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+              <span className="block text-xs text-slate-400">
+                {fechaObj.toLocaleDateString()} {fmtHora12(fechaObj)}
+              </span>
             </div>
             <div className="text-sm text-slate-600 mt-1">
                Cambió estado a <span className={`font-bold ${colorEstado} uppercase tracking-wide text-xs`}>{e.estado}</span>
@@ -708,6 +718,55 @@ const handleEnviarNovedad = async () => {
         <CompletarVerificarTareaModal open={modals.action} modo={modals.actionKind} tarea={tarea} onClose={() => toggleModal("action", false)} onRefrescar={cargarDetalle} />
         <AsignarTrabajadoresModal open={modals.asign} tareaId={tareaId} onClose={() => toggleModal("asign", false)} onSaved={cargarDetalle} />
         <TareaItemsModal open={modals.items} tareaId={tareaId} onClose={() => toggleModal("items", false)} onSaved={cargarDetalle} />
+        <VentanaModal
+          abierto={cancelModalOpen}
+          cerrar={() => (cancelLoading ? null : setCancelModalOpen(false))}
+          titulo="Cancelar tarea"
+          descripcion="Esta acción cambiará el estado a Cancelada y no se puede deshacer."
+          icon={AlertTriangle}
+          maxWidthClass="sm:max-w-[min(680px,calc(100vw-1rem))]"
+          bodyClass="px-4 sm:px-6 lg:px-8 py-5"
+          footer={
+            <>
+              <Boton
+                variante="fantasma"
+                type="button"
+                onClick={() => setCancelModalOpen(false)}
+                disabled={cancelLoading}
+              >
+                Cerrar
+              </Boton>
+              <Boton
+                type="button"
+                className="bg-rose-600 text-white hover:bg-rose-700 border-none"
+                onClick={confirmarCancelacion}
+                cargando={cancelLoading}
+                disabled={cancelLoading}
+              >
+                Confirmar cancelación
+              </Boton>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">
+              Ingresa el motivo de cancelación para trazabilidad. Si lo dejas vacío se guardará como <strong>Sin motivo</strong>.
+            </p>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                Motivo
+              </label>
+              <textarea
+                rows={3}
+                className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-rose-500 outline-none"
+                placeholder="Ej. Condiciones climáticas adversas"
+                value={cancelMotivo}
+                onChange={(e) => setCancelMotivo(e.target.value)}
+                disabled={cancelLoading}
+              />
+            </div>
+          </div>
+        </VentanaModal>
 
       </div>
     </section>

@@ -1,6 +1,11 @@
 const { models } = require('../../db');
 const { comparePassword } = require('../../utils/crypto');
 const { signAccessToken, signRefreshToken, verifyRefresh } = require('../../utils/jwt');
+const {
+  buildNewSession,
+  resolveSessionFromRefreshPayload,
+  toTokenClaims,
+} = require('./session.policy');
 
 // Helper para formatear la respuesta del usuario de forma consistente
 const formatUserResponse = (user) => ({
@@ -33,7 +38,12 @@ exports.login = async (email, password) => {
   if (!ok) throw new Error('Credenciales inválidas');
 
   // 4. Generar tokens
-  const payload = { sub: user.id, role: user.Role?.nombre };
+  const session = buildNewSession();
+  const payload = {
+    sub: user.id,
+    role: user.Role?.nombre,
+    ...toTokenClaims(session),
+  };
   const access = signAccessToken(payload);
   const refresh = signRefreshToken(payload);
 
@@ -46,9 +56,11 @@ exports.login = async (email, password) => {
 /**
  * Lógica de Refresh
  */
-exports.refresh = async (token) => {
+exports.refresh = async (token, options = {}) => {
   // 1. Verificar firma del refresh token
   const payload = verifyRefresh(token); // Lanza error si expiró o es inválido
+  const now = Date.now();
+  const session = resolveSessionFromRefreshPayload(payload, options.activityHint, now);
 
   // 2. Verificar que el usuario siga existiendo y esté activo en BD
   const user = await models.Usuario.findByPk(payload.sub, { 
@@ -60,7 +72,11 @@ exports.refresh = async (token) => {
   }
 
   // 3. Rotación de tokens (emitir nuevos)
-  const newPayload = { sub: user.id, role: user.Role?.nombre };
+  const newPayload = {
+    sub: user.id,
+    role: user.Role?.nombre,
+    ...toTokenClaims(session),
+  };
   const access = signAccessToken(newPayload);
   const refresh = signRefreshToken(newPayload);
 

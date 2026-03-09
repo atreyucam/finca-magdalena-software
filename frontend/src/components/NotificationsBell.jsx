@@ -40,15 +40,9 @@ export default function NotificationsBell() {
     return filtro === "noLeidas" ? items.filter((n) => !n.leida) : items;
   }, [filtro, items]);
 
-  // ✅ 1) Polling: refrescar cada 20s (para que el badge cambie sin recargar)
-  useEffect(() => {
-    const id = setInterval(() => {
-      cargar?.(); // si tu store ya evita spam, perfecto
-    }, 20000);
-    return () => clearInterval(id);
-  }, [cargar]);
+  const visibles = useMemo(() => filtradas.slice(0, 10), [filtradas]);
 
-  // ✅ 2) Refrescar cuando vuelves a la pestaña
+  // Refrescar cuando vuelves a la pestaña.
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "visible") cargar?.();
@@ -76,7 +70,7 @@ export default function NotificationsBell() {
     prevNoLeidasRef.current = curr;
   }, [noLeidas, notify]);
 
-  // ✅ Cargar SOLO cuando se abre (bien)
+  // Cargar cuando se abre.
   useEffect(() => {
     if (open) cargar?.();
   }, [open, cargar]);
@@ -95,9 +89,20 @@ export default function NotificationsBell() {
 
     if (n.tipo === "Tarea" && n.referencia?.tarea_id) {
       navigate(`${base}/detalleTarea/${n.referencia.tarea_id}`);
+    } else if (
+      n.referencia?.tipo_evento === "COMPRA_REGISTRADA" &&
+      n.referencia?.compra_id &&
+      base === "/owner"
+    ) {
+      navigate(`${base}/compras/${n.referencia.compra_id}`);
     } else {
       navigate(`${base}/notificaciones`);
     }
+    setOpen(false);
+  }
+
+  function handleVerTodas() {
+    navigate(`${base}/notificaciones`);
     setOpen(false);
   }
 
@@ -112,7 +117,9 @@ export default function NotificationsBell() {
       <div className="flex items-start justify-between px-4 py-3 border-b border-slate-100">
         <div>
           <p className="text-sm font-semibold text-slate-900">Notificaciones</p>
-          <p className="text-xs text-slate-500">Avisos del sistema.</p>
+          <p className="text-xs text-slate-500">
+            Avisos recientes. Mostrando hasta 10.
+          </p>
         </div>
         <button
           className="text-[11px] text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
@@ -153,7 +160,7 @@ export default function NotificationsBell() {
           </p>
         )}
 
-        {filtradas.map((n) => (
+        {visibles.map((n) => (
           <button
             key={n.id}
             onClick={() => handleClickItem(n)}
@@ -199,6 +206,20 @@ export default function NotificationsBell() {
             )}
           </button>
         ))}
+      </div>
+
+      <div className="border-t border-slate-100 px-3 py-2 flex items-center justify-between gap-2">
+        <p className="text-[11px] text-slate-500">
+          {filtradas.length > 10
+            ? `Hay ${filtradas.length - 10} más en el historial.`
+            : "Sincronizado en tiempo real."}
+        </p>
+        <button
+          className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800"
+          onClick={handleVerTodas}
+        >
+          Ver todas
+        </button>
       </div>
     </div>
   );

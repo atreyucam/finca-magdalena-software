@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { connectSocket, getSocket } from "../lib/socket";
+import useSocketEvent from "../hooks/useSocketEvent";
 import { 
   ClipboardList, CheckCircle2, Clock, PlayCircle, MapPin, 
   Calendar, Filter, Tractor, ShieldCheck, XCircle
@@ -68,26 +68,14 @@ export default function MisTareas() {
     fetchData();
   }, [fetchData]);
 
-  useEffect(() => {
-    connectSocket();
-    const socket = getSocket();
-
-    const onUpdate = () => {
+  const onNotifNueva = useCallback((notif) => {
+    if (notif?.tipo === "Tarea") {
       fetchData();
-    };
-    const onNotifNueva = (notif) => {
-      if (notif?.tipo === "Tarea") {
-        fetchData();
-      }
-    };
-
-    socket.on("tareas:update", onUpdate);
-    socket.on("notif:nueva", onNotifNueva);
-    return () => {
-      socket.off("tareas:update", onUpdate);
-      socket.off("notif:nueva", onNotifNueva);
-    };
+    }
   }, [fetchData]);
+
+  useSocketEvent("tareas:update", fetchData, [fetchData]);
+  useSocketEvent("notif:nueva", onNotifNueva, [onNotifNueva]);
 
   // Métricas calculadas para las cards superiores
   // Métricas calculadas: Agrupamos Pendientes y Asignadas en "porHacer"

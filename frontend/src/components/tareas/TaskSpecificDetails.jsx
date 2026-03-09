@@ -737,59 +737,108 @@ const SettlementManager = ({ liquidacion = [], tareaId, canEdit, onRefresh }) =>
     );
 };
 
-// --- VISTA PRINCIPAL COSECHA ---
+// --- VISTA PRINCIPAL COSECHA (DOMINIO SIMPLIFICADO) ---
+function normalizarCosechaSimple(raw = {}) {
+  if (raw?.clasificacion && typeof raw.clasificacion === "object" && !Array.isArray(raw.clasificacion)) {
+    const exp = Number(raw.clasificacion.exportacion || 0);
+    const nac = Number(raw.clasificacion.nacional || 0);
+    const rej = Number(raw.clasificacion.rechazo || 0);
+    return {
+      exportacion: Math.max(0, exp),
+      nacional: Math.max(0, nac),
+      rechazo: Math.max(0, rej),
+    };
+  }
+
+  // Compatibilidad con estructura anterior basada en arreglos.
+  const rows = Array.isArray(raw?.clasificacion) ? raw.clasificacion : [];
+  let exportacion = 0;
+  let nacional = 0;
+  let rechazo = 0;
+  for (const row of rows) {
+    const destino = String(row?.destino || "").toLowerCase();
+    const gavetas = Number(row?.gabetas || 0);
+    if (destino.includes("export")) exportacion += gavetas;
+    else if (destino.includes("nacional")) nacional += gavetas;
+    else if (destino.includes("rechazo")) rechazo += gavetas;
+  }
+  return { exportacion, nacional, rechazo };
+}
+
 const DetailsCosecha = ({ data, tareaId, onRefresh, estado }) => {
-    // 1. REGLA: ¿Hay peso?
-    const hasWeight = Number(data.kg_cosechados) > 0;
-    
-    // 2. REGLA: ¿Está clasificado y balanceado?
-    const totalClasif = (data.clasificacion || []).reduce((acc, c) => acc + (Number(c.kg)||0), 0);
-    const totalRechazo = (data.rechazos || []).reduce((acc, r) => acc + (Number(r.kg)||0), 0);
-    const totalProcesado = totalClasif + totalRechazo;
-    const isClassified = hasWeight && Math.abs((Number(data.kg_cosechados)||0) - totalProcesado) < 0.05;
+  const canEdit = !["Verificada", "Cancelada"].includes(estado);
+  const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState(() => normalizarCosechaSimple(data));
 
-    const canEdit = !["Verificada", "Cancelada"].includes(estado);
+  useEffect(() => {
+    if (!isEditing) setForm(normalizarCosechaSimple(data));
+  }, [data, isEditing]);
 
-    return (
-        <div className="space-y-6">
-            
-            <PesoBasculaCard 
-                plan={data.kg_planificados} 
-                real={data.kg_cosechados} 
-                tareaId={tareaId} 
-                canEdit={canEdit} 
-                onRefresh={onRefresh} 
-            />
+  const totalGavetas =
+    Number(form.exportacion || 0) + Number(form.nacional || 0) + Number(form.rechazo || 0);
 
-            {hasWeight ? (
-                <ClassificationManager 
-                    clasificacion={data.clasificacion || []} 
-                    rechazos={data.rechazos || []} 
-                    kgBascula={data.kg_cosechados} 
-                    tareaId={tareaId} 
-                    canEdit={canEdit} 
-                    onRefresh={onRefresh} 
-                />
+  const save = async () => {
+    setLoading(true);
+    try {
+      await actualizarDetalles(tareaId, {
+        clasificacion: {
+          exportacion: Number(form.exportacion || 0),
+          nacional: Number(form.nacional || 0),
+          rechazo: Number(form.rechazo || 0),
+        },
+      });
+      if (onRefresh) await onRefresh();
+      setIsEditing(false);
+      toast.success("Clasificacion de cosecha actualizada");
+    } catch {
+      toast.error("No se pudo actualizar la cosecha");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm space-y-5">
+      <SectionHeader
+        icon={Scale}
+        title="Periodo"
+        onEdit={isEditing ? save : () => setIsEditing(true)}
+        isEditing={isEditing}
+        loading={loading}
+        canEdit={canEdit}
+        disabledMessage="Solo editable en tareas no verificadas/canceladas"
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          { key: "exportacion", label: "Exportacion" },
+          { key: "nacional", label: "Nacional" },
+          { key: "rechazo", label: "Rechazo" },
+        ].map((field) => (
+          <div key={field.key} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-xs uppercase font-bold text-slate-500 tracking-wider mb-2">{field.label}</div>
+            {isEditing ? (
+              <input
+                type="number"
+                min="0"
+                className="w-full border rounded-lg px-3 py-2 font-bold text-slate-800"
+                value={form[field.key]}
+                onChange={(e) => setForm((prev) => ({ ...prev, [field.key]: e.target.value }))}
+              />
             ) : (
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center text-slate-400 text-sm italic">
-                    <Scale size={20} className="mx-auto mb-2 opacity-50"/>
-                    Registra el <strong>Peso en Báscula</strong> para habilitar la clasificación.
-                </div>
+              <div className="text-2xl font-black text-slate-800">{Number(form[field.key] || 0)}</div>
             )}
+          </div>
+        ))}
+      </div>
 
-            {isClassified ? (
-                <>
-                    <LogisticsManager entrega={data.entrega || {}} tareaId={tareaId} canEdit={canEdit} onRefresh={onRefresh} />
-                    <SettlementManager liquidacion={data.liquidacion || []} tareaId={tareaId} canEdit={canEdit} onRefresh={onRefresh} />
-                </>
-            ) : hasWeight && (
-                <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 text-center text-amber-800 text-sm">
-                    <AlertTriangle size={24} className="mx-auto mb-2 text-amber-500"/>
-                    Debes completar la <strong>Clasificación y Rechazo</strong> (cuadrando los kilos) antes de registrar logística y liquidación.
-                </div>
-            )}
-        </div>
-    );
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex items-center justify-between">
+        <span className="text-sm font-bold text-emerald-800 uppercase tracking-wide">Total de gavetas</span>
+        <span className="text-2xl font-black text-emerald-700">{totalGavetas}</span>
+      </div>
+    </div>
+  );
 };
 
 export default function TaskSpecificDetails({ tarea, onRefresh }) {

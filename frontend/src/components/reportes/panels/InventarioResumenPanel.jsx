@@ -591,6 +591,11 @@ export default function InventarioResumenPanel({ titulo = "Inventario" }) {
                 <b className="text-slate-900">{fefo?.total ?? 0}</b>
               </div>
             </div>
+            {fefo?.header?.deprecated ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {fefo?.header?.nota || "Sección FEFO deprecada en el dominio simplificado."}
+              </div>
+            ) : null}
 
             <Tabla>
               <TablaCabecera>

@@ -7,6 +7,9 @@ const { config } = require('../config/env');
 const RoleModel                 = require('./models/role');
 const UsuarioModel              = require('./models/usuario');
 const NotificacionModel         = require('./models/notificacion');
+const ProveedorModel            = require('./models/proveedor');
+const CompraModel               = require('./models/compra');
+const CompraDetalleModel        = require('./models/compraDetalle');
 
 // Gestión Agronómica (Contexto)
 const LoteModel                 = require('./models/lote');
@@ -62,6 +65,9 @@ models.Sequelize = Sequelize;
 models.Role = RoleModel(sequelize);
 models.Usuario = UsuarioModel(sequelize);
 models.Notificacion = NotificacionModel(sequelize);
+models.Proveedor = ProveedorModel(sequelize);
+models.Compra = CompraModel(sequelize);
+models.CompraDetalle = CompraDetalleModel(sequelize);
 
 models.Lote = LoteModel(sequelize);
 models.Cosecha = CosechaModel(sequelize);
@@ -94,6 +100,16 @@ models.Usuario.belongsTo(models.Role, { foreignKey: 'role_id' });
 // --- Notificaciones ---
 models.Usuario.hasMany(models.Notificacion, { foreignKey: 'usuario_id', as: 'notificaciones' });
 models.Notificacion.belongsTo(models.Usuario, { foreignKey: 'usuario_id', as: 'usuario' });
+
+// --- Proveedores / Compras ---
+models.Proveedor.hasMany(models.Compra, { foreignKey: 'proveedor_id', as: 'compras' });
+models.Compra.belongsTo(models.Proveedor, { foreignKey: 'proveedor_id', as: 'proveedor' });
+models.Usuario.hasMany(models.Compra, { foreignKey: 'creado_por', as: 'comprasCreadas' });
+models.Compra.belongsTo(models.Usuario, { foreignKey: 'creado_por', as: 'creador' });
+models.Compra.hasMany(models.CompraDetalle, { foreignKey: 'compra_id', as: 'detalles', onDelete: 'CASCADE' });
+models.CompraDetalle.belongsTo(models.Compra, { foreignKey: 'compra_id' });
+models.InventarioItem.hasMany(models.CompraDetalle, { foreignKey: 'inventario_item_id', as: 'compraDetalles' });
+models.CompraDetalle.belongsTo(models.InventarioItem, { foreignKey: 'inventario_item_id', as: 'item' });
 
 // --- Contexto Agrícola (Cosechas/Lotes) ---
 models.Cosecha.hasMany(models.PeriodoCosecha, { foreignKey: 'cosecha_id' });

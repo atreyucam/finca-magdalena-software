@@ -5,8 +5,10 @@ const db = require("./db");
 const notifs = require("./modules/notificaciones/notificaciones.service");
 const http = require("http");
 const { Server } = require("socket.io");
-const jwt = require("jsonwebtoken");
+const { verifyAccess } = require("./utils/jwt");
 const { buildAllowedOrigins, isOriginAllowed } = require("./utils/cors");
+const { assertTaskResourceAccess } = require("./modules/tareas/tareas.access");
+const { assertSessionWithinBounds } = require("./modules/auth/session.policy");
 
 (async () => {
   console.log("--------------------------------------------------");
@@ -51,6 +53,24 @@ const { buildAllowedOrigins, isOriginAllowed } = require("./utils/cors");
   // ✅ disponible para servicios que crean notificaciones sin recibir io por parámetro
   notifs.setSocketServer(io);
 
+  const runNotificacionesPurge = async () => {
+    try {
+      const result = await notifs.purgarAntiguas();
+      if (result?.deleted > 0) {
+        console.log(
+          `[notificaciones] Purga lifecycle completada. Eliminadas: ${result.deleted}. Corte: ${result.cutoff?.toISOString?.() || "n/a"}`
+        );
+      }
+    } catch (error) {
+      console.error("[notificaciones] Error en purga lifecycle:", error?.message || error);
+    }
+  };
+
+  await runNotificacionesPurge();
+  const purgeIntervalMs = Number(config.notifications?.purgeIntervalMs) || 12 * 60 * 60 * 1000;
+  const purgeTimer = setInterval(runNotificacionesPurge, purgeIntervalMs);
+  if (typeof purgeTimer.unref === "function") purgeTimer.unref();
+
   // ============================
   // ✅ Socket Auth (JWT)
   // ============================
@@ -62,9 +82,17 @@ const { buildAllowedOrigins, isOriginAllowed } = require("./utils/cors");
         socket.handshake.query?.token;
 
       if (!token) return next(new Error("UNAUTHORIZED"));
-      if (!process.env.JWT_SECRET) return next(new Error("JWT_SECRET_MISSING"));
 
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      const payload = verifyAccess(token);
+      if (!payload?.sub) return next(new Error("UNAUTHORIZED"));
+      const iatMs = Number(payload.iat) * 1000;
+      const sessionStartAt = Number.isFinite(Number(payload.session_start_at))
+        ? Number(payload.session_start_at)
+        : iatMs;
+      const lastActivityAt = Number.isFinite(Number(payload.last_activity_at))
+        ? Number(payload.last_activity_at)
+        : sessionStartAt;
+      assertSessionWithinBounds({ sessionStartAt, lastActivityAt });
       socket.user = payload;
 
       next();
@@ -83,20 +111,29 @@ const { buildAllowedOrigins, isOriginAllowed } = require("./utils/cors");
     const userId = socket.user?.sub || socket.user?.id;
     if (userId) socket.join(`user:${userId}`);
 
-    // rooms manuales (por si los usas en otros módulos)
-    socket.on("join:user", (uid) => {
-      if (!uid) return;
-      socket.join(`user:${uid}`);
-    });
+    socket.on("join:tarea", async (rawTareaId, ack) => {
+      const tareaId = Number(rawTareaId);
+      if (!Number.isInteger(tareaId) || tareaId <= 0) {
+        ack?.({ ok: false, code: "BAD_REQUEST" });
+        return;
+      }
 
-    socket.on("leave:user", (uid) => {
-      if (!uid) return;
-      socket.leave(`user:${uid}`);
-    });
-
-    socket.on("join:tarea", (tareaId) => {
-      if (!tareaId) return;
-      socket.join(`tarea:${tareaId}`);
+      try {
+        await assertTaskResourceAccess({
+          tareaId,
+          userId: socket.user?.sub,
+          userRole: socket.user?.role,
+        });
+        socket.join(`tarea:${tareaId}`);
+        ack?.({ ok: true });
+      } catch (error) {
+        socket.emit("tarea:join_denied", {
+          tareaId,
+          code: error.code || "FORBIDDEN",
+          message: error.message || "Sin acceso a esta tarea",
+        });
+        ack?.({ ok: false, code: error.code || "FORBIDDEN" });
+      }
     });
 
     socket.on("leave:tarea", (tareaId) => {

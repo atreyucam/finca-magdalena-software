@@ -28,6 +28,20 @@ function formatRelative(dateStr) {
   return `hace ${diffM} meses`;
 }
 
+function formatDateTime(dateStr) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("es-EC", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 const PAGE_SIZE = 20;
 
 export default function Notificaciones() {
@@ -68,6 +82,15 @@ export default function Notificaciones() {
     // Navegación por tipo
     if (n.tipo === "Tarea" && n.referencia?.tarea_id) {
       navigate(`${base}/detalleTarea/${n.referencia.tarea_id}`);
+      return;
+    }
+
+    if (
+      n.referencia?.tipo_evento === "COMPRA_REGISTRADA" &&
+      n.referencia?.compra_id &&
+      base === "/owner"
+    ) {
+      navigate(`${base}/compras/${n.referencia.compra_id}`);
     }
   }
 
@@ -141,20 +164,22 @@ export default function Notificaciones() {
             <TablaHead>Tipo</TablaHead>
             <TablaHead>Detalle</TablaHead>
             <TablaHead align="center">Estado</TablaHead>
+            <TablaHead align="right">Leída</TablaHead>
             <TablaHead align="right">Fecha</TablaHead>
+            <TablaHead align="right">Acciones</TablaHead>
           </TablaCabecera>
 
           <TablaCuerpo>
             {loading && (
               <TablaFila>
-                <TablaCelda colSpan={4} nowrap={false} className="py-10 text-center text-slate-400">
+                <TablaCelda colSpan={6} nowrap={false} className="py-10 text-center text-slate-400">
                   Cargando notificaciones...
                 </TablaCelda>
               </TablaFila>
             )}
 
             {!loading && (items?.length || 0) === 0 && (
-              <TablaVacia mensaje="No tienes notificaciones por el momento." colSpan={4} />
+              <TablaVacia mensaje="No tienes notificaciones por el momento." colSpan={6} />
             )}
 
             {!loading &&
@@ -194,9 +219,38 @@ export default function Notificaciones() {
                   </TablaCelda>
 
                   <TablaCelda align="right">
+                    <span className="text-[11px] text-slate-500">{formatDateTime(n.read_at)}</span>
+                  </TablaCelda>
+
+                  <TablaCelda align="right">
                     <span className="text-[11px] text-slate-400">
                       {formatRelative(n.created_at)}
                     </span>
+                  </TablaCelda>
+
+                  <TablaCelda align="right">
+                    <div className="flex justify-end gap-2">
+                      {!n.leida && (
+                        <button
+                          className="rounded-lg border border-emerald-200 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            marcarLeida(n.id);
+                          }}
+                        >
+                          Marcar leída
+                        </button>
+                      )}
+                      <button
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClickItem(n);
+                        }}
+                      >
+                        Abrir
+                      </button>
+                    </div>
                   </TablaCelda>
                 </TablaFila>
               ))}

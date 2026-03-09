@@ -62,7 +62,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-refresh-token"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-refresh-token", "x-last-activity-at"],
   exposedHeaders: ["Content-Disposition"],
 }));
 
@@ -106,6 +106,8 @@ const cosechasRoutes = require('./modules/cosechas/cosechas.routes');
 const tiposActividadRoutes = require('./modules/tipoActividad/tiposActividad.routes');
 const unidadesRouter = require('./modules/inventario/unidades.routes');
 const fincasRoutes = require('./modules/fincas/fincas.routes');
+const proveedoresRoutes = require('./modules/proveedores/proveedores.routes');
+const comprasRoutes = require('./modules/compras/compras.routes');
 
 // Rutas
 app.use('/files', express.static(path.join(__dirname, '../storage')));
@@ -125,6 +127,8 @@ app.use('/metricas', metricasRoutes);
 app.use('/cosechas', cosechasRoutes);
 app.use('/tipos-actividad', tiposActividadRoutes);
 app.use('/unidades', unidadesRouter);
+app.use('/proveedores', proveedoresRoutes);
+app.use('/compras', comprasRoutes);
 
 // Manejo de errores
 app.use((err, req, res, next) => {

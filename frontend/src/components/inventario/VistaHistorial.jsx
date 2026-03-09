@@ -1,18 +1,19 @@
-// frontend/src/components/inventario/VistaHistorial.jsx
 import { ArrowUpCircle, ArrowDownCircle, ArrowRightLeft } from "lucide-react";
 import { listarMovimientosInventario } from "../../api/apiClient";
 import useListado from "../../hooks/useListado";
 import {
-  Tabla, TablaCabecera, TablaHead, TablaCuerpo,
-  TablaFila, TablaCelda, TablaVacia
+  Tabla,
+  TablaCabecera,
+  TablaHead,
+  TablaCuerpo,
+  TablaFila,
+  TablaCelda,
+  TablaVacia,
 } from "../ui/Tabla";
 import Paginador from "../ui/Paginador";
 import Badge from "../ui/Badge";
 
-// Unidades “contables” → solo enteros
 const UNIDADES_ENTERAS = new Set(["unidad", "unidades", "u", "und", "pz", "pieza", "piezas"]);
-
-// Insumos (peso/volumen) → decimales máx 2
 const UNIDADES_DECIMALES = new Set(["kg", "g", "mg", "lb", "l", "ml", "cc"]);
 
 function normalizarUnidad(u) {
@@ -34,24 +35,21 @@ function formatCantidad(valor, unidadRaw) {
 
   if (!Number.isFinite(n)) return "0";
 
-  // Si es unidad/ítems → entero
   if (UNIDADES_ENTERAS.has(unidad) || unidad === "") {
     return formatNumeroLocale(Math.trunc(n), 0);
   }
 
-  // Si es insumo por peso/volumen → 2 decimales máx (sin ceros innecesarios)
   if (UNIDADES_DECIMALES.has(unidad)) {
     return formatNumeroLocale(n, 2);
   }
 
-  // Fallback: 2 decimales máx igual
   return formatNumeroLocale(n, 2);
 }
 
 function renderReferencia(m) {
   const ref = m?.referencia || {};
   if (ref?.tarea_id) return `Tarea #${ref.tarea_id}`;
-  if (ref?.prestamo_id) return `Préstamo #${ref.prestamo_id}`;
+  if (ref?.prestamo_id) return `Prestamo #${ref.prestamo_id}`;
   if (ref?.ajuste) return "Ajuste manual";
   return "—";
 }
@@ -61,7 +59,7 @@ function tipoMovimientoKey(tipo) {
   if (t === "ENTRADA") return "entrada";
   if (t === "SALIDA") return "salida";
   if (t === "AJUSTE_ENTRADA" || t === "AJUSTE ENTRADA") return "ajuste entrada";
-  if (t === "AJUSTE_SALIDA" || t === "AJUSTE SALIDA") return "salida"; // si luego lo manejas
+  if (t === "AJUSTE_SALIDA" || t === "AJUSTE SALIDA") return "salida";
   return "default";
 }
 
@@ -88,8 +86,7 @@ export default function VistaHistorial() {
         <TablaCabecera>
           <TablaHead>Fecha</TablaHead>
           <TablaHead>Tipo</TablaHead>
-          <TablaHead>Ítem</TablaHead>
-          <TablaHead>Lote</TablaHead>
+          <TablaHead>Item</TablaHead>
           <TablaHead align="right">Cantidad</TablaHead>
           <TablaHead>Referencia</TablaHead>
         </TablaCabecera>
@@ -98,13 +95,13 @@ export default function VistaHistorial() {
           {cargando ? (
             [...Array(5)].map((_, i) => (
               <TablaFila key={i}>
-                <TablaCelda colSpan={6} className="py-6">
+                <TablaCelda colSpan={5} className="py-6">
                   <div className="h-4 bg-slate-100 rounded animate-pulse" />
                 </TablaCelda>
               </TablaFila>
             ))
           ) : movimientos.length === 0 ? (
-            <TablaVacia mensaje="No hay movimientos registrados." colSpan={6} />
+            <TablaVacia mensaje="No hay movimientos registrados." colSpan={5} />
           ) : (
             movimientos.map((m) => {
               const tipoKey = tipoMovimientoKey(m.tipo);
@@ -118,28 +115,14 @@ export default function VistaHistorial() {
 
               return (
                 <TablaFila key={m.id}>
-                  <TablaCelda className="text-xs text-slate-500">
-                    {new Date(m.fecha).toLocaleString()}
-                  </TablaCelda>
+                  <TablaCelda className="text-xs text-slate-500">{new Date(m.fecha).toLocaleString()}</TablaCelda>
 
                   <TablaCelda>
-                    <Badge variante={tipoKey}>
-                      {(m.tipo || "").toString().replaceAll("_", " ")}
-                    </Badge>
+                    <Badge variante={tipoKey}>{(m.tipo || "").toString().replaceAll("_", " ")}</Badge>
                   </TablaCelda>
 
                   <TablaCelda>
                     <span className="font-medium text-slate-800">{m.item}</span>
-                  </TablaCelda>
-
-                  <TablaCelda className="text-xs text-slate-600">
-                    {m.lote && m.lote !== "N/A" ? (
-                      <span className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">
-                        {m.lote}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
                   </TablaCelda>
 
                   <TablaCelda align="right">
@@ -148,16 +131,13 @@ export default function VistaHistorial() {
                         tipoKey === "entrada"
                           ? "text-emerald-600"
                           : tipoKey === "ajuste entrada"
-                          ? "text-violet-700"
-                          : "text-rose-600"
+                            ? "text-violet-700"
+                            : "text-rose-600"
                       }`}
                     >
                       <Icono size={14} />
                       {signo}
-                      {cantidadTxt}{" "}
-                      <span className="text-xs font-normal text-slate-400">
-                        {unidad}
-                      </span>
+                      {cantidadTxt} <span className="text-xs font-normal text-slate-400">{unidad}</span>
                     </div>
                   </TablaCelda>
 

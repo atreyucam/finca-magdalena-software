@@ -5,12 +5,12 @@ const invService = require("../inventario/inventario.service"); // Se actualizar
 const notifs = require('../notificaciones/notificaciones.service');
 const { formatoFechaHoraCorta } = require("../../utils/fechas");
 const { convertir } = require("../../utils/units"); // ✅ Usamos la nueva utilidad
+const { assertTaskResourceAccess } = require("./tareas.access");
 
 // --- Helpers de Error ---
 function badRequest(msg) { const e = new Error(msg || "Solicitud inválida"); e.status = 400; e.code = "BAD_REQUEST"; return e; }
 function forbidden(msg) { const e = new Error(msg || "Prohibido"); e.status = 403; e.code = "FORBIDDEN"; return e; }
 function notFound(msg) { const e = new Error(msg || "No encontrado"); e.status = 404; e.code = "NOT_FOUND"; return e; }
-function forbiddenTaskAccess() { return forbidden("No tienes permiso para acceder a esta tarea"); }
 
 const TIPO_NOMBRES = {
   poda: "Poda",
@@ -54,6 +54,33 @@ function asIntegerInRange(value, min, max, fieldName) {
   return n;
 }
 
+function parseFechaProgramada(value) {
+  if (value === undefined || value === null || value === "") {
+    throw badRequest("Fecha programada es obligatoria.");
+  }
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) throw badRequest("Fecha programada inválida.");
+    return value;
+  }
+
+  const raw = String(value).trim();
+  // Exigimos fecha + hora real (ej: 2026-03-09T14:35 o ISO completo).
+  const hasDateTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw);
+  if (!hasDateTime) {
+    throw badRequest(
+      "Fecha programada debe incluir fecha y hora (ej. 2026-03-09T14:35)."
+    );
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    throw badRequest("Fecha programada inválida.");
+  }
+
+  return parsed;
+}
+
 function mapTipoNombre(codigo, fallback) {
   if (!codigo) return fallback || "";
   return TIPO_NOMBRES[String(codigo).toLowerCase()] || fallback || "";
@@ -65,6 +92,52 @@ function normalizarMetodoMaleza(value) {
     throw badRequest("MALEZA: metodo debe ser 'manual' o 'quimico'.");
   }
   return metodo;
+}
+
+function normalizarClasificacionCosecha(input = {}) {
+  const src =
+    input && typeof input === "object" && !Array.isArray(input) ? input : {};
+
+  const exportacion = Math.max(0, Number(src.exportacion || 0));
+  const nacional = Math.max(0, Number(src.nacional || 0));
+  const rechazo = Math.max(0, Number(src.rechazo || 0));
+  const total = exportacion + nacional + rechazo;
+
+  return {
+    exportacion,
+    nacional,
+    rechazo,
+    total_gavetas: total,
+  };
+}
+
+function sanitizarDetallesCosecha(detalle = {}) {
+  // Compatibilidad: acepta estructura nueva (objeto) o legado (array por destino).
+  if (Array.isArray(detalle?.clasificacion)) {
+    const acumulado = { exportacion: 0, nacional: 0, rechazo: 0 };
+    for (const row of detalle.clasificacion) {
+      const destino = asLower(row?.destino);
+      const gabetas = Math.max(0, Number(row?.gabetas || 0));
+      if (destino.includes("export")) acumulado.exportacion += gabetas;
+      else if (destino.includes("nacional")) acumulado.nacional += gabetas;
+      else if (destino.includes("rechazo")) acumulado.rechazo += gabetas;
+    }
+    return {
+      clasificacion: normalizarClasificacionCosecha(acumulado),
+      total_gavetas: normalizarClasificacionCosecha(acumulado).total_gavetas,
+    };
+  }
+
+  const clasificacion = normalizarClasificacionCosecha(
+    detalle?.clasificacion && typeof detalle.clasificacion === "object"
+      ? detalle.clasificacion
+      : detalle
+  );
+
+  return {
+    clasificacion,
+    total_gavetas: clasificacion.total_gavetas,
+  };
 }
 
 function normalizarCausaRechazo(value) {
@@ -165,18 +238,7 @@ function normalizarDetalleParaRespuesta(tipoCodigo, detalle = {}) {
   }
 
   if (tipoCodigo === "cosecha") {
-    if (out.grado_maduracion === undefined && out.grado_madurez !== undefined) {
-      out.grado_maduracion = out.grado_madurez;
-    }
-    delete out.grado_madurez;
-    delete out.filas_recolectadas;
-
-    if (Array.isArray(out.rechazos)) {
-      out.rechazos = out.rechazos.map((r) => ({
-        ...r,
-        causa: normalizarCausaRechazo(r?.causa),
-      }));
-    }
+    return sanitizarDetallesCosecha(out);
   }
 
   return out;
@@ -294,32 +356,6 @@ function mapNovedadDTO(novedad) {
       : null,
   };
 }
-
-async function validarPermisoSobreTarea(tareaId, userId, userRol) {
-  const usuario = await models.Usuario.findByPk(userId, { attributes: ["id", "estado"] });
-  if (!usuario || usuario.estado !== "Activo") {
-    const e = new Error("Usuario inactivo o bloqueado");
-    e.status = 401;
-    e.code = "USER_INACTIVE";
-    throw e;
-  }
-
-  const tarea = await models.Tarea.findByPk(tareaId, {
-    attributes: ["id", "estado", "titulo", "lote_id", "cosecha_id", "creador_id"],
-  });
-  if (!tarea) throw notFound("Tarea no encontrada");
-
-  if (["Propietario", "Tecnico"].includes(userRol)) return tarea;
-
-  const asignacion = await models.TareaAsignacion.findOne({
-    where: { tarea_id: tareaId, usuario_id: userId },
-    attributes: ["id"],
-  });
-  if (!asignacion) throw forbiddenTaskAccess();
-
-  return tarea;
-}
-
 
 exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
   if (!["Propietario", "Tecnico"].includes(currentUser.role)) throw forbidden();
@@ -466,40 +502,7 @@ const REGLAS_BPA = {
   // 🟢 MODIFICACIÓN: Actualizar esquema de Cosecha
   // ---------------------------------------------------------
   cosecha: (d) => {
-    const gradoMaduracion = validarYNormalizarGradoMaduracion(
-      d.grado_maduracion ?? d.grado_madurez
-    );
-    return {
-      kg_planificados: Number(d.kg_planificados) || 0,
-      kg_cosechados: Number(d.kg_cosechados) || 0,
-      grado_maduracion: gradoMaduracion,
-      higiene_verificada: !!d.higiene_verificada,
-
-      // ✅ NUEVO: Clasificación Comercial (Antes en Modal)
-      clasificacion: Array.isArray(d.clasificacion)
-        ? d.clasificacion.map(c => ({
-            destino: c.destino || "Nacional",
-            gabetas: Number(c.gabetas) || 0,
-            peso_promedio_gabeta_kg: Number(c.peso_promedio_gabeta_kg) || 0,
-            kg: Number(c.kg) || 0
-        })) : [],
-
-      // ✅ NUEVO: Rechazos / Merma (Antes en Modal)
-      rechazos: normalizarRechazos(d.rechazos || []),
-
-      // Logística de Entrega
-      entrega: {
-        centro_acopio: d.entrega?.centro_acopio || "",
-        gabetas_entregadas: Number(d.entrega?.gabetas_entregadas) || 0,
-        gabetas_devueltas: Number(d.entrega?.gabetas_devueltas) || 0,
-        gabetas_netas: (Number(d.entrega?.gabetas_entregadas) || 0) - (Number(d.entrega?.gabetas_devueltas) || 0)
-      },
-
-      // Liquidación Financiera
-      liquidacion: normalizarLiquidacion(d.liquidacion || []),
-        
-      total_dinero: Number(d.total_dinero) || 0
-    };
+    return sanitizarDetallesCosecha(d);
   }
 };
 
@@ -528,20 +531,22 @@ exports.crearTarea = async (currentUser, data, io) => {
   } = data;
 
   if (!lote_id || !fecha_programada || !cosecha_id) {
-    throw badRequest("Faltan campos obligatorios (Lote, Fecha, Cosecha)");
+    throw badRequest("Faltan campos obligatorios (Lote, Fecha programada, Periodo).");
   }
+
+  const fechaProgramada = parseFechaProgramada(fecha_programada);
 
   // --- 🛡️ VALIDACIÓN DE INTEGRIDAD FINCA-LOTE-COSECHA ---
   const lote = await models.Lote.findByPk(lote_id);
   if (!lote) throw badRequest("El lote seleccionado no existe.");
 
   const cosecha = await models.Cosecha.findByPk(cosecha_id);
-  if (!cosecha) throw badRequest("La cosecha seleccionada no existe.");
-  if (cosecha.estado !== "Activa") throw badRequest("La cosecha seleccionada no está activa.");
+  if (!cosecha) throw badRequest("El periodo seleccionado no existe.");
+  if (cosecha.estado !== "Activa") throw badRequest("El periodo seleccionado no está activo.");
 
   if (String(lote.finca_id) !== String(cosecha.finca_id)) {
     throw badRequest(
-      `Conflicto de ubicación: El lote pertenece a la finca ID ${lote.finca_id} pero la cosecha seleccionada es de la finca ID ${cosecha.finca_id}. No se pueden cruzar datos entre fincas.`
+      `Conflicto de ubicación: El lote pertenece a la finca ID ${lote.finca_id} pero el periodo seleccionado es de la finca ID ${cosecha.finca_id}. No se pueden cruzar datos entre fincas.`
     );
   }
   // -------------------------------------------------------
@@ -571,7 +576,7 @@ exports.crearTarea = async (currentUser, data, io) => {
       lote_id,
       cosecha_id,
       periodo_id: periodo_id || null,
-      fecha_programada: new Date(fecha_programada),
+      fecha_programada: fechaProgramada,
       descripcion: metodologiaFinal,
       creador_id: currentUser.sub,
       estado: "Pendiente",
@@ -692,15 +697,15 @@ exports.crearTarea = async (currentUser, data, io) => {
 
 // ... Iniciar Tarea (Similar a antes, solo control de estado)
 exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
+  await assertTaskResourceAccess({
+    tareaId,
+    userId: currentUser.sub,
+    userRole: currentUser.role,
+  });
+
   const tarea = await models.Tarea.findByPk(tareaId);
   if (!tarea) throw notFound();
   if (["Verificada", "Cancelada", "Completada"].includes(tarea.estado)) throw badRequest("Estado no permite iniciar");
-
-  // Validación trabajador
-  if (currentUser.role === 'Trabajador') {
-    const asign = await models.TareaAsignacion.findOne({ where: { tarea_id: tareaId, usuario_id: currentUser.sub } });
-    if (!asign) throw forbidden("No estás asignado a esta tarea.");
-  }
 
   tarea.estado = "En progreso";
   if (!tarea.fecha_inicio_real) tarea.fecha_inicio_real = new Date();
@@ -722,14 +727,15 @@ exports.iniciarTarea = async (currentUser, tareaId, comentario, io) => {
 // 🏁 COMPLETAR TAREA (Actualización del JSONB)
 // =====================================================================
 exports.completarTarea = async (currentUser, tareaId, body, io) => {
+  await assertTaskResourceAccess({
+    tareaId,
+    userId: currentUser.sub,
+    userRole: currentUser.role,
+  });
+
   const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
   if (!tarea) throw notFound();
   const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
-  
-  if (currentUser.role === 'Trabajador') {
-    const asign = await models.TareaAsignacion.findOne({ where: { tarea_id: tareaId, usuario_id: currentUser.sub } });
-    if (!asign) throw forbidden();
-  }
 
   const { comentario, items: itemsReal = [], detalle: detalleReal = {} } = body;
 
@@ -745,7 +751,6 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
         
         if (tareaItem) {
           tareaItem.cantidad_real = Number(itemInput.cantidad_real);
-          if (itemInput.lote_insumo_manual) tareaItem.lote_insumo_manual = itemInput.lote_insumo_manual;
           await tareaItem.save({ transaction: t });
         }
       }
@@ -762,14 +767,6 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
       nuevosDetalles.porcentaje_plantas_real_pct = Number(nuevosDetalles.porcentaje_plantas_real_pct);
     if (nuevosDetalles.cobertura_real_pct !== undefined)
         nuevosDetalles.cobertura_real_pct = Number(nuevosDetalles.cobertura_real_pct);
-    if (nuevosDetalles.kg_cosechados !== undefined)
-        nuevosDetalles.kg_cosechados = Number(nuevosDetalles.kg_cosechados);
-    if (nuevosDetalles.grado_maduracion !== undefined || nuevosDetalles.grado_madurez !== undefined) {
-      nuevosDetalles.grado_maduracion = validarYNormalizarGradoMaduracion(
-        nuevosDetalles.grado_maduracion ?? nuevosDetalles.grado_madurez
-      );
-      delete nuevosDetalles.grado_madurez;
-    }
 
     if (tipoCodigo === "poda") {
       if (nuevosDetalles.numero_plantas_intervenir !== undefined) {
@@ -809,17 +806,11 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
     }
 
     if (tipoCodigo === "cosecha") {
-      if (nuevosDetalles.rechazos !== undefined) {
-        nuevosDetalles.rechazos = normalizarRechazos(nuevosDetalles.rechazos);
-      }
-      if (nuevosDetalles.liquidacion !== undefined) {
-        nuevosDetalles.liquidacion = normalizarLiquidacion(nuevosDetalles.liquidacion);
-      }
-      delete nuevosDetalles.filas_recolectadas;
+      tarea.detalles = sanitizarDetallesCosecha(nuevosDetalles);
+    } else {
+      // Guardar el JSON actualizado
+      tarea.detalles = nuevosDetalles;
     }
-
-    // Guardar el JSON actualizado
-    tarea.detalles = nuevosDetalles;
 
     // 3. Cerrar Tarea
     const ahora = new Date();
@@ -882,7 +873,7 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
   });
 
   await sequelize.transaction(async (t) => {
-    // ✅ 2.1 Guardar ajustes finales de insumos (cantidad real / lote) desde modal de verificación
+    // ✅ 2.1 Guardar ajustes finales de insumos (cantidad real) desde modal de verificación
     if (Array.isArray(itemsReal) && itemsReal.length > 0) {
       for (const itemInput of itemsReal) {
         const whereItem = itemInput?.id
@@ -904,10 +895,6 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
           tareaItem.cantidad_real = cantidadReal;
         }
 
-        if (typeof itemInput?.lote_insumo_manual === "string") {
-          tareaItem.lote_insumo_manual = itemInput.lote_insumo_manual.trim() || null;
-        }
-
         await tareaItem.save({ transaction: t });
       }
     }
@@ -919,29 +906,16 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
         // Mezclamos lo viejo con lo nuevo
         const nuevosDetalles = { ...detallesActuales, ...detalle };
 
-        if (nuevosDetalles.grado_maduracion !== undefined || nuevosDetalles.grado_madurez !== undefined) {
-          nuevosDetalles.grado_maduracion = validarYNormalizarGradoMaduracion(
-            nuevosDetalles.grado_maduracion ?? nuevosDetalles.grado_madurez
-          );
-          delete nuevosDetalles.grado_madurez;
-        }
-
         if (tipoCodigo === "maleza" && nuevosDetalles.metodo !== undefined) {
           nuevosDetalles.metodo = normalizarMetodoMaleza(nuevosDetalles.metodo);
           delete nuevosDetalles.altura_corte_cm;
         }
 
         if (tipoCodigo === "cosecha") {
-          if (nuevosDetalles.rechazos !== undefined) {
-            nuevosDetalles.rechazos = normalizarRechazos(nuevosDetalles.rechazos);
-          }
-          if (nuevosDetalles.liquidacion !== undefined) {
-            nuevosDetalles.liquidacion = normalizarLiquidacion(nuevosDetalles.liquidacion);
-          }
-          delete nuevosDetalles.filas_recolectadas;
+          tarea.detalles = sanitizarDetallesCosecha(nuevosDetalles);
+        } else {
+          tarea.detalles = nuevosDetalles;
         }
-
-        tarea.detalles = nuevosDetalles;
     }
 
     // 3. Registrar consumo/uso real en inventario
@@ -1037,6 +1011,12 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
  * Muestra la información jerárquica completa: Finca -> Lote -> Cosecha.
  */
 exports.obtenerTarea = async (currentUser, id) => {
+  await assertTaskResourceAccess({
+    tareaId: id,
+    userId: currentUser.sub,
+    userRole: currentUser.role,
+  });
+
   const tarea = await models.Tarea.findByPk(id, {
     include: [
       { model: models.TipoActividad },
@@ -1075,12 +1055,6 @@ exports.obtenerTarea = async (currentUser, id) => {
   });
 
   if (!tarea) return null;
-
-  // Verificación de permisos para el rol Trabajador
-  if (currentUser.role === 'Trabajador') {
-    const isAssigned = tarea.TareaAsignacions.some(a => a.usuario_id === currentUser.sub);
-    if (!isAssigned) throw forbidden("No tienes acceso a los detalles de esta tarea.");
-  }
 
   const json = tarea.toJSON();
   const tipoCodigo = json.TipoActividad?.codigo.toLowerCase();
@@ -1396,7 +1370,7 @@ exports.asignarUsuarios = async (currentUser, tareaId, body, io) => {
   return await exports.actualizarAsignaciones(currentUser, tareaId, body, io);
 };
 
-exports.configurarItems = async (tareaId, items, user) => {
+exports.configurarItems = async (tareaId, items, user, io) => {
   if (!["Propietario", "Tecnico"].includes(user?.role)) {
     throw forbidden("No autorizado para configurar items de la tarea");
   }
@@ -1480,7 +1454,7 @@ exports.configurarItems = async (tareaId, items, user) => {
     order: [["idx", "ASC"], ["id", "ASC"]],
   });
 
-  return {
+  const response = {
     tarea_id: tareaId,
     items: guardados.map((it) => ({
       id: it.id,
@@ -1493,13 +1467,20 @@ exports.configurarItems = async (tareaId, items, user) => {
       cantidad_planificada: Number(it.cantidad_planificada),
     })),
   };
+
+  emitTarea(io, tareaId, "insumos", { tareaId });
+  return response;
 };
 
 
 
 
 exports.crearNovedad = async (currentUser, tareaId, body, io) => {
-    await validarPermisoSobreTarea(tareaId, currentUser.sub, currentUser.role);
+    await assertTaskResourceAccess({
+      tareaId,
+      userId: currentUser.sub,
+      userRole: currentUser.role,
+    });
 
     const texto = String(body?.texto || "").trim();
     if (!texto) throw badRequest("El texto de la novedad es obligatorio");
@@ -1520,7 +1501,11 @@ exports.crearNovedad = async (currentUser, tareaId, body, io) => {
 };
 
 exports.listarNovedades = async (currentUser, tareaId) => {
-    await validarPermisoSobreTarea(tareaId, currentUser.sub, currentUser.role);
+    await assertTaskResourceAccess({
+      tareaId,
+      userId: currentUser.sub,
+      userRole: currentUser.role,
+    });
 
     const rows = await models.Novedad.findAll({
       where: { tarea_id: tareaId },
@@ -1531,6 +1516,12 @@ exports.listarNovedades = async (currentUser, tareaId) => {
 };
 
 exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
+  await assertTaskResourceAccess({
+    tareaId,
+    userId: currentUser.sub,
+    userRole: currentUser.role,
+  });
+
   const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
   if (!tarea) throw notFound();
   const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
@@ -1539,45 +1530,22 @@ exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
   if (["Verificada", "Cancelada"].includes(tarea.estado)) {
       throw badRequest("No se puede editar una tarea verificada o cancelada.");
   }
-  if (currentUser.role === 'Trabajador') {
-      const asignado = await models.TareaAsignacion.findOne({ where: { tarea_id: tareaId, usuario_id: currentUser.sub } });
-      if (!asignado) throw forbidden("No estás asignado a esta tarea.");
-  }
-
   const detallesAnteriores = tarea.detalles || {};
   let mensajesBitacora = [];
 
-  // 2. Detección de Cambios
-
-  // A. KG BÁSCULA (Habilitador)
-  if (body.kg_cosechados !== undefined) {
-      const oldKg = detallesAnteriores.kg_cosechados || 0;
-      if (Number(oldKg) !== Number(body.kg_cosechados)) {
-          mensajesBitacora.push(`Peso en báscula actualizado: ${oldKg}kg -> ${body.kg_cosechados}kg`);
+  // 2. Detección de Cambios (dominio simplificado para cosecha)
+  if (tipoCodigo === "cosecha" && body.clasificacion) {
+      const prev = sanitizarDetallesCosecha(detallesAnteriores).clasificacion;
+      const next = sanitizarDetallesCosecha({ ...detallesAnteriores, ...body }).clasificacion;
+      if (
+        Number(prev.exportacion) !== Number(next.exportacion) ||
+        Number(prev.nacional) !== Number(next.nacional) ||
+        Number(prev.rechazo) !== Number(next.rechazo)
+      ) {
+        mensajesBitacora.push(
+          `Clasificacion actualizada (Exp: ${prev.exportacion} -> ${next.exportacion}, Nac: ${prev.nacional} -> ${next.nacional}, Rech: ${prev.rechazo} -> ${next.rechazo})`
+        );
       }
-  }
-
-  // B. LOGÍSTICA
-  if (body.entrega) {
-      // Merge temporal para comparar bien, ya que body puede traer parciales
-      const nextEntrega = { ...(detallesAnteriores.entrega || {}), ...body.entrega };
-      const diff = diffLogistica(detallesAnteriores.entrega, nextEntrega);
-      if (diff) mensajesBitacora.push(diff);
-  }
-
-  // C. LIQUIDACIÓN
-  if (body.liquidacion) {
-      // Recalcular total automáticamente en el backend para seguridad
-      const nuevoTotal = body.liquidacion.reduce((acc, i) => acc + (Number(i.valor_total)||0), 0);
-      body.total_dinero = nuevoTotal;
-
-      const diff = diffLiquidacion(
-          detallesAnteriores.liquidacion, 
-          body.liquidacion, 
-          detallesAnteriores.total_dinero || 0, 
-          nuevoTotal
-      );
-      if (diff) mensajesBitacora.push(diff);
   }
 
   await sequelize.transaction(async (t) => {
@@ -1590,26 +1558,10 @@ exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
       }
 
       if (tipoCodigo === "cosecha") {
-          if (nuevosDetalles.grado_maduracion !== undefined || nuevosDetalles.grado_madurez !== undefined) {
-              nuevosDetalles.grado_maduracion = validarYNormalizarGradoMaduracion(
-                nuevosDetalles.grado_maduracion ?? nuevosDetalles.grado_madurez
-              );
-              delete nuevosDetalles.grado_madurez;
-          }
-          if (nuevosDetalles.rechazos !== undefined) {
-              nuevosDetalles.rechazos = normalizarRechazos(nuevosDetalles.rechazos);
-          }
-          if (nuevosDetalles.liquidacion !== undefined) {
-              nuevosDetalles.liquidacion = normalizarLiquidacion(nuevosDetalles.liquidacion);
-          }
-          delete nuevosDetalles.filas_recolectadas;
+          tarea.detalles = sanitizarDetallesCosecha(nuevosDetalles);
+      } else {
+          tarea.detalles = nuevosDetalles;
       }
-      
-      if (body.entrega) {
-          nuevosDetalles.entrega = { ...(detallesAnteriores.entrega || {}), ...body.entrega };
-      }
-
-      tarea.detalles = nuevosDetalles;
       await tarea.save({ transaction: t });
 
       // Guardar Logs
@@ -1655,3 +1607,7 @@ async function crearItemsTarea(t, tareaId, items) {
   }
   await models.TareaItem.bulkCreate(records, { transaction: t });
 }
+
+// Export interno para pruebas de estabilizacion del dominio cosecha.
+exports._sanitizarDetallesCosecha = sanitizarDetallesCosecha;
+exports._parseFechaProgramada = parseFechaProgramada;

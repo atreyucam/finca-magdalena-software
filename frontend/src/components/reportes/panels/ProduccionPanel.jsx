@@ -216,6 +216,21 @@ export default function ProduccionPanel({
   const eventos = payload?.eventos;
 
   const hayDatosNormal = !!resumen;
+  const deprecadoNormal =
+    !!resumen?.header?.deprecated ||
+    !!porLote?.header?.deprecated ||
+    !!clasif?.header?.deprecated ||
+    !!merma?.header?.deprecated ||
+    !!logistica?.header?.deprecated ||
+    !!eventos?.header?.deprecated;
+  const mensajeDeprecadoNormal =
+    resumen?.header?.message ||
+    porLote?.header?.message ||
+    clasif?.header?.message ||
+    merma?.header?.message ||
+    logistica?.header?.message ||
+    eventos?.header?.message ||
+    "Este reporte fue deprecado por cambios de dominio y requiere rediseño.";
 
   // -------------------------
   // Charts modo normal
@@ -589,6 +604,11 @@ export default function ProduccionPanel({
               </>
             )}
           </ReportEmptyState>
+        ) : cmpPayload?.header?.deprecated ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-bold mb-1">Comparación de producción deprecada temporalmente</div>
+            <div>{cmpPayload?.header?.message || "La comparación requiere refactor analítico en la siguiente etapa."}</div>
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -679,6 +699,11 @@ export default function ProduccionPanel({
          <EstadoPanelVacio tipo="calendario" icono={BookDashedIcon} titulo="Aún no hay consulta">
     Selecciona <b>finca</b>, rango de <b>fechas</b> y presiona <b>Consultar</b>.
   </EstadoPanelVacio>
+) : deprecadoNormal ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-bold mb-1">Reporte de producción deprecado temporalmente</div>
+            <div>{mensajeDeprecadoNormal}</div>
+          </div>
 ) : (
           <div className="space-y-4">
             {/* KPIs */}

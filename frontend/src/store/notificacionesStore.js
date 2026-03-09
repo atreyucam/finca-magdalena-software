@@ -9,21 +9,27 @@ import { getSocket, connectSocket } from "../lib/socket";
 
 const PAGE_SIZE = 20;
 
-const useNotificacionesStore = create((set, get) => ({
+const baseState = {
   items: [],
   loading: false,
   loadingMore: false,
   error: null,
   initialized: false,
-  socketBound: false, // ✅ NUEVO
+  socketBound: false,
+  socketHandlers: null,
   meta: {
     total: 0,
     noLeidas: 0,
     hasMore: false,
     nextOffset: 0,
   },
+};
 
-  // ✅ bind socket una sola vez
+const normalizeNotifId = (id) => String(id ?? "");
+
+const useNotificacionesStore = create((set, get) => ({
+  ...baseState,
+
   bindSocket: () => {
     const { socketBound } = get();
     if (socketBound) return;
@@ -32,38 +38,44 @@ const useNotificacionesStore = create((set, get) => ({
     const s = getSocket();
 
     const onNueva = (notif) => {
-      // Inserta arriba si no existe
+      if (!notif?.id) return;
+
       set((st) => {
-        const exists = st.items.some((x) => x.id === notif.id);
+        const exists = st.items.some(
+          (x) => normalizeNotifId(x.id) === normalizeNotifId(notif.id)
+        );
         const items = exists ? st.items : [notif, ...st.items];
+        const isUnread = notif.leida !== true;
 
         return {
           items,
           meta: {
             ...st.meta,
             total: (st.meta.total || 0) + (exists ? 0 : 1),
-            noLeidas: (st.meta.noLeidas || 0) + (exists ? 0 : 1),
+            noLeidas:
+              (st.meta.noLeidas || 0) + (!exists && isUnread ? 1 : 0),
           },
         };
       });
     };
 
-    const onRefresh = () => {
-      // Refresca contador + primera página en background
+    const onConnect = () => {
+      // Re-sincroniza al reconectar para cubrir eventos perdidos sin polling agresivo.
       get().cargar({ silent: true });
     };
 
     s.on("notif:nueva", onNueva);
-    s.on("notif:refresh", onRefresh);
+    s.on("connect", onConnect);
 
-    set({ socketBound: true });
-
-    // opcional: guardar refs para limpiar si algún día lo necesitas
+    set({
+      socketBound: true,
+      socketHandlers: { onNueva, onConnect },
+    });
   },
 
   cargar: async ({ silent = false } = {}) => {
-    const { loading, initialized } = get();
-    if (loading && !silent) return;
+    const { loading, loadingMore, initialized } = get();
+    if (loading || loadingMore) return;
 
     if (!initialized) set({ initialized: true });
     if (!silent) set({ loading: true, error: null });
@@ -118,9 +130,13 @@ const useNotificacionesStore = create((set, get) => ({
 
   marcarLeida: async (id) => {
     try {
-      await marcarNotificacionLeida(id);
+      const { data } = await marcarNotificacionLeida(id);
       set((s) => ({
-        items: s.items.map((n) => (n.id === id ? { ...n, leida: true } : n)),
+        items: s.items.map((n) =>
+          normalizeNotifId(n.id) === normalizeNotifId(id)
+            ? { ...n, leida: true, read_at: data?.read_at || n.read_at }
+            : n
+        ),
         meta: { ...s.meta, noLeidas: Math.max(0, s.meta.noLeidas - 1) },
       }));
     } catch (e) {
@@ -131,13 +147,25 @@ const useNotificacionesStore = create((set, get) => ({
   marcarTodas: async () => {
     try {
       await marcarTodasNotificacionesLeidas();
+      const readAt = new Date().toISOString();
       set((s) => ({
-        items: s.items.map((n) => ({ ...n, leida: true })),
+        items: s.items.map((n) => ({ ...n, leida: true, read_at: n.read_at || readAt })),
         meta: { ...s.meta, noLeidas: 0 },
       }));
     } catch (e) {
       console.error("Error marcando todas como leídas", e);
+    } 
+  },
+
+  reset: () => {
+    const { socketBound, socketHandlers } = get();
+    if (socketBound && socketHandlers) {
+      const s = getSocket();
+      s.off("notif:nueva", socketHandlers.onNueva);
+      s.off("connect", socketHandlers.onConnect);
     }
+
+    set({ ...baseState });
   },
 }));
 

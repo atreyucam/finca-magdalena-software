@@ -9,6 +9,7 @@ titulo: { type: DataTypes.STRING(200), allowNull: false },
 mensaje: { type: DataTypes.TEXT },
 referencia: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} }, // {tarea_id, item_id, nomina_id, detalle_id}
 leida: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+read_at: { type: DataTypes.DATE, allowNull: true },
 prioridad: { type: DataTypes.ENUM('Info','Alerta'), allowNull: false, defaultValue: 'Info' }
 }, {
 tableName: 'notificaciones',
@@ -17,6 +18,7 @@ createdAt: 'created_at',
 updatedAt: 'updated_at',
 indexes: [
 { fields: ['usuario_id','leida'] },
+{ fields: ['usuario_id', 'read_at'] },
 { fields: ['tipo'] },
 { fields: ['created_at'] }
 ]

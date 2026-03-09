@@ -25,7 +25,6 @@ import AlertasStock from "../components/inventario/AlertasStock";
 // Formularios
 import FormularioItem from "../components/inventario/FormularioItem"; // ✅ Asumimos que este ya es el modal autónomo refactored
 import FormularioAjuste from "../components/inventario/FormularioAjuste";
-import FormularioEditarLote from "../components/inventario/FormularioEditarLote";
 import Boton from "../components/ui/Boton";
 
 export default function Inventario() {
@@ -53,10 +52,6 @@ export default function Inventario() {
   const [ajustarAbierto, setAjustarAbierto] = useState(false);
   const [itemSeleccionado, setItemSeleccionado] = useState(null);
 
-  // Modales extra
-  const [editarLoteAbierto, setEditarLoteAbierto] = useState(false);
-  const [loteSeleccionado, setLoteSeleccionado] = useState(null);
-
   // Clave para recargar
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -82,11 +77,6 @@ export default function Inventario() {
     console.log("🔁 recargarTodo() -> refreshKey++");
     setRefreshKey((prev) => prev + 1);
     cargarDatos();
-  };
-
-  const abrirEditarLote = (lote) => {
-    setLoteSeleccionado(lote);
-    setEditarLoteAbierto(true);
   };
 
   useEffect(() => {
@@ -364,8 +354,6 @@ export default function Inventario() {
                 setItemSeleccionado(item);
                 setCrearAbierto(true);
               }}
-              onEditarLote={(lote) => abrirEditarLote(lote)}
-              modalEdicionAbierto={editarLoteAbierto} 
             />
           )}
         </div>
@@ -396,26 +384,6 @@ export default function Inventario() {
 </VentanaModal>
 
       {/* Modales Secundarios (Usan VentanaModal clásico) */}
-      <VentanaModal
-        abierto={editarLoteAbierto}
-        cerrar={() => setEditarLoteAbierto(false)}
-        titulo={null}
-      >
-        <FormularioEditarLote
-          lote={loteSeleccionado?.lote}
-          item={loteSeleccionado?.item}
-          alCancelar={() => {
-            setEditarLoteAbierto(false);
-            setLoteSeleccionado(null);
-          }}
-          alGuardar={() => {
-            setEditarLoteAbierto(false);
-            setLoteSeleccionado(null);
-            recargarTodo();
-          }}
-        />
-      </VentanaModal>
-
       <VentanaModal
         abierto={ajustarAbierto}
         cerrar={() => setAjustarAbierto(false)}

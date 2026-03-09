@@ -584,7 +584,7 @@ exports.reporteInventarioResumen = async (_currentUser, query) => {
     models.InventarioMovimiento.count({
       where: {
         ...whereMov,
-        tipo: { [Op.in]: ["ENTRADA","AJUSTE_ENTRADA","PRESTAMO_DEVUELTA"] }
+        tipo: { [Op.in]: ["ENTRADA","ENTRADA_COMPRA","AJUSTE_ENTRADA","PRESTAMO_DEVUELTA"] }
       }
     }),
     models.InventarioMovimiento.count({
@@ -708,71 +708,22 @@ exports.reporteInventarioFefo = async (_currentUser, query) => {
   const categoria = normStr(query?.categoria);
   const q = normStr(query?.q);
   const fefoDias = normPosInt(query?.fefo_dias, 30);
-
   const page = normPosInt(query?.page, 1);
   const pageSize = normPosInt(query?.pageSize, 20);
 
-  // si piden categoria distinta de Insumo => no aplica
-  if (categoria && categoria !== "Insumo") {
-    return {
-      header: { categoria, q: q || null, fefo_dias: fefoDias, nota: "FEFO solo aplica a Insumos." },
-      page, pageSize, total: 0, totalPages: 1,
-      data: [],
-    };
-  }
-
-  const hoy = new Date();
-  const hastaFefo = new Date(hoy);
-  hastaFefo.setDate(hastaFefo.getDate() + fefoDias);
-
-  const whereLote = {
-    activo: true,
-    cantidad_actual: { [Op.gt]: 0 },
-    fecha_vencimiento: { [Op.ne]: null, [Op.lte]: hastaFefo },
-  };
-
-  const whereItem = buildWhereItemBase({ categoria: "Insumo", q });
-
-  const { count, rows } = await models.InventarioLote.findAndCountAll({
-    where: whereLote,
-    include: [{
-      model: models.InventarioItem,
-      required: true,
-      where: whereItem,
-      attributes: ["id","nombre","categoria"],
-      include: [{ model: models.Unidad, attributes: ["codigo","nombre"] }],
-    }],
-    order: [["fecha_vencimiento", "ASC"], ["id", "ASC"]],
-    limit: pageSize,
-    offset: (page - 1) * pageSize,
-    distinct: true,
-  });
-
-  const data = rows.map((r) => {
-    const j = r.toJSON();
-    const fv = j.fecha_vencimiento ? new Date(j.fecha_vencimiento) : null;
-    const dias = fv ? Math.ceil((fv.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24)) : null;
-
-    return {
-      id: Number(j.id),
-      item: { id: Number(j.InventarioItem?.id), nombre: j.InventarioItem?.nombre },
-      unidad: j.InventarioItem?.Unidad?.codigo || null,
-      codigo_lote_proveedor: j.codigo_lote_proveedor || null,
-      fecha_vencimiento: j.fecha_vencimiento,
-      dias_restantes: dias,
-      cantidad_actual: j.cantidad_actual,
-    };
-  });
-
-  const totalPages = Math.max(1, Math.ceil(Number(count) / pageSize));
-
   return {
-    header: { categoria: "Insumo", q: q || null, fefo_dias: fefoDias },
+    header: {
+      categoria: categoria || "Insumo",
+      q: q || null,
+      fefo_dias: fefoDias,
+      deprecated: true,
+      nota: "FEFO por lote fue deprecado en el dominio simplificado de inventario.",
+    },
     page,
     pageSize,
-    total: Number(count),
-    totalPages,
-    data,
+    total: 0,
+    totalPages: 1,
+    data: [],
   };
 };
 
@@ -1202,10 +1153,60 @@ const buildWhere = ({ finca_id, cosecha_id, lote_id, desde, hasta }) => {
   };
 };
 
+const PRODUCCION_REPORTES_DEPRECATION_MSG =
+  "Reportes de produccion legacy (kg/logistica/liquidacion) deprecados tras cosecha simplificada. Requiere rediseno analitico en etapa posterior.";
+
+function buildProduccionDeprecatedResponse(scope, filtros = {}) {
+  const header = {
+    deprecated: true,
+    scope,
+    code: "DEPRECATED_DOMAIN_FLOW",
+    message: PRODUCCION_REPORTES_DEPRECATION_MSG,
+  };
+
+  const base = { header, filtros };
+
+  switch (scope) {
+    case "resumen":
+      return {
+        ...base,
+        produccion: { kg_planificados: 0, kg_cosechados: 0, cumplimiento_pct: 0 },
+        merma: { kg_rechazados: 0, merma_pct: 0 },
+        logistica: { gabetas_entregadas: 0, gabetas_devueltas: 0, gabetas_netas: 0 },
+        economico: { total_dinero: 0, precio_promedio_kg: 0 },
+      };
+    case "por-lote":
+      return { ...base, lotes: [] };
+    case "clasificacion":
+      return { ...base, clasificacion: [], total_kg_clasificado: 0 };
+    case "merma":
+      return { ...base, total_kg_merma: 0, causas: [] };
+    case "logistica":
+      return { ...base, centros: [] };
+    case "eventos":
+      return { ...base, eventos: [] };
+    case "comparar-fincas":
+    case "comparar-cosechas":
+    case "comparar-lotes":
+      return { ...base, items: [] };
+    default:
+      return { ...base, data: [] };
+  }
+}
+
 // =======================
 // 1) RESUMEN KPI
 // =======================
-exports.reporteProduccionResumen = async (currentUser, query) => {
+exports.reporteProduccionResumen = async (_currentUser, query = {}) => {
+  const rango = parseRange(query);
+  return buildProduccionDeprecatedResponse("resumen", {
+    finca_id: query?.finca_id ? Number(query.finca_id) : null,
+    cosecha_id: query?.cosecha_id ? Number(query.cosecha_id) : null,
+    lote_id: query?.lote_id ? Number(query.lote_id) : null,
+    desde: rango.desde,
+    hasta: rango.hasta,
+  });
+
   const tipoCosechaId = await getTipoCosechaId();
   const { desde, hasta } = parseRange(query);
   const p = buildWhere({ ...query, desde, hasta });
@@ -1332,7 +1333,16 @@ exports.reporteProduccionResumen = async (currentUser, query) => {
 // =======================
 // 2) POR LOTE (tabla principal)
 // =======================
-exports.reporteProduccionPorLote = async (currentUser, query) => {
+exports.reporteProduccionPorLote = async (_currentUser, query = {}) => {
+  const rango = parseRange(query);
+  return buildProduccionDeprecatedResponse("por-lote", {
+    finca_id: query?.finca_id ? Number(query.finca_id) : null,
+    cosecha_id: query?.cosecha_id ? Number(query.cosecha_id) : null,
+    lote_id: query?.lote_id ? Number(query.lote_id) : null,
+    desde: rango.desde,
+    hasta: rango.hasta,
+  });
+
   const tipoCosechaId = await getTipoCosechaId();
   const { desde, hasta } = parseRange(query);
   const p = buildWhere({ ...query, desde, hasta });
@@ -1438,7 +1448,16 @@ exports.reporteProduccionPorLote = async (currentUser, query) => {
 // =======================
 // 3) CLASIFICACIÓN (destino)
 // =======================
-exports.reporteProduccionClasificacion = async (currentUser, query) => {
+exports.reporteProduccionClasificacion = async (_currentUser, query = {}) => {
+  const rango = parseRange(query);
+  return buildProduccionDeprecatedResponse("clasificacion", {
+    finca_id: query?.finca_id ? Number(query.finca_id) : null,
+    cosecha_id: query?.cosecha_id ? Number(query.cosecha_id) : null,
+    lote_id: query?.lote_id ? Number(query.lote_id) : null,
+    desde: rango.desde,
+    hasta: rango.hasta,
+  });
+
   const tipoCosechaId = await getTipoCosechaId();
   const { desde, hasta } = parseRange(query);
   const p = buildWhere({ ...query, desde, hasta });
@@ -1520,7 +1539,16 @@ exports.reporteProduccionClasificacion = async (currentUser, query) => {
 // =======================
 // 4) MERMA (causas)
 // =======================
-exports.reporteProduccionMerma = async (currentUser, query) => {
+exports.reporteProduccionMerma = async (_currentUser, query = {}) => {
+  const rango = parseRange(query);
+  return buildProduccionDeprecatedResponse("merma", {
+    finca_id: query?.finca_id ? Number(query.finca_id) : null,
+    cosecha_id: query?.cosecha_id ? Number(query.cosecha_id) : null,
+    lote_id: query?.lote_id ? Number(query.lote_id) : null,
+    desde: rango.desde,
+    hasta: rango.hasta,
+  });
+
   const tipoCosechaId = await getTipoCosechaId();
   const { desde, hasta } = parseRange(query);
   const p = buildWhere({ ...query, desde, hasta });
@@ -1594,7 +1622,16 @@ exports.reporteProduccionMerma = async (currentUser, query) => {
 // =======================
 // 5) LOGÍSTICA (centros acopio)
 // =======================
-exports.reporteProduccionLogistica = async (currentUser, query) => {
+exports.reporteProduccionLogistica = async (_currentUser, query = {}) => {
+  const rango = parseRange(query);
+  return buildProduccionDeprecatedResponse("logistica", {
+    finca_id: query?.finca_id ? Number(query.finca_id) : null,
+    cosecha_id: query?.cosecha_id ? Number(query.cosecha_id) : null,
+    lote_id: query?.lote_id ? Number(query.lote_id) : null,
+    desde: rango.desde,
+    hasta: rango.hasta,
+  });
+
   const tipoCosechaId = await getTipoCosechaId();
   const { desde, hasta } = parseRange(query);
   const p = buildWhere({ ...query, desde, hasta });
@@ -1669,7 +1706,16 @@ exports.reporteProduccionLogistica = async (currentUser, query) => {
 // =======================
 // 6) EVENTOS (listado tareas cosecha)
 // =======================
-exports.reporteProduccionEventos = async (currentUser, query) => {
+exports.reporteProduccionEventos = async (_currentUser, query = {}) => {
+  const rango = parseRange(query);
+  return buildProduccionDeprecatedResponse("eventos", {
+    finca_id: query?.finca_id ? Number(query.finca_id) : null,
+    cosecha_id: query?.cosecha_id ? Number(query.cosecha_id) : null,
+    lote_id: query?.lote_id ? Number(query.lote_id) : null,
+    desde: rango.desde,
+    hasta: rango.hasta,
+  });
+
   const tipoCosechaId = await getTipoCosechaId();
   const { desde, hasta } = parseRange(query);
   const p = buildWhere({ ...query, desde, hasta });
@@ -1769,7 +1815,14 @@ exports.reporteProduccionEventos = async (currentUser, query) => {
 // 7) COMPARAR FINCAS (KPIs por finca)
 // GET /reportes/produccion/comparar/fincas?desde&hasta&cosecha_id?
 // =======================
-exports.compararFincas = async (currentUser, query) => {
+exports.compararFincas = async (_currentUser, query = {}) => {
+  const rango = parseRange(query);
+  return buildProduccionDeprecatedResponse("comparar-fincas", {
+    desde: rango.desde,
+    hasta: rango.hasta,
+    cosecha_id: query?.cosecha_id ? Number(query.cosecha_id) : null,
+  });
+
   const tipoCosechaId = await getTipoCosechaId();
   const { desde, hasta } = parseRange(query);
 
@@ -1874,7 +1927,14 @@ exports.compararFincas = async (currentUser, query) => {
 // 8) COMPARAR COSECHAS (KPIs por cosecha dentro de una finca)
 // GET /reportes/produccion/comparar/cosechas?finca_id&desde&hasta
 // =======================
-exports.compararCosechas = async (currentUser, query) => {
+exports.compararCosechas = async (_currentUser, query = {}) => {
+  const rango = parseRange(query);
+  return buildProduccionDeprecatedResponse("comparar-cosechas", {
+    finca_id: query?.finca_id ? Number(query.finca_id) : null,
+    desde: rango.desde,
+    hasta: rango.hasta,
+  });
+
   const tipoCosechaId = await getTipoCosechaId();
   const { desde, hasta } = parseRange(query);
 
@@ -2011,7 +2071,16 @@ function normalizeFechas(q) {
   return { desde: toYmdLocal(desde), hasta: toYmdLocal(hasta) };
 }
 
-exports.compararLotes = async (_currentUser, q) => {
+exports.compararLotes = async (_currentUser, q = {}) => {
+  const rango = normalizeFechas(q);
+  return buildProduccionDeprecatedResponse("comparar-lotes", {
+    finca_id: q?.finca_id ? Number(q.finca_id) : null,
+    cosecha_id: q?.cosecha_id ? Number(q.cosecha_id) : null,
+    lote_ids: q?.lote_ids || null,
+    desde: rango.desde,
+    hasta: rango.hasta,
+  });
+
   const finca_id = Number(q.finca_id);
   if (!finca_id) throw badRequest("finca_id es obligatorio");
 

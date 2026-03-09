@@ -21,11 +21,19 @@ const api = axios.create({
 // 🔹 Interceptor Authorization
 // ==========================
 api.interceptors.request.use((config) => {
-  const { accessToken } = useAuthStore.getState();
+  const authState = useAuthStore.getState();
+  const { accessToken } = authState;
   if (accessToken) {
     config.headers = config.headers || {};
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
+
+  const lastActivityHeader = authState.getLastActivityHeader?.();
+  if (lastActivityHeader) {
+    config.headers = config.headers || {};
+    config.headers["x-last-activity-at"] = lastActivityHeader;
+  }
+
   return config;
 });
 
@@ -34,6 +42,19 @@ api.interceptors.request.use((config) => {
 // ==========================
 let isRefreshing = false;
 let pendingQueue = [];
+
+function getSessionExpiredMessage(code) {
+  if (code === "AUTH_SESSION_EXPIRED_MAX") {
+    return "La sesión alcanzó el máximo de 8 horas. Inicia sesión nuevamente.";
+  }
+  if (code === "AUTH_SESSION_EXPIRED_INACTIVITY") {
+    return "La sesión expiró por inactividad de 60 minutos. Inicia sesión nuevamente.";
+  }
+  if (code === "AUTH_SESSION_INVALID") {
+    return "La sesión es inválida. Inicia sesión nuevamente.";
+  }
+  return "Tu sesión expiró. Inicia sesión nuevamente.";
+}
 
 function processQueue(error, token = null) {
   pendingQueue.forEach(({ resolve, reject, config }) => {
@@ -92,9 +113,10 @@ api.interceptors.response.use(
 
     // Si falla refresh explícitamente, cerrar sesión
     if (status === 401 && requestUrl.includes("/auth/refresh")) {
+      const code = error.response?.data?.code;
       useAuthStore.getState().logout({
         silent: false,
-        message: "Tu sesión expiró. Inicia sesión nuevamente.",
+        message: getSessionExpiredMessage(code),
       });
       return Promise.reject(error);
     }
@@ -120,10 +142,11 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${newAccess}`;
         return api(originalRequest);
       } catch (refreshErr) {
+        const code = refreshErr?.response?.data?.code;
         processQueue(refreshErr, null);
         logout({
           silent: false,
-          message: "Tu sesión expiró. Inicia sesión nuevamente.",
+          message: getSessionExpiredMessage(code),
         });
         return Promise.reject(refreshErr);
       } finally {
@@ -307,6 +330,15 @@ export const listarHerramientasNoDevueltas = () => api.get("/inventario/herramie
 
 export const buscarLoteInventario = (itemId, params = {}) =>
   api.get(`/inventario/items/${itemId}/lotes/buscar`, { params });
+
+// ================= PROVEEDORES =================
+export const listarProveedores = (params = {}) => api.get("/proveedores", { params });
+export const crearProveedor = (data) => api.post("/proveedores", data);
+
+// ================= COMPRAS =================
+export const listarCompras = (params = {}) => api.get("/compras", { params });
+export const obtenerCompra = (id) => api.get(`/compras/${id}`);
+export const crearCompra = (data) => api.post("/compras", data);
 
 
 // ================= REPORTES =================

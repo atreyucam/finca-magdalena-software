@@ -21,6 +21,7 @@ const CONFIG_COLORES = {
   completada: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
   verificada: "bg-violet-50 text-violet-700 ring-violet-600/20",
   cancelada: "bg-rose-50 text-rose-700 ring-rose-600/20",
+  confirmada: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
 
   // Roles
   propietario: "bg-purple-100 text-purple-800",

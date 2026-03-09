@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
   Plus, Users, UserX, UserCheck, Edit, Eye 
 } from "lucide-react";
-import { getSocket, connectSocket } from "../lib/socket";
+import useSocketEvent from "../hooks/useSocketEvent";
 
 // API
 import { listarUsuarios, editarUsuario, 
@@ -69,22 +69,12 @@ const tecnicoBloqueadoContraAdmin = (u) => me?.role === "Tecnico" && u?.role ===
   };
 
   useEffect(() => { cargarStats(); }, []);
-  useEffect(() => {
-  connectSocket();
-  const socket = getSocket();
-
-  const onChanged = () => {
+  const onUsuariosChanged = useCallback(() => {
     recargar();
     cargarStats();
-  };
+  }, [recargar]);
 
-  socket.on("usuarios:changed", onChanged);
-
-  return () => {
-    socket.off("usuarios:changed", onChanged);
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
+  useSocketEvent("usuarios:changed", onUsuariosChanged, [onUsuariosChanged]);
 
 
   const toggleEstado = async (u) => {

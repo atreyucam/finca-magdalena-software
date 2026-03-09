@@ -81,18 +81,16 @@ export default function FormularioDetalleActividad({ tipo, detalle, setDetalle }
         <div className={blockClass}>
            <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl mb-2 flex items-center gap-2">
               <span className="text-xl">🍈</span>
-              <p className="text-xs text-emerald-900">Planificación de producción estimada.</p>
+              <p className="text-xs text-emerald-900">Flujo simplificado: clasificacion por gavetas.</p>
            </div>
-           <Input label="Kg Estimados" type="number" min="0" value={detalle.kg_planificados ?? ""} onChange={(e) => upd("kg_planificados", e.target.value)} />
-           <Input
-             label="Grado de maduración esperado (1 a 8)"
-             type="number"
-             min="1"
-             max="8"
-             step="1"
-             value={detalle.grado_maduracion ?? ""}
-             onChange={(e) => upd("grado_maduracion", e.target.value)}
-           />
+           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+             <Input label="Gavetas exportacion" type="number" min="0" value={detalle.exportacion ?? ""} onChange={(e) => upd("exportacion", e.target.value)} />
+             <Input label="Gavetas nacional" type="number" min="0" value={detalle.nacional ?? ""} onChange={(e) => upd("nacional", e.target.value)} />
+             <Input label="Gavetas rechazo" type="number" min="0" value={detalle.rechazo ?? ""} onChange={(e) => upd("rechazo", e.target.value)} />
+           </div>
+           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">
+             Total gavetas: {Number(detalle.exportacion || 0) + Number(detalle.nacional || 0) + Number(detalle.rechazo || 0)}
+           </div>
         </div>
       )}
     </div>

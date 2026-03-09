@@ -87,7 +87,8 @@ exports.configurarItems = async (req, res, next) => {
   try {
     const tareaId = Number(req.params.id);
     const items = Array.isArray(req.body) ? req.body : req.body?.items;
-    const out = await service.configurarItems(tareaId, items || [], req.user);
+    const io = req.app.get("io");
+    const out = await service.configurarItems(tareaId, items || [], req.user, io);
     res.status(201).json(out);
   } catch (err) { next(err); }
 };

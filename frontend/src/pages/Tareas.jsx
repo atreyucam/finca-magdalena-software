@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { connectSocket, getSocket } from "../lib/socket";
+import useSocketEvent from "../hooks/useSocketEvent";
 
 import { useNavigate, useLocation } from "react-router-dom";
 import { 
@@ -52,23 +52,7 @@ const recargarTodo = useCallback(() => {
   resumenTareas().then(res => setResumen(res.data)).catch(console.error);
 }, [recargar]);
 
-
-useEffect(() => {
-  connectSocket();
-  const socket = getSocket();
-
-  const onUpdate = () => {
-    // refresca tabla + cards/tabs
-    recargarTodo();
-  };
-
-  socket.on("tareas:update", onUpdate);
-
-  return () => {
-    socket.off("tareas:update", onUpdate);
-  };
-  // 👇 importante: recargarTodo debe existir antes (como ya lo tienes)
-}, [recargarTodo]);
+  useSocketEvent("tareas:update", recargarTodo, [recargarTodo]);
 
 
   useEffect(() => {

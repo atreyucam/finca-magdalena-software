@@ -1,6 +1,7 @@
 const { Op, fn, col } = require('sequelize');
 const { models } = require('../../db');
 const { getISOWeek, getRangeFromISO } = require('../../utils/week');
+const notificacionesService = require('../notificaciones/notificaciones.service');
 
 
 function todayISO(){ const d=new Date(); d.setHours(0,0,0,0); return d.toISOString().slice(0,10); }
@@ -54,7 +55,17 @@ const pendientesVerificar = currentUser.role !== 'Trabajador' ? await models.Tar
 const nomina = await models.NominaSemana.findOne({ where: { semana_iso }, attributes: ['id','estado'] });
 
 
-const notifsUnread = await models.Notificacion.count({ where: { usuario_id: currentUser.sub, leida: false } });
+const notifsUnread = await models.Notificacion.count({
+  where: {
+    usuario_id: currentUser.sub,
+    leida: false,
+    created_at: {
+      [Op.gte]: new Date(
+        Date.now() - (notificacionesService.getRetentionDays() * 24 * 60 * 60 * 1000)
+      ),
+    },
+  },
+});
 
 
 return {

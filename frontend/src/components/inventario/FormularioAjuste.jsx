@@ -1,27 +1,17 @@
-// frontend/src/components/inventario/FormularioAjuste.jsx
 import { useEffect, useMemo, useState } from "react";
 import useToast from "../../hooks/useToast";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
-  CheckCircle2,
-  Info,
-  Loader2,
-  AlertTriangle,
   ClipboardList,
+  Info,
   Package,
   X,
 } from "lucide-react";
-import { ajustarStock, buscarLoteInventario } from "../../api/apiClient";
+import { ajustarStock } from "../../api/apiClient";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
 import Boton from "../ui/Boton";
-
-function fmtQty(n) {
-  const num = Number(n);
-  if (Number.isNaN(num)) return n ?? "0";
-  return num.toFixed(3);
-}
 
 function safe(v) {
   if (v === null || v === undefined) return "—";
@@ -29,25 +19,20 @@ function safe(v) {
   return s.trim() === "" ? "—" : s;
 }
 
-// ✅ Encabezado consistente para secciones dentro del modal
-function SectionTitle({ icon: Icon, title, subtitle, right }) {
+function SectionTitle({ icon: Icon, title, subtitle }) {
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="flex items-center gap-2">
         {Icon && <Icon size={16} className="text-slate-500" />}
         <div>
-          <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">
-            {title}
-          </p>
+          <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">{title}</p>
           {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
         </div>
       </div>
-      {right}
     </div>
   );
 }
 
-// ✅ Header estilo "FormularioFinca" (padding + bg + borde)
 function ModalHeader({ title, subtitle, icon: Icon, onClose }) {
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 border-b border-slate-200 flex items-start justify-between bg-slate-50/50">
@@ -57,18 +42,11 @@ function ModalHeader({ title, subtitle, icon: Icon, onClose }) {
         </div>
 
         <div className="min-w-0">
-          <h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">
-            {title}
-          </h2>
-          {subtitle && (
-            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              {subtitle}
-            </p>
-          )}
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">{title}</h2>
+          {subtitle && <p className="text-xs sm:text-sm text-slate-500 mt-0.5">{subtitle}</p>}
         </div>
       </div>
 
-      {/* Si tu VentanaModal ya trae X, puedes pasar onClose={null} */}
       {onClose && (
         <button
           type="button"
@@ -84,19 +62,10 @@ function ModalHeader({ title, subtitle, icon: Icon, onClose }) {
   );
 }
 
-export default function FormularioAjuste({
-  item,
-  unidades = [],
-  alGuardar,
-  alCancelar,
-}) {
+export default function FormularioAjuste({ item, unidades = [], alGuardar, alCancelar }) {
   const notify = useToast();
   const [cargando, setCargando] = useState(false);
-  const [tipoMov, setTipoMov] = useState("AJUSTE_ENTRADA"); // AJUSTE_ENTRADA | AJUSTE_SALIDA
-
-  const esEntrada = tipoMov === "AJUSTE_ENTRADA";
-  const esInsumo = item?.categoria === "Insumo";
-  const requiereLote = esInsumo && esEntrada;
+  const [tipoMov, setTipoMov] = useState("AJUSTE_ENTRADA");
 
   const unidadDefault = useMemo(() => {
     return item?.unidad || unidades?.[0]?.codigo || "";
@@ -106,111 +75,28 @@ export default function FormularioAjuste({
     cantidad: "",
     unidad_codigo: unidadDefault,
     motivo: "",
-    codigo_lote: "",
-    fecha_vencimiento: "",
   });
 
-  const [loteState, setLoteState] = useState({
-    loading: false,
-    existe: false,
-    lote: null,
-    error: null,
-  });
-
-  // Set unidad por defecto
   useEffect(() => {
-    setForm((f) => ({ ...f, unidad_codigo: f.unidad_codigo || unidadDefault }));
-     
+    setForm((prev) => ({ ...prev, unidad_codigo: prev.unidad_codigo || unidadDefault }));
   }, [unidadDefault]);
-
-  // Si deja de requerir lote, limpiar
-  useEffect(() => {
-    if (!requiereLote) {
-      setForm((f) => ({ ...f, codigo_lote: "", fecha_vencimiento: "" }));
-      setLoteState({ loading: false, existe: false, lote: null, error: null });
-    }
-     
-  }, [requiereLote]);
-
-  // Debounce validar lote
-  useEffect(() => {
-    if (!requiereLote) return;
-
-    const codigo = (form.codigo_lote || "").trim().toUpperCase();
-    if (codigo.length < 2) {
-      setLoteState({ loading: false, existe: false, lote: null, error: null });
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      try {
-        setLoteState((s) => ({ ...s, loading: true, error: null }));
-
-        const params = form.fecha_vencimiento
-          ? { codigo, fecha_vencimiento: form.fecha_vencimiento }
-          : { codigo };
-
-        const res = await buscarLoteInventario(item.id, params);
-        const data = res.data;
-
-        if (data?.existe) {
-          setLoteState({
-            loading: false,
-            existe: true,
-            lote: data.lote,
-            error: null,
-          });
-
-          if (!form.fecha_vencimiento && data.lote?.fecha_vencimiento) {
-            setForm((f) => ({
-              ...f,
-              fecha_vencimiento: String(data.lote.fecha_vencimiento).slice(0, 10),
-            }));
-          }
-        } else {
-          setLoteState({ loading: false, existe: false, lote: null, error: null });
-        }
-      } catch (err) {
-        setLoteState({
-          loading: false,
-          existe: false,
-          lote: null,
-          error: err?.response?.data?.message || "No se pudo validar el lote",
-        });
-      }
-    }, 450);
-
-    return () => clearTimeout(timer);
-     
-  }, [form.codigo_lote, form.fecha_vencimiento, requiereLote, item?.id]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     const unidadObj = unidades.find((u) => u.codigo === form.unidad_codigo);
-    if (!unidadObj) return notify.error("Unidad inválida");
+    if (!unidadObj) return notify.error("Unidad invalida");
 
-    if (!form.cantidad || Number(form.cantidad) <= 0) {
-      return notify.error("Cantidad inválida");
-    }
-
-    if (requiereLote) {
-      if (!form.codigo_lote.trim()) return notify.error("Falta el código de lote");
-      if (!form.fecha_vencimiento) return notify.error("Falta la fecha de vencimiento");
-      if (loteState.error) return notify.error("Corrige la validación del lote antes de confirmar");
+    const cantidad = Number(form.cantidad);
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      return notify.error("Cantidad invalida");
     }
 
     const payload = {
       tipo: tipoMov,
-      cantidad: Number(form.cantidad),
+      cantidad,
       unidad_id: unidadObj.id,
       motivo: form.motivo,
-      datos_lote: requiereLote
-        ? {
-            codigo_lote_proveedor: form.codigo_lote.trim().toUpperCase(),
-            fecha_vencimiento: form.fecha_vencimiento,
-          }
-        : null,
     };
 
     try {
@@ -219,38 +105,26 @@ export default function FormularioAjuste({
       notify.success("Stock ajustado correctamente");
       alGuardar?.();
     } catch (err) {
-      console.error(err);
-      notify.error(err.response?.data?.message || "Error al ajustar stock");
+      notify.error(err?.response?.data?.message || "Error al ajustar stock");
     } finally {
       setCargando(false);
     }
   };
 
+  const esEntrada = tipoMov === "AJUSTE_ENTRADA";
+
   return (
-    // ✅ (Opcional) “contenedor” para que el contenido no choque y se sienta como Finca.
-    // Si tu VentanaModal es muy angosto, aquí no lo podemos ensanchar del todo,
-    // pero sí logramos el MISMO padding/aire interno y look & feel.
     <div className="w-full">
-      {/* ✅ HEADER con padding y fondo tipo Finca */}
       <ModalHeader
         icon={Package}
         title={`Ajuste de stock: ${safe(item?.nombre)}`}
-        subtitle="Registra entradas y salidas, y controla lotes (FEFO) en insumos."
-        onClose={alCancelar} // si VentanaModal ya tiene X, pon null
+        subtitle="Dominio simplificado: ajuste sin lotes ni vencimientos."
+        onClose={alCancelar}
       />
 
-      {/* ✅ BODY con padding consistente tipo Finca */}
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-6 px-4 sm:px-6 lg:px-8 py-5"
-      >
-        {/* Tipo */}
+      <form onSubmit={handleSubmit} className="space-y-6 px-4 sm:px-6 lg:px-8 py-5">
         <div className="space-y-3">
-          <SectionTitle
-            icon={ClipboardList}
-            title="Tipo de movimiento"
-            subtitle="Selecciona cómo afecta al stock"
-          />
+          <SectionTitle icon={ClipboardList} title="Tipo de movimiento" subtitle="Define como afecta al stock" />
 
           <div className="grid grid-cols-2 gap-4">
             <button
@@ -285,33 +159,18 @@ export default function FormularioAjuste({
           </div>
         </div>
 
-        {/* Detalle del insumo (solo lectura) */}
-        {esInsumo && (
+        {item?.categoria === "Insumo" && (
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-            <SectionTitle
-              icon={Package}
-              title="Detalle del insumo"
-              subtitle="Información de solo lectura"
-            />
-
+            <SectionTitle icon={Info} title="Detalle del insumo" subtitle="Solo lectura" />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input label="Proveedor" value={safe(item?.proveedor)} disabled />
-              <Input label="Ingrediente activo" value={safe(item?.ingrediente_activo)} disabled />
-              <Input label="Formulación" value={safe(item?.formulacion)} disabled />
-              <Input label="Stock mínimo" value={safe(item?.stock_minimo)} disabled />
-              <Input label="Stock actual" value={safe(item?.stock_actual)} disabled />
+              <Input label="Fabricante" value={safe(item?.fabricante)} disabled />
+              <Input label="Stock total" value={safe(item?.stock_actual)} disabled />
             </div>
           </div>
         )}
 
-        {/* Cantidad + unidad */}
         <div className="space-y-3">
-          <SectionTitle
-            icon={Info}
-            title="Cantidad y unidad"
-            subtitle="Registra el ajuste con su unidad"
-          />
-
+          <SectionTitle icon={Info} title="Cantidad y unidad" subtitle="Cantidad del ajuste" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Cantidad"
@@ -337,100 +196,16 @@ export default function FormularioAjuste({
           </div>
         </div>
 
-        {/* Lote */}
-        {requiereLote && (
-          <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 space-y-3 animate-in fade-in">
-            <SectionTitle
-              icon={AlertTriangle}
-              title="Datos del lote"
-              subtitle="Obligatorio para entradas de insumos"
-              right={
-                <span className="text-[10px] font-black px-2 py-1 rounded-full bg-amber-200 text-amber-900">
-                  OBLIGATORIO
-                </span>
-              }
-            />
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input
-                label="Lote / Serie"
-                value={form.codigo_lote}
-                placeholder="Ej: A-001"
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    codigo_lote: e.target.value.toUpperCase(),
-                  }))
-                }
-                required
-              />
-
-              <Input
-                label="Vencimiento"
-                type="date"
-                value={form.fecha_vencimiento}
-                onChange={(e) => setForm({ ...form, fecha_vencimiento: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="rounded-2xl border bg-white px-3 py-2 text-sm">
-              {loteState.loading ? (
-                <div className="flex items-center gap-2 text-slate-600">
-                  <Loader2 className="animate-spin" size={16} />
-                  Validando lote...
-                </div>
-              ) : loteState.error ? (
-                <div className="flex items-center gap-2 text-rose-700">
-                  <AlertTriangle size={16} />
-                  {loteState.error}
-                </div>
-              ) : loteState.existe ? (
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-emerald-700 font-semibold">
-                    <CheckCircle2 size={16} />
-                    Lote encontrado: #{loteState.lote?.codigo_lote_proveedor}
-                  </div>
-
-                  <div className="text-xs text-slate-600 flex items-center gap-2">
-                    <Info size={14} />
-                    Stock en ese lote:{" "}
-                    <span className="font-mono font-bold text-slate-800">
-                      {fmtQty(loteState.lote?.cantidad_actual)}
-                    </span>
-                    <span className="text-slate-400">·</span>
-                    Vence:{" "}
-                    <span className="font-mono">
-                      {String(loteState.lote?.fecha_vencimiento || "—").slice(0, 10)}
-                    </span>
-                  </div>
-
-                  <div className="text-xs font-semibold text-amber-800">
-                    ✅ Al confirmar, se registrará la entrada para este lote.
-                  </div>
-                </div>
-              ) : (
-                <div className="text-slate-600 flex items-center gap-2">
-                  <Info size={16} />
-                  Lote nuevo: se creará al confirmar.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Motivo */}
         <div className="space-y-3">
-          <SectionTitle icon={Info} title="Motivo del ajuste" subtitle="Opcional, pero recomendado" />
+          <SectionTitle icon={Info} title="Motivo del ajuste" subtitle="Opcional" />
           <Input
             label="Motivo"
-            placeholder="Ej: Compra urgente, merma, corrección..."
+            placeholder="Ej: Compra, salida a campo, correccion"
             value={form.motivo}
             onChange={(e) => setForm({ ...form, motivo: e.target.value })}
           />
         </div>
 
-        {/* Acciones */}
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
           <Boton type="button" variante="fantasma" onClick={alCancelar}>
             Cancelar
