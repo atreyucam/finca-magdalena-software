@@ -29,10 +29,12 @@ import Pagos from "../pages/Pagos";
 import Produccion from "../pages/Produccion";
 import DetalleLote from "../pages/DetalleLote";
 import DetalleCosecha from "../pages/DetalleCosecha";
-import ModuloPreparacion from "../pages/ModuloPreparacion";
 import Compras from "../pages/Compras";
 import NuevaCompra from "../pages/NuevaCompra";
 import DetalleCompra from "../pages/DetalleCompra";
+import Ventas from "../pages/Ventas";
+import NuevaVenta from "../pages/NuevaVenta";
+import DetalleVenta from "../pages/DetalleVenta";
 
 export default function AppRouter() {
   const { isBootstrapped } = useAuth();
@@ -56,15 +58,9 @@ export default function AppRouter() {
               <Route path="compras" element={<Compras />} />
               <Route path="compras/nueva" element={<NuevaCompra />} />
               <Route path="compras/:id" element={<DetalleCompra />} />
-              <Route
-                path="ventas"
-                element={
-                  <ModuloPreparacion
-                    titulo="Ventas (preparado)"
-                    descripcion="Espacio reservado para implementar el módulo de ventas en una etapa posterior."
-                  />
-                }
-              />
+              <Route path="ventas" element={<Ventas />} />
+              <Route path="ventas/nueva" element={<NuevaVenta />} />
+              <Route path="ventas/:id" element={<DetalleVenta />} />
               <Route path="produccion" element={<Produccion />} />
               <Route path="produccion/lotes/:id" element={<DetalleLote />} />
               <Route path="produccion/cosechas/:id" element={<DetalleCosecha />} />
@@ -84,15 +80,9 @@ export default function AppRouter() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="tareas" element={<Tareas />} />
               <Route path="inventario" element={<Inventario />} />
-              <Route
-                path="ventas"
-                element={
-                  <ModuloPreparacion
-                    titulo="Ventas (preparado)"
-                    descripcion="Espacio reservado para implementar ventas para técnico en la siguiente etapa."
-                  />
-                }
-              />
+              <Route path="ventas" element={<Ventas />} />
+              <Route path="ventas/nueva" element={<NuevaVenta />} />
+              <Route path="ventas/:id" element={<DetalleVenta />} />
               <Route path="usuarios" element={<Usuarios />} />
               <Route path="usuarios/:id" element={<DetalleUsuario />} />
               <Route path="metricas" element={<Reportes />} />

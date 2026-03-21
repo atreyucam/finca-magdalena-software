@@ -292,6 +292,7 @@ exports.crearCompra = async (currentUser, payload = {}) => {
       tipo: "Inventario",
       titulo: "Compra registrada",
       mensaje: `Se registro la compra ${numeroFactura} por $${totalMsg}.`,
+      actor_id: currentUser.sub,
       referencia: {
         tipo_evento: "COMPRA_REGISTRADA",
         compra_id: compraCreadaId,

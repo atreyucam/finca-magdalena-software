@@ -86,6 +86,38 @@ function mapTipoNombre(codigo, fallback) {
   return TIPO_NOMBRES[String(codigo).toLowerCase()] || fallback || "";
 }
 
+function buildTaskNotificationName({ titulo, tipoCodigo, tipoNombre } = {}) {
+  const safeTitle = asText(titulo);
+  if (safeTitle) return safeTitle;
+
+  const activityName = asText(mapTipoNombre(tipoCodigo, tipoNombre));
+  if (activityName) return activityName;
+
+  return "Actividad agricola";
+}
+
+function buildTaskNotificationLoteSuffix(loteNombre) {
+  const safeLote = asText(loteNombre);
+  return safeLote ? ` (Lote: ${safeLote})` : "";
+}
+
+function buildTaskNotificationContext(tarea = {}) {
+  const tipoCodigo = tarea?.tipo_codigo || tarea?.TipoActividad?.codigo;
+  const tipoNombre = tarea?.TipoActividad?.nombre;
+  const nombreTarea = buildTaskNotificationName({
+    titulo: tarea?.titulo,
+    tipoCodigo,
+    tipoNombre,
+  });
+  const loteNombre = tarea?.Lote?.nombre || tarea?.lote?.nombre || tarea?.lote_nombre || "";
+
+  return {
+    nombreTarea,
+    loteNombre,
+    loteSuffix: buildTaskNotificationLoteSuffix(loteNombre),
+  };
+}
+
 function normalizarMetodoMaleza(value) {
   const metodo = asLower(value);
   if (!METODOS_MALEZA_VALIDOS.has(metodo)) {
@@ -361,7 +393,12 @@ exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
   if (!["Propietario", "Tecnico"].includes(currentUser.role)) throw forbidden();
 
   const { usuarios = [] } = body;
-  const tarea = await models.Tarea.findByPk(tareaId);
+  const tarea = await models.Tarea.findByPk(tareaId, {
+    include: [
+      { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
+      { model: models.Lote, attributes: ["id", "nombre"] },
+    ],
+  });
   if (!tarea) throw notFound();
   if (["Verificada", "Cancelada"].includes(tarea.estado)) throw badRequest("No se puede reasignar en este estado.");
 
@@ -405,14 +442,21 @@ exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
 
   // ✅ NOTIFICAR REMOVIDOS (Regla 3)
   const quien = await getNombreUsuario(currentUser.sub);
-  const ref = { tarea_id: tareaId, lote_id: tarea.lote_id, cosecha_id: tarea.cosecha_id };
+  const ref = {
+    tarea_id: tareaId,
+    lote_id: tarea.lote_id,
+    cosecha_id: tarea.cosecha_id,
+    actor_id: currentUser.sub,
+  };
+  const taskContext = buildTaskNotificationContext(tarea);
 
   for (const uid of aRemover) {
     await notifs.crearYEmitir(io, uid, {
       tipo: "Tarea",
       titulo: "Removido de una tarea",
-      mensaje: `Fuiste removido de la tarea "${tarea.titulo}" por ${quien}.`,
+      mensaje: `Fuiste removido de la tarea "${taskContext.nombreTarea}"${taskContext.loteSuffix} por ${quien}.`,
       referencia: ref,
+      actor_id: currentUser.sub,
       prioridad: "Alerta",
     });
   }
@@ -422,8 +466,9 @@ exports.actualizarAsignaciones = async (currentUser, tareaId, body, io) => {
     await notifs.crearYEmitir(io, uid, {
       tipo: "Tarea",
       titulo: "Nueva tarea asignada",
-      mensaje: `Se te asignó la tarea "${tarea.titulo}".`,
+      mensaje: `Se te asignó la tarea "${taskContext.nombreTarea}"${taskContext.loteSuffix}.`,
       referencia: ref,
+      actor_id: currentUser.sub,
       prioridad: "Alerta",
     });
   }
@@ -630,6 +675,7 @@ exports.crearTarea = async (currentUser, data, io) => {
     return {
       tareaId: tarea.id,
       titulo: tarea.titulo,
+      tipo_codigo: finalTipoCodigo,
       fecha_programada: tarea.fecha_programada,
       lote_id: tarea.lote_id,
       cosecha_id: tarea.cosecha_id,
@@ -647,8 +693,18 @@ exports.crearTarea = async (currentUser, data, io) => {
   // - evita includes pesados, solo nombres puntuales
   const loteInfo = await models.Lote.findByPk(result.lote_id, { attributes: ["id", "nombre"] });
   const fechaTxt = new Date(result.fecha_programada).toLocaleDateString("es-EC");
+  const taskName = buildTaskNotificationName({
+    titulo: result.titulo,
+    tipoCodigo: result.tipo_codigo,
+  });
+  const loteSuffix = buildTaskNotificationLoteSuffix(loteInfo?.nombre);
 
-  const ref = { tarea_id: tareaId, lote_id: result.lote_id, cosecha_id: result.cosecha_id };
+  const ref = {
+    tarea_id: tareaId,
+    lote_id: result.lote_id,
+    cosecha_id: result.cosecha_id,
+    actor_id: currentUser.sub,
+  };
 
   const asignadosSet = new Set(asignadosIds.map(String));
   const creadorEstaAsignado = asignadosSet.has(String(creador_id));
@@ -658,16 +714,18 @@ exports.crearTarea = async (currentUser, data, io) => {
     await notifs.crearYEmitir(io, creador_id, {
       tipo: "Tarea",
       titulo: "Tarea creada y asignada",
-      mensaje: `Se creó y se te asignó la tarea "${result.titulo}" para el ${fechaTxt}${loteInfo?.nombre ? ` (Lote: ${loteInfo.nombre})` : ""}.`,
+      mensaje: `Se creó y se te asignó la tarea "${taskName}" para el ${fechaTxt}${loteSuffix}.`,
       referencia: ref,
+      actor_id: currentUser.sub,
       prioridad: "Info",
     });
   } else {
     await notifs.crearYEmitir(io, creador_id, {
       tipo: "Tarea",
       titulo: "Tarea creada",
-      mensaje: `Creaste la tarea "${result.titulo}" para el ${fechaTxt}${loteInfo?.nombre ? ` (Lote: ${loteInfo.nombre})` : ""}.`,
+      mensaje: `Creaste la tarea "${taskName}" para el ${fechaTxt}${loteSuffix}.`,
       referencia: ref,
+      actor_id: currentUser.sub,
       prioridad: "Info",
     });
   }
@@ -681,8 +739,9 @@ exports.crearTarea = async (currentUser, data, io) => {
     await notifs.crearYEmitir(io, uid, {
       tipo: "Tarea",
       titulo: "Nueva tarea asignada",
-      mensaje: `Se te asignó la tarea "${result.titulo}" para el ${fechaTxt}${loteInfo?.nombre ? ` (Lote: ${loteInfo.nombre})` : ""}.`,
+      mensaje: `Se te asignó la tarea "${taskName}" para el ${fechaTxt}${loteSuffix}.`,
       referencia: ref,
+      actor_id: currentUser.sub,
       prioridad: "Alerta",
     });
   }
@@ -733,7 +792,12 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
     userRole: currentUser.role,
   });
 
-  const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
+  const tarea = await models.Tarea.findByPk(tareaId, {
+    include: [
+      { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
+      { model: models.Lote, attributes: ["id", "nombre"] },
+    ],
+  });
   if (!tarea) throw notFound();
   const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
 
@@ -834,15 +898,22 @@ exports.completarTarea = async (currentUser, tareaId, body, io) => {
     }, { transaction: t });
   });
 
-    // ✅ NOTIFICAR AL CREADOR cuando se completa
+  // ✅ NOTIFICAR AL CREADOR cuando se completa
   const quien = await getNombreUsuario(currentUser.sub);
-  const ref = { tarea_id: tareaId, lote_id: tarea.lote_id, cosecha_id: tarea.cosecha_id };
+  const ref = {
+    tarea_id: tareaId,
+    lote_id: tarea.lote_id,
+    cosecha_id: tarea.cosecha_id,
+    actor_id: currentUser.sub,
+  };
+  const taskContext = buildTaskNotificationContext(tarea);
 
   await notifs.crearYEmitir(io, tarea.creador_id, {
     tipo: "Tarea",
     titulo: "Tarea completada",
-    mensaje: `La tarea "${tarea.titulo}" fue marcada como COMPLETADA por ${quien}.`,
+    mensaje: `La tarea "${taskContext.nombreTarea}"${taskContext.loteSuffix} fue marcada como COMPLETADA por ${quien}.`,
     referencia: ref,
+    actor_id: currentUser.sub,
     prioridad: "Info",
   });
 
@@ -860,7 +931,12 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
   // ✅ 1. Extraemos 'detalle' del body (antes no se hacía)
   const { comentario, force = false, detalle, items: itemsReal = [] } = body || {};
 
-  const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
+  const tarea = await models.Tarea.findByPk(tareaId, {
+    include: [
+      { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
+      { model: models.Lote, attributes: ["id", "nombre"] },
+    ],
+  });
   if (!tarea || tarea.estado !== "Completada") throw badRequest("La tarea debe estar Completada para verificar.");
   const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
 
@@ -982,18 +1058,25 @@ exports.verificarTarea = async (currentUser, tareaId, body, io) => {
       fecha: new Date()
     }, { transaction: t });
   });
-    const asignados = await getAsignadosIds(tareaId);
+  const asignados = await getAsignadosIds(tareaId);
   const destinatarios = uniqIds([tarea.creador_id, ...asignados]);
 
   const quien = await getNombreUsuario(currentUser.sub);
-  const ref = { tarea_id: tareaId, lote_id: tarea.lote_id, cosecha_id: tarea.cosecha_id };
+  const ref = {
+    tarea_id: tareaId,
+    lote_id: tarea.lote_id,
+    cosecha_id: tarea.cosecha_id,
+    actor_id: currentUser.sub,
+  };
+  const taskContext = buildTaskNotificationContext(tarea);
 
   for (const uid of destinatarios) {
     await notifs.crearYEmitir(io, uid, {
       tipo: "Tarea",
       titulo: "Tarea verificada",
-      mensaje: `La tarea "${tarea.titulo}" fue VERIFICADA por ${quien}.`,
+      mensaje: `La tarea "${taskContext.nombreTarea}"${taskContext.loteSuffix} fue VERIFICADA por ${quien}.`,
       referencia: ref,
+      actor_id: currentUser.sub,
       prioridad: "Info",
     });
   }
@@ -1319,7 +1402,12 @@ exports.resumenTareas = async (currentUser, query) => {
 
 // ... Cancelar Tarea (Actualizar estado y cancelar reservas implícitas)
 exports.cancelarTarea = async (currentUser, id, body, io) => {
-  const tarea = await models.Tarea.findByPk(id);
+  const tarea = await models.Tarea.findByPk(id, {
+    include: [
+      { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
+      { model: models.Lote, attributes: ["id", "nombre"] },
+    ],
+  });
   if (!tarea) throw notFound();
   if (tarea.estado === "Verificada") throw badRequest("No se puede cancelar una tarea ya verificada.");
 
@@ -1349,14 +1437,21 @@ exports.cancelarTarea = async (currentUser, id, body, io) => {
   ]);
 
   const quien = await getNombreUsuario(currentUser.sub);
-  const ref = { tarea_id: id, lote_id: tarea.lote_id, cosecha_id: tarea.cosecha_id };
+  const ref = {
+    tarea_id: id,
+    lote_id: tarea.lote_id,
+    cosecha_id: tarea.cosecha_id,
+    actor_id: currentUser.sub,
+  };
+  const taskContext = buildTaskNotificationContext(tarea);
 
   for (const uid of destinatarios) {
     await notifs.crearYEmitir(io, uid, {
       tipo: "Tarea",
       titulo: "Tarea cancelada",
-      mensaje: `La tarea "${tarea.titulo}" fue cancelada por ${quien}. Motivo: ${body.motivo || "Sin motivo"}.`,
+      mensaje: `La tarea "${taskContext.nombreTarea}"${taskContext.loteSuffix} fue cancelada por ${quien}. Motivo: ${body.motivo || "Sin motivo"}.`,
       referencia: ref,
+      actor_id: currentUser.sub,
       prioridad: "Alerta",
     });
   }
@@ -1522,7 +1617,12 @@ exports.actualizarDetalles = async (currentUser, tareaId, body, io) => {
     userRole: currentUser.role,
   });
 
-  const tarea = await models.Tarea.findByPk(tareaId, { include: [models.TipoActividad] });
+  const tarea = await models.Tarea.findByPk(tareaId, {
+    include: [
+      { model: models.TipoActividad, attributes: ["codigo", "nombre"] },
+      { model: models.Lote, attributes: ["id", "nombre"] },
+    ],
+  });
   if (!tarea) throw notFound();
   const tipoCodigo = String(tarea.TipoActividad?.codigo || "").toLowerCase();
 

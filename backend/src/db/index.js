@@ -10,6 +10,9 @@ const NotificacionModel         = require('./models/notificacion');
 const ProveedorModel            = require('./models/proveedor');
 const CompraModel               = require('./models/compra');
 const CompraDetalleModel        = require('./models/compraDetalle');
+const ClienteModel              = require('./models/cliente');
+const VentaModel                = require('./models/venta');
+const VentaDetalleModel         = require('./models/ventaDetalle');
 
 // Gestión Agronómica (Contexto)
 const LoteModel                 = require('./models/lote');
@@ -68,6 +71,9 @@ models.Notificacion = NotificacionModel(sequelize);
 models.Proveedor = ProveedorModel(sequelize);
 models.Compra = CompraModel(sequelize);
 models.CompraDetalle = CompraDetalleModel(sequelize);
+models.Cliente = ClienteModel(sequelize);
+models.Venta = VentaModel(sequelize);
+models.VentaDetalle = VentaDetalleModel(sequelize);
 
 models.Lote = LoteModel(sequelize);
 models.Cosecha = CosechaModel(sequelize);
@@ -110,6 +116,20 @@ models.Compra.hasMany(models.CompraDetalle, { foreignKey: 'compra_id', as: 'deta
 models.CompraDetalle.belongsTo(models.Compra, { foreignKey: 'compra_id' });
 models.InventarioItem.hasMany(models.CompraDetalle, { foreignKey: 'inventario_item_id', as: 'compraDetalles' });
 models.CompraDetalle.belongsTo(models.InventarioItem, { foreignKey: 'inventario_item_id', as: 'item' });
+
+// --- Clientes / Ventas ---
+models.Cliente.hasMany(models.Venta, { foreignKey: 'cliente_id', as: 'ventas' });
+models.Venta.belongsTo(models.Cliente, { foreignKey: 'cliente_id', as: 'cliente' });
+models.Lote.hasMany(models.Venta, { foreignKey: 'lote_id', as: 'ventas' });
+models.Venta.belongsTo(models.Lote, { foreignKey: 'lote_id', as: 'lote' });
+models.Usuario.hasMany(models.Venta, { foreignKey: 'creado_por', as: 'ventasCreadas' });
+models.Venta.belongsTo(models.Usuario, { foreignKey: 'creado_por', as: 'creador' });
+models.Usuario.hasMany(models.Venta, { foreignKey: 'liquidado_por', as: 'ventasLiquidadas' });
+models.Venta.belongsTo(models.Usuario, { foreignKey: 'liquidado_por', as: 'liquidador' });
+models.Usuario.hasMany(models.Venta, { foreignKey: 'pagado_por', as: 'ventasPagadas' });
+models.Venta.belongsTo(models.Usuario, { foreignKey: 'pagado_por', as: 'pagador' });
+models.Venta.hasMany(models.VentaDetalle, { foreignKey: 'venta_id', as: 'detalles', onDelete: 'CASCADE' });
+models.VentaDetalle.belongsTo(models.Venta, { foreignKey: 'venta_id' });
 
 // --- Contexto Agrícola (Cosechas/Lotes) ---
 models.Cosecha.hasMany(models.PeriodoCosecha, { foreignKey: 'cosecha_id' });

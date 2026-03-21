@@ -8,6 +8,53 @@ const DEFAULT_DEDUPE_WINDOW_MS = 60 * 60 * 1000;
 let socketServer = null;
 let purgeInProgress = false;
 
+function normalizeNotificationText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function isGenericNotificationText(value) {
+  const normalized = normalizeNotificationText(value);
+  if (!normalized) return false;
+  if (normalized === "tienes una notificacion nueva") return true;
+  if (normalized === "tienes 1 notificacion nueva") return true;
+  return /^tienes \d+ notificaciones nuevas$/.test(normalized);
+}
+
+function isNoiseNotificationRecord(record = {}) {
+  return (
+    isGenericNotificationText(record?.titulo) ||
+    isGenericNotificationText(record?.mensaje)
+  );
+}
+
+function buildNoiseNotificationWhereClause() {
+  return {
+    [Op.or]: [
+      { titulo: { [Op.iLike]: "Tienes una notificacion nueva" } },
+      { titulo: { [Op.iLike]: "Tienes una notificación nueva" } },
+      { titulo: { [Op.iLike]: "Tienes 1 notificacion nueva" } },
+      { titulo: { [Op.iLike]: "Tienes 1 notificación nueva" } },
+      { titulo: { [Op.iLike]: "Tienes % notificaciones nuevas" } },
+      { mensaje: { [Op.iLike]: "Tienes una notificacion nueva" } },
+      { mensaje: { [Op.iLike]: "Tienes una notificación nueva" } },
+      { mensaje: { [Op.iLike]: "Tienes 1 notificacion nueva" } },
+      { mensaje: { [Op.iLike]: "Tienes 1 notificación nueva" } },
+      { mensaje: { [Op.iLike]: "Tienes % notificaciones nuevas" } },
+    ],
+  };
+}
+
+function withNoiseNotificationsExcluded(where = {}) {
+  return {
+    [Op.and]: [where, { [Op.not]: buildNoiseNotificationWhereClause() }],
+  };
+}
+
 function getRetentionDays() {
   return Number(config.notifications?.retentionDays) || 90;
 }
@@ -28,6 +75,12 @@ function buildActiveWhereBase(usuarioId) {
 function asPlainReference(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value;
+}
+
+function normalizeActorId(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return n;
 }
 
 function mapNotificacion(n) {
@@ -97,18 +150,23 @@ async function crearBase({ io, usuario_id: usuarioId, payload = {} }) {
     titulo,
     mensaje = "",
     referencia = {},
+    actor_id = null,
     prioridad = "Info",
     dedupe = null,
   } = payload;
 
   if (!usuarioId || !titulo) return null;
+  if (isGenericNotificationText(titulo)) return null;
 
-  const normalizedRef = asPlainReference(referencia);
+  const sanitizedMensaje = isGenericNotificationText(mensaje) ? "" : mensaje;
+  const normalizedRef = { ...asPlainReference(referencia) };
+  const actorId = normalizeActorId(actor_id ?? normalizedRef.actor_id);
+  if (actorId) normalizedRef.actor_id = actorId;
   const existing = await buscarDuplicadaReciente({
     usuarioId,
     tipo,
     titulo,
-    mensaje,
+    mensaje: sanitizedMensaje,
     dedupe,
   });
   if (existing) return mapNotificacion(existing);
@@ -117,7 +175,7 @@ async function crearBase({ io, usuario_id: usuarioId, payload = {} }) {
     usuario_id: usuarioId,
     tipo,
     titulo,
-    mensaje,
+    mensaje: sanitizedMensaje,
     referencia: normalizedRef,
     prioridad,
     leida: false,
@@ -158,13 +216,14 @@ exports.crear = async (
     titulo,
     mensaje = "",
     referencia = {},
+    actor_id = null,
     prioridad = "Info",
     dedupe = null,
   }
 ) => {
   return crearBase({
     usuario_id: usuarioId,
-    payload: { tipo, titulo, mensaje, referencia, prioridad, dedupe },
+    payload: { tipo, titulo, mensaje, referencia, actor_id, prioridad, dedupe },
   });
 };
 
@@ -196,22 +255,33 @@ exports.listar = async (currentUser, query = {}) => {
   if (String(soloNoLeidas) === "true") where.leida = false;
 
   const { rows, count } = await models.Notificacion.findAndCountAll({
-    where,
+    where: withNoiseNotificationsExcluded(where),
     order: [["created_at", "DESC"]],
     limit: pageSize,
     offset: skip,
   });
 
-  const noLeidas = await models.Notificacion.count({
-    where: { ...buildActiveWhereBase(currentUser.sub), leida: false },
+  const filteredRows = rows.filter((row) => !isNoiseNotificationRecord(row));
+  const filteredOutRows = rows.length - filteredRows.length;
+  const filteredOutUnreadRows = rows.filter(
+    (row) => row?.leida !== true && isNoiseNotificationRecord(row)
+  ).length;
+
+  const noLeidasDb = await models.Notificacion.count({
+    where: withNoiseNotificationsExcluded({
+      ...buildActiveWhereBase(currentUser.sub),
+      leida: false,
+    }),
   });
+  const noLeidas = Math.max(0, Number(noLeidasDb || 0) - filteredOutUnreadRows);
+  const total = Math.max(0, Number(count || 0) - filteredOutRows);
 
   const nextOffset = skip + pageSize;
-  const hasMore = nextOffset < count;
+  const hasMore = nextOffset < total;
 
   return {
-    items: rows.map(mapNotificacion),
-    total: count,
+    items: filteredRows.map(mapNotificacion),
+    total,
     noLeidas,
     hasMore,
     nextOffset,

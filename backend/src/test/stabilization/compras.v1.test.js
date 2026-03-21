@@ -147,6 +147,15 @@ describe("compras.service v1", () => {
       }),
     });
     expect(notificacionesService.crearParaRoles).toHaveBeenCalledTimes(1);
+    expect(notificacionesService.crearParaRoles).toHaveBeenCalledWith(
+      ["Propietario", "Tecnico"],
+      expect.objectContaining({
+        tipo: "Inventario",
+        titulo: "Compra registrada",
+        actor_id: 1,
+        mensaje: expect.stringMatching(/^Se registro la compra FAC-001 por \$42\.50\.$/),
+      })
+    );
     expect(out).toMatchObject({
       id: 101,
       numero_factura: "FAC-001",

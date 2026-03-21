@@ -108,6 +108,8 @@ const unidadesRouter = require('./modules/inventario/unidades.routes');
 const fincasRoutes = require('./modules/fincas/fincas.routes');
 const proveedoresRoutes = require('./modules/proveedores/proveedores.routes');
 const comprasRoutes = require('./modules/compras/compras.routes');
+const clientesRoutes = require('./modules/clientes/clientes.routes');
+const ventasRoutes = require('./modules/ventas/ventas.routes');
 
 // Rutas
 app.use('/files', express.static(path.join(__dirname, '../storage')));
@@ -129,6 +131,8 @@ app.use('/tipos-actividad', tiposActividadRoutes);
 app.use('/unidades', unidadesRouter);
 app.use('/proveedores', proveedoresRoutes);
 app.use('/compras', comprasRoutes);
+app.use('/clientes', clientesRoutes);
+app.use('/ventas', ventasRoutes);
 
 // Manejo de errores
 app.use((err, req, res, next) => {

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { PiBellRingingBold } from "react-icons/pi";
 import useNotificaciones from "../hooks/useNotificaciones";
 import useToast from "../hooks/useToast";
+import useAuthStore from "../store/authStore";
 
 function formatRelative(dateStr) {
   const d = new Date(dateStr);
@@ -18,8 +19,24 @@ function formatRelative(dateStr) {
   return `hace ${diffM} meses`;
 }
 
+function normalizeId(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (Number.isInteger(n) && n > 0) return String(n);
+  return raw;
+}
+
+function isActorNotificationForCurrentUser(notif, currentUserId) {
+  const actorId = normalizeId(notif?.referencia?.actor_id);
+  const userId = normalizeId(currentUserId);
+  if (!actorId || !userId) return false;
+  return actorId === userId;
+}
+
 export default function NotificationsBell() {
   const notify = useToast();
+  const currentUserId = useAuthStore((s) => s.user?.id);
 
   const [open, setOpen] = useState(false);
   const [filtro, setFiltro] = useState("todas");
@@ -51,24 +68,38 @@ export default function NotificationsBell() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [cargar]);
 
-  // ✅ 3) Toast SOLO cuando aumentan las no leídas
-  const prevNoLeidasRef = useRef(noLeidas ?? 0);
+  // Toast efímero basado en la notificación real recién recibida.
+  const prevTopNotifIdRef = useRef(null);
   useEffect(() => {
-    const prev = prevNoLeidasRef.current ?? 0;
-    const curr = noLeidas ?? 0;
-
-    if (curr > prev) {
-      const diff = curr - prev;
-      notify.info(
-        diff === 1
-          ? "Tienes 1 notificación nueva"
-          : `Tienes ${diff} notificaciones nuevas`,
-        { duration: 2500 }
-      );
+    const top = items?.[0];
+    if (!top?.id) {
+      prevTopNotifIdRef.current = null;
+      return;
     }
 
-    prevNoLeidasRef.current = curr;
-  }, [noLeidas, notify]);
+    const nextTopId = String(top.id);
+    const prevTopId = prevTopNotifIdRef.current;
+
+    if (!prevTopId) {
+      prevTopNotifIdRef.current = nextTopId;
+      return;
+    }
+
+    if (
+      nextTopId !== prevTopId &&
+      top.leida !== true &&
+      !isActorNotificationForCurrentUser(top, currentUserId)
+    ) {
+      notify.custom({
+        type: "info",
+        title: top.titulo || "Notificación",
+        message: top.mensaje || top.titulo || "",
+        duration: 2500,
+      });
+    }
+
+    prevTopNotifIdRef.current = nextTopId;
+  }, [items, notify, currentUserId]);
 
   // Cargar cuando se abre.
   useEffect(() => {
@@ -89,6 +120,12 @@ export default function NotificationsBell() {
 
     if (n.tipo === "Tarea" && n.referencia?.tarea_id) {
       navigate(`${base}/detalleTarea/${n.referencia.tarea_id}`);
+    } else if (
+      /^VENTA_/i.test(String(n.referencia?.tipo_evento || "")) &&
+      n.referencia?.venta_id &&
+      (base === "/owner" || base === "/tech")
+    ) {
+      navigate(`${base}/ventas/${n.referencia.venta_id}`);
     } else if (
       n.referencia?.tipo_evento === "COMPRA_REGISTRADA" &&
       n.referencia?.compra_id &&
@@ -176,7 +213,11 @@ export default function NotificationsBell() {
                 <span
                   className={
                     "w-2 h-2 rounded-full " +
-                    (n.tipo === "Tarea" ? "bg-emerald-500" : "bg-slate-400")
+                    (n.tipo === "Tarea"
+                      ? "bg-emerald-500"
+                      : /^VENTA_/i.test(String(n.referencia?.tipo_evento || ""))
+                        ? "bg-amber-500"
+                        : "bg-slate-400")
                   }
                 />
                 <span className="text-[11px] uppercase tracking-wide text-slate-500">

@@ -3,7 +3,7 @@ const service = require('./inventario.service');
 const serviceUnidades = require('./unidades.service');
 const { models } = require('../../db');
 
-exports.crearItem = async (req, res, next) => { try { res.status(201).json(await service.crearItem(req.body)); } catch (e){ next(e);} };
+exports.crearItem = async (req, res, next) => { try { res.status(201).json(await service.crearItem(req.user, req.body)); } catch (e){ next(e);} };
 exports.listarItems = async (req, res, next) => { try { res.json(await service.listarItems(req.query)); } catch (e){ next(e);} };
 exports.editarItem = async (req, res, next) => { try { res.json(await service.editarItem(+req.params.id, req.body)); } catch (e){ next(e);} };
 exports.ajustarStock = async (req, res, next) => { try { res.status(201).json(await service.ajustarStock(req.user, +req.params.id, req.body)); } catch (e){ next(e);} };

@@ -9,6 +9,47 @@ import { getSocket, connectSocket } from "../lib/socket";
 
 const PAGE_SIZE = 20;
 
+function normalizeNotificationText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function isGenericNotificationText(value) {
+  const normalized = normalizeNotificationText(value);
+  if (!normalized) return false;
+  if (normalized === "tienes una notificacion nueva") return true;
+  if (normalized === "tienes 1 notificacion nueva") return true;
+  return /^tienes \d+ notificaciones nuevas$/.test(normalized);
+}
+
+function isPersistentNotification(notif) {
+  if (!notif?.id) return false;
+  return !(
+    isGenericNotificationText(notif?.titulo) ||
+    isGenericNotificationText(notif?.mensaje)
+  );
+}
+
+function dedupeById(items = []) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    const id = String(item?.id ?? "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(item);
+  }
+  return out;
+}
+
+function sanitizeNotifications(items = []) {
+  return dedupeById(items.filter(isPersistentNotification));
+}
+
 const baseState = {
   items: [],
   loading: false,
@@ -38,7 +79,7 @@ const useNotificacionesStore = create((set, get) => ({
     const s = getSocket();
 
     const onNueva = (notif) => {
-      if (!notif?.id) return;
+      if (!isPersistentNotification(notif)) return;
 
       set((st) => {
         const exists = st.items.some(
@@ -83,14 +124,20 @@ const useNotificacionesStore = create((set, get) => ({
 
     try {
       const { data } = await listarNotificaciones({ limit: PAGE_SIZE, offset: 0 });
+      const serverItems = data.items || [];
+      const sanitizedItems = sanitizeNotifications(serverItems);
+      const filteredOut = Math.max(0, serverItems.length - sanitizedItems.length);
+      const filteredOutUnread = serverItems.filter(
+        (n) => !n?.leida && !isPersistentNotification(n)
+      ).length;
 
       set(() => ({
-        items: data.items || [],
+        items: sanitizedItems,
         loading: false,
         error: null,
         meta: {
-          total: data.total || 0,
-          noLeidas: data.noLeidas || 0,
+          total: Math.max(0, (data.total || 0) - filteredOut),
+          noLeidas: Math.max(0, (data.noLeidas || 0) - filteredOutUnread),
           hasMore: !!data.hasMore,
           nextOffset: data.nextOffset || 0,
         },
@@ -111,9 +158,10 @@ const useNotificacionesStore = create((set, get) => ({
         limit: PAGE_SIZE,
         offset: meta.nextOffset,
       });
+      const incomingItems = sanitizeNotifications(data.items || []);
 
       set((s) => ({
-        items: [...s.items, ...(data.items || [])],
+        items: sanitizeNotifications([...s.items, ...incomingItems]),
         loadingMore: false,
         meta: {
           total: data.total ?? s.meta.total,

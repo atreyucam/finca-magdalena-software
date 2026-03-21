@@ -104,7 +104,9 @@ async function moverStock({ t, item, tipo, cantidad, unidad_id, motivo, referenc
 // 🚀 FUNCIONES EXPORTADAS (CRUD y Operaciones)
 // ============================================================
 
-exports.crearItem = async (data) => {
+exports.crearItem = async (currentUserOrData, maybeData) => {
+  const currentUser = maybeData ? currentUserOrData : null;
+  const data = maybeData || currentUserOrData || {};
   const { nombre, categoria = "Insumo", unidad_id, stock_minimo = 0, stock_inicial = 0 } = data;
 
   if (!nombre) throw badRequest("Nombre obligatorio");
@@ -141,6 +143,7 @@ exports.crearItem = async (data) => {
       tipo: 'Inventario',
       titulo: 'Nuevo ítem de inventario',
       mensaje: `Se creó el ítem "${creado.nombre}" (${creado.categoria}).`,
+      actor_id: currentUser?.sub || currentUser?.id || null,
       referencia: { item_id: creado.id },
       prioridad: 'Info',
     });

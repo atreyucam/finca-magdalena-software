@@ -86,6 +86,15 @@ export default function Notificaciones() {
     }
 
     if (
+      /^VENTA_/i.test(String(n.referencia?.tipo_evento || "")) &&
+      n.referencia?.venta_id &&
+      (base === "/owner" || base === "/tech")
+    ) {
+      navigate(`${base}/ventas/${n.referencia.venta_id}`);
+      return;
+    }
+
+    if (
       n.referencia?.tipo_evento === "COMPRA_REGISTRADA" &&
       n.referencia?.compra_id &&
       base === "/owner"

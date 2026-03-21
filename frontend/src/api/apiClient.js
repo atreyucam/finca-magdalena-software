@@ -335,10 +335,24 @@ export const buscarLoteInventario = (itemId, params = {}) =>
 export const listarProveedores = (params = {}) => api.get("/proveedores", { params });
 export const crearProveedor = (data) => api.post("/proveedores", data);
 
+// ================= CLIENTES =================
+export const listarClientes = (params = {}) => api.get("/clientes", { params });
+export const obtenerCliente = (id) => api.get(`/clientes/${id}`);
+export const crearCliente = (data) => api.post("/clientes", data);
+
 // ================= COMPRAS =================
 export const listarCompras = (params = {}) => api.get("/compras", { params });
 export const obtenerCompra = (id) => api.get(`/compras/${id}`);
 export const crearCompra = (data) => api.post("/compras", data);
+
+// ================= VENTAS =================
+export const listarVentas = (params = {}) => api.get("/ventas", { params });
+export const obtenerVenta = (id) => api.get(`/ventas/${id}`);
+export const crearEntregaVenta = (data) => api.post("/ventas", data);
+export const liquidarVenta = (id, data) => api.patch(`/ventas/${id}/liquidacion`, data);
+export const pagarVenta = (id, data) => api.patch(`/ventas/${id}/pago`, data);
+export const obtenerDisponibilidadVentaLote = (loteId) =>
+  api.get(`/ventas/disponibilidad/lote/${loteId}`);
 
 
 // ================= REPORTES =================
