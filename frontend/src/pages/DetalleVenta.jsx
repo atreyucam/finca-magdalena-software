@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useParams, useSearchParams } from "react-router-dom";
-import { ReceiptText, Wallet } from "lucide-react";
+import {
+  CalendarDays,
+  CircleDollarSign,
+  NotebookPen,
+  Package2,
+  ReceiptText,
+  Rows3,
+  Tag,
+  UserRound,
+  Wallet,
+} from "lucide-react";
 import { obtenerVenta } from "../api/apiClient";
 import useToast from "../hooks/useToast";
 import useAuthStore from "../store/authStore";
+import PageIntro from "../components/app/PageIntro";
 import LinkVolver from "../components/ui/LinkVolver";
 import Boton from "../components/ui/Boton";
 import Badge from "../components/ui/Badge";
@@ -39,6 +50,60 @@ function fmtMoney(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number.isFinite(n) ? n : 0);
+}
+
+function titleCaseLabel(value) {
+  if (!value) return "—";
+  const raw = String(value).trim().toLowerCase();
+  if (!raw) return "—";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+function tipoLabel(value) {
+  if (!value) return "—";
+  const map = {
+    EXPORTACION: "Exportacion",
+    NACIONAL: "Nacional",
+  };
+  return map[String(value).toUpperCase()] || titleCaseLabel(value);
+}
+
+function formaPagoLabel(value) {
+  if (!value) return "—";
+  return titleCaseLabel(value);
+}
+
+function estadoUi(value) {
+  const raw = String(value || "").toUpperCase();
+  if (raw === "LIQUIDADA") {
+    return { label: "Pendiente", variante: "pendiente" };
+  }
+  if (raw === "PAGADA") {
+    return { label: "Pagada", variante: "pagada" };
+  }
+  if (raw === "PENDIENTE") {
+    return { label: "Pendiente", variante: "pendiente" };
+  }
+  if (raw === "CANCELADA") {
+    return { label: "Cancelada", variante: "cancelada" };
+  }
+  return { label: titleCaseLabel(value), variante: String(value || "").toLowerCase() || "default" };
+}
+
+function iconColor(icon) {
+  if (icon === CalendarDays) return "text-blue-600";
+  if (icon === UserRound) return "text-slate-500";
+  if (icon === Tag) return "text-emerald-600";
+  if (icon === CircleDollarSign) return "text-emerald-600";
+  if (icon === Package2) return "text-amber-600";
+  if (icon === NotebookPen) return "text-sky-600";
+  if (icon === Rows3) return "text-violet-600";
+  if (icon === FileText) return "text-slate-500";
+  return "text-slate-500";
+}
+
+function modalTitle(title) {
+  return <h3 className="text-2xl font-bold text-slate-900 leading-tight">{title}</h3>;
 }
 
 export default function DetalleVenta() {
@@ -98,6 +163,7 @@ export default function DetalleVenta() {
     () => (Array.isArray(venta?.detalles) ? venta.detalles : []),
     [venta]
   );
+  const estadoView = useMemo(() => estadoUi(venta?.estado), [venta?.estado]);
 
   const onVentaActualizada = (updatedVenta) => {
     setVenta(updatedVenta || null);
@@ -123,30 +189,28 @@ export default function DetalleVenta() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight">Detalle de venta</h1>
-                <p className="text-slate-500 font-medium">
-                  Factura: <span className="font-semibold text-slate-800">{venta.numero_factura}</span>
-                </p>
+            <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-2">
+                <PageIntro title="Detalle de venta" subtitle={null} />
+                <div className="text-3xl font-bold text-slate-900 -mt-1">
+                  Factura: <span>{venta.numero_factura}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-base">
+                  <span className="font-medium text-slate-900">Registrado por:</span>
+                  <span className="font-medium text-slate-700">{venta.creado_por?.nombre || "—"}</span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Badge variante={venta.estado}>{venta.estado}</Badge>
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                <Badge variante={estadoView.variante}>{estadoView.label}</Badge>
                 {isOwner && venta.estado === "PENDIENTE" && (
-                  <Boton
-                    variante="outlineAlerta"
-                    onClick={() => setModalLiquidacionAbierto(true)}
-                  >
+                  <Boton variante="ambar" onClick={() => setModalLiquidacionAbierto(true)}>
                     <ReceiptText className="mr-2 h-4 w-4" />
                     Registrar liquidación
                   </Boton>
                 )}
                 {isOwner && venta.estado === "LIQUIDADA" && (
-                  <Boton
-                    variante="outlineExito"
-                    onClick={() => setModalPagoAbierto(true)}
-                  >
+                  <Boton variante="primario" onClick={() => setModalPagoAbierto(true)}>
                     <Wallet className="mr-2 h-4 w-4" />
                     Registrar pago
                   </Boton>
@@ -154,101 +218,120 @@ export default function DetalleVenta() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-              <CardDato label="Factura" value={venta.numero_factura} />
-              <CardDato label="Cliente" value={venta.cliente?.nombre || "—"} />
-              <CardDato label="Fecha entrega" value={fmtDate(venta.fecha_entrega)} />
-              <CardDato label="Lote" value={venta.lote?.nombre || "—"} />
-              <CardDato label="Tipo" value={venta.tipo_venta} />
-              <CardDato label="Estado" value={venta.estado} />
-              <CardDato label="N° recibo" value={venta.numero_recibo || "—"} />
-              <CardDato label="Forma de pago" value={venta.forma_pago || "—"} />
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(260px,30%)_minmax(0,70%)]">
+              <div className="space-y-6">
+                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                  <ResumenTabla
+                    rows={[
+                      { icon: CalendarDays, label: "Fecha", value: fmtDate(venta.created_at || venta.fecha_entrega) },
+                      { icon: UserRound, label: "Cliente", value: venta.cliente?.nombre || "—" },
+                      { icon: Tag, label: "Tipo", value: tipoLabel(venta.tipo_venta) },
+                      { icon: CircleDollarSign, label: "Forma de pago", value: formaPagoLabel(venta.forma_pago) },
+                      ...(venta.observacion_pago
+                        ? [{ icon: NotebookPen, label: "Observación de pago", value: venta.observacion_pago }]
+                        : []),
+                      { icon: Rows3, label: "Estado", value: <Badge variante={estadoView.variante}>{estadoView.label}</Badge> },
+                    ]}
+                  />
+                </div>
+
+                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                  <ResumenTabla
+                    rows={[
+                      {
+                        icon: Package2,
+                        iconClass: "text-amber-600",
+                        label: "Gavetas entregadas",
+                        value: venta.gavetas_entregadas ?? "—",
+                      },
+                      {
+                        icon: Package2,
+                        iconClass: "text-rose-600",
+                        label: "Gavetas devueltas",
+                        value: venta.gavetas_devueltas ?? "—",
+                      },
+                      {
+                        icon: Package2,
+                        iconClass: "text-emerald-600",
+                        label: "Gavetas útiles",
+                        value: venta.gavetas_utiles ?? "—",
+                      },
+                    ]}
+                  />
+                </div>
+
+                {venta.observacion ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                    <span className="font-bold text-slate-900">Observación:</span>{" "}
+                    {venta.observacion}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-4">
+                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                  <ResumenTabla
+                    rows={[
+                      { icon: NotebookPen, label: "Número de recibo", value: venta.numero_recibo || "—" },
+                      { icon: CalendarDays, label: "Fecha entrega", value: fmtDate(venta.fecha_entrega) },
+                      { icon: Package2, label: "Lote", value: venta.lote?.nombre || "—" },
+                    ]}
+                    compact
+                  />
+                </div>
+
+                <Tabla>
+                  <TablaCabecera>
+                    <TablaHead>Clase</TablaHead>
+                    <TablaHead align="right">Peso (kg)</TablaHead>
+                    <TablaHead align="right">Precio</TablaHead>
+                    <TablaHead align="right">Subtotal</TablaHead>
+                  </TablaCabecera>
+                  <TablaCuerpo>
+                    {detalles.length === 0 ? (
+                      <TablaVacia mensaje="Aún no hay liquidación registrada." colSpan={4} />
+                    ) : (
+                      detalles.map((d) => (
+                        <TablaFila key={d.id}>
+                          <TablaCelda className="font-semibold text-slate-800">
+                            {titleCaseLabel(d.clase_label || d.clase)}
+                          </TablaCelda>
+                          <TablaCelda align="right" className="font-mono">
+                            {d.peso_kg}
+                          </TablaCelda>
+                          <TablaCelda align="right" className="font-mono">
+                            {fmtMoney(d.precio_unitario)}
+                          </TablaCelda>
+                          <TablaCelda align="right" className="font-mono font-bold text-slate-900">
+                            {fmtMoney(d.subtotal)}
+                          </TablaCelda>
+                        </TablaFila>
+                      ))
+                    )}
+                  </TablaCuerpo>
+                </Tabla>
+
+                <div className="flex justify-end">
+                  <div className="min-w-[240px] overflow-hidden rounded-2xl border border-slate-200">
+                    <div className="grid grid-cols-[1fr_auto] bg-slate-50">
+                      <div className="flex items-center justify-center px-4 py-3 text-base font-bold text-slate-900">
+                        Total
+                      </div>
+                      <div className="border-l border-slate-200 px-4 py-3 text-center text-lg font-bold text-slate-900">
+                        {fmtMoney(venta.total)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {venta.reclasificacion ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Reclasificación aplicada: <span className="font-semibold">{venta.reclasificacion.descripcion}</span>
+                    {" "}({venta.reclasificacion.gavetas} gavetas).
+                  </div>
+                ) : null}
+              </div>
             </div>
-
-            <Bloque titulo="Entrega">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <CardDato label="Gavetas entregadas" value={venta.gavetas_entregadas} strong />
-                <CardDato label="Observación" value={venta.observacion || "—"} />
-                <CardDato
-                  label="Registrado por"
-                  value={venta.creado_por?.nombre || "—"}
-                />
-              </div>
-            </Bloque>
-
-            <Bloque titulo="Liquidación">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-                <CardDato label="Gavetas devueltas" value={venta.gavetas_devueltas ?? "—"} />
-                <CardDato label="Gavetas útiles" value={venta.gavetas_utiles ?? "—"} />
-                <CardDato label="Subtotal" value={fmtMoney(venta.subtotal)} />
-                <CardDato label="Total" value={fmtMoney(venta.total)} strong />
-              </div>
-
-              <Tabla>
-                <TablaCabecera>
-                  <TablaHead>Clase</TablaHead>
-                  <TablaHead align="right">Peso (kg)</TablaHead>
-                  <TablaHead align="right">Precio</TablaHead>
-                  <TablaHead align="right">Subtotal</TablaHead>
-                </TablaCabecera>
-                <TablaCuerpo>
-                  {detalles.length === 0 ? (
-                    <TablaVacia mensaje="Aún no hay liquidación registrada." colSpan={4} />
-                  ) : (
-                    detalles.map((d) => (
-                      <TablaFila key={d.id}>
-                        <TablaCelda className="font-semibold text-slate-800">
-                          {d.clase_label || d.clase}
-                        </TablaCelda>
-                        <TablaCelda align="right" className="font-mono">
-                          {d.peso_kg}
-                        </TablaCelda>
-                        <TablaCelda align="right" className="font-mono">
-                          {fmtMoney(d.precio_unitario)}
-                        </TablaCelda>
-                        <TablaCelda align="right" className="font-mono font-bold text-slate-900">
-                          {fmtMoney(d.subtotal)}
-                        </TablaCelda>
-                      </TablaFila>
-                    ))
-                  )}
-                </TablaCuerpo>
-              </Tabla>
-
-              {venta.reclasificacion ? (
-                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  Reclasificación aplicada: <span className="font-semibold">{venta.reclasificacion.descripcion}</span>
-                  {" "}({venta.reclasificacion.gavetas} gavetas).
-                </div>
-              ) : null}
-            </Bloque>
-
-            <Bloque titulo="Pago">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <CardDato label="Forma de pago" value={venta.forma_pago || "—"} />
-                <CardDato label="Fecha de pago" value={fmtDate(venta.fecha_pago)} />
-                <CardDato label="Observación pago" value={venta.observacion_pago || "—"} />
-              </div>
-            </Bloque>
-
-            {venta.disponibilidad_lote ? (
-              <Bloque titulo="Disponibilidad actual lote">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <CardDato
-                    label="Exportación disponible"
-                    value={venta.disponibilidad_lote.exportacion_disponible}
-                  />
-                  <CardDato
-                    label="Nacional disponible"
-                    value={venta.disponibilidad_lote.nacional_disponible}
-                  />
-                  <CardDato
-                    label="Rechazo acumulado"
-                    value={venta.disponibilidad_lote.rechazo_acumulado}
-                  />
-                </div>
-              </Bloque>
-            ) : null}
           </div>
         )}
       </div>
@@ -259,7 +342,7 @@ export default function DetalleVenta() {
           setModalLiquidacionAbierto(false);
           limpiarAccionQuery();
         }}
-        titulo="Registrar liquidación"
+        titulo={modalTitle("Registrar liquidación")}
         descripcion="Fase 2: número de recibo, clases, kilos, precios y gavetas devueltas/útiles."
         maxWidthClass="sm:max-w-[min(1100px,calc(100vw-1rem))]"
       >
@@ -280,7 +363,7 @@ export default function DetalleVenta() {
           setModalPagoAbierto(false);
           limpiarAccionQuery();
         }}
-        titulo="Registrar pago"
+        titulo={modalTitle("Registrar pago")}
         descripcion="Fase 3: forma de pago, fecha y observación."
         maxWidthClass="sm:max-w-[min(760px,calc(100vw-1rem))]"
       >
@@ -298,22 +381,23 @@ export default function DetalleVenta() {
   );
 }
 
-function Bloque({ titulo, children }) {
+function ResumenTabla({ rows = [], compact = false }) {
   return (
-    <div className="rounded-2xl border border-slate-200 p-4 sm:p-5">
-      <h2 className="text-base font-black text-slate-900 mb-3">{titulo}</h2>
-      {children}
-    </div>
-  );
-}
-
-function CardDato({ label, value, strong = false }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-      <p className="text-[11px] uppercase tracking-wider font-bold text-slate-500">{label}</p>
-      <p className={`mt-1 text-sm ${strong ? "font-black text-slate-900" : "font-semibold text-slate-800"}`}>
-        {value ?? "—"}
-      </p>
+    <div className="divide-y divide-slate-200">
+      {rows.map((row) => (
+        <div
+          key={row.label}
+          className={`grid grid-cols-[minmax(150px,42%)_1fr] ${compact ? "px-4 py-3" : "px-4 py-3.5"}`}
+        >
+          <div className="flex items-center gap-2 pr-3 text-sm font-bold text-slate-900">
+            {row.icon ? (
+              <row.icon className={`h-4 w-4 ${row.iconClass || iconColor(row.icon)}`} />
+            ) : null}
+            <span>{row.label}:</span>
+          </div>
+          <div className="flex items-center text-sm font-medium text-slate-700 break-words">{row.value ?? "—"}</div>
+        </div>
+      ))}
     </div>
   );
 }

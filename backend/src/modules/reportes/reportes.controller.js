@@ -1,5 +1,8 @@
 // backend/src/modules/reportes/reportes.controller.js
 const service = require("./reportes.service");
+const altaDireccionService = require("./altaDireccion/reportes.alta-direccion.service");
+const ventasService = require("./ventas/reportes.ventas.service");
+const comprasService = require("./compras/reportes.compras.service");
 
 exports.reporteTareas = async (req, res, next) => {
   try {
@@ -123,6 +126,33 @@ exports.compararLotes = async (req, res, next) => {
 exports.reporteDashboard = async (req, res, next) => {
   try {
     const out = await service.reporteDashboard(req.user, req.query);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+exports.reporteAltaDireccion = async (req, res, next) => {
+  try {
+    const out = await altaDireccionService.reporteAltaDireccion(req.user, req.query);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+exports.reporteComercialVentas = async (req, res, next) => {
+  try {
+    const out = await ventasService.reporteComercialVentas(req.user, req.query);
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+exports.reporteAbastecimientoCompras = async (req, res, next) => {
+  try {
+    const out = await comprasService.reporteAbastecimientoCompras(req.user, req.query);
     res.json(out);
   } catch (e) {
     next(e);

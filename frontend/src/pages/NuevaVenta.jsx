@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Plus, UserPlus } from "lucide-react";
+import { Plus, Search, UserRound, XCircle } from "lucide-react";
 import {
   crearEntregaVenta,
-  listarClientes,
   listarLotes,
   obtenerDisponibilidadVentaLote,
 } from "../api/apiClient";
@@ -13,7 +12,7 @@ import Select from "../components/ui/Select";
 import Boton from "../components/ui/Boton";
 import LinkVolver from "../components/ui/LinkVolver";
 import VentanaModal from "../components/ui/VentanaModal";
-import FormularioClienteRapido from "../components/ventas/FormularioClienteRapido";
+import SelectorClienteVentaModal from "../components/ventas/SelectorClienteVentaModal";
 
 function todayYmd() {
   return new Date().toISOString().slice(0, 10);
@@ -38,9 +37,7 @@ export default function NuevaVenta() {
     observacion: "",
   });
 
-  const [clientes, setClientes] = useState([]);
-  const [busquedaCliente, setBusquedaCliente] = useState("");
-  const [cargandoClientes, setCargandoClientes] = useState(false);
+  const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
 
   const [lotes, setLotes] = useState([]);
   const [cargandoLotes, setCargandoLotes] = useState(false);
@@ -62,22 +59,6 @@ export default function NuevaVenta() {
       ? disponibilidad.disponibilidad.exportacion_disponible
       : disponibilidad.disponibilidad.nacional_disponible;
   }, [disponibilidad, form.tipo_venta]);
-
-  const cargarClientes = useCallback(async (q = "") => {
-    try {
-      setCargandoClientes(true);
-      const res = await listarClientes({ q, pageSize: 30, activos: true });
-      setClientes(Array.isArray(res?.data?.data) ? res.data.data : []);
-    } catch (error) {
-      toast.error(error?.response?.data?.message || "No se pudo cargar clientes");
-    } finally {
-      setCargandoClientes(false);
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    cargarClientes(busquedaCliente);
-  }, [busquedaCliente, cargarClientes]);
 
   useEffect(() => {
     let active = true;
@@ -134,13 +115,11 @@ export default function NuevaVenta() {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
   };
 
-  const onClienteCreado = async (cliente) => {
+  const onClienteSeleccionado = (cliente) => {
     setModalClienteAbierto(false);
-    await cargarClientes("");
-
     if (cliente?.id) {
       setForm((prev) => ({ ...prev, cliente_id: String(cliente.id) }));
-      setBusquedaCliente(cliente?.nombre || "");
+      setClienteSeleccionado(cliente);
     }
   };
 
@@ -186,7 +165,7 @@ export default function NuevaVenta() {
 
   return (
     <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-[1200px] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
+      <div className="mx-auto max-w-[1400px] rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
         <div className="mb-6">
           <LinkVolver to={`${base}/ventas`} label="Volver a ventas" />
         </div>
@@ -200,42 +179,42 @@ export default function NuevaVenta() {
 
         <form onSubmit={submit} className="space-y-6">
           <div className="rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-4">
-            <div className="flex items-end justify-between gap-3 flex-wrap">
-              <Input
-                label="Buscar cliente"
-                placeholder="Nombre, identificación o correo"
-                value={busquedaCliente}
-                onChange={(e) => setBusquedaCliente(e.target.value)}
-                contenedorClass="flex-1 min-w-[260px]"
-              />
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Cliente seleccionado
+              </p>
 
-              <Boton type="button" variante="fantasma" onClick={() => setModalClienteAbierto(true)}>
-                <UserPlus className="mr-2 h-4 w-4" />
-                Nuevo cliente
-              </Boton>
-            </div>
+              <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center">
+                <div className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-4">
+                  <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    <UserRound className="h-4 w-4" />
+                    Cliente
+                  </div>
+                  <div className="mt-1 truncate text-sm font-semibold text-slate-900">
+                    {clienteSeleccionado?.nombre || "Aún no has seleccionado un cliente para esta venta."}
+                  </div>
+                </div>
 
-            <Select
-              label="Cliente *"
-              value={form.cliente_id}
-              onChange={onChange("cliente_id")}
-              required
-            >
-              <option value="">Selecciona cliente</option>
-              {clientes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nombre} {c.identificacion ? `(${c.identificacion})` : ""}
-                </option>
-              ))}
-            </Select>
-
-            {cargandoClientes ? (
-              <p className="text-xs text-slate-500">Buscando clientes...</p>
-            ) : clientes.length === 0 ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                No hay coincidencias. Puedes crear el cliente con el botón <span className="font-semibold">Nuevo cliente</span>.
+                <div className="flex flex-wrap items-center gap-3 lg:shrink-0">
+                  <Boton type="button" variante="fantasma" onClick={() => setModalClienteAbierto(true)}>
+                    <Search className="mr-2 h-4 w-4" />
+                    Buscar cliente
+                  </Boton>
+                  <Boton
+                    type="button"
+                    variante="outlinePeligro"
+                    disabled={!clienteSeleccionado}
+                    onClick={() => {
+                      setClienteSeleccionado(null);
+                      setForm((prev) => ({ ...prev, cliente_id: "" }));
+                    }}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    Quitar cliente
+                  </Boton>
+                </div>
               </div>
-            ) : null}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -341,7 +320,7 @@ export default function NuevaVenta() {
             <Boton type="button" variante="fantasma" onClick={() => navigate(`${base}/ventas`)} disabled={guardando}>
               Cancelar
             </Boton>
-            <Boton tipo="submit" variante="exito" cargando={guardando}>
+            <Boton tipo="submit" variante="primario" cargando={guardando}>
               <Plus className="mr-2 h-4 w-4" />
               Registrar entrega
             </Boton>
@@ -352,11 +331,12 @@ export default function NuevaVenta() {
       <VentanaModal
         abierto={modalClienteAbierto}
         cerrar={() => setModalClienteAbierto(false)}
-        maxWidthClass="sm:max-w-[min(840px,calc(100vw-1rem))]"
+        maxWidthClass="sm:max-w-[min(1040px,calc(100vw-1rem))]"
       >
-        <FormularioClienteRapido
-          alCancelar={() => setModalClienteAbierto(false)}
-          alCreado={onClienteCreado}
+        <SelectorClienteVentaModal
+          abierto={modalClienteAbierto}
+          onCancelar={() => setModalClienteAbierto(false)}
+          onSeleccionar={onClienteSeleccionado}
         />
       </VentanaModal>
     </section>

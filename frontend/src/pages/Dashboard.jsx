@@ -6,6 +6,7 @@ import useDashboard from "../hooks/useDashboard";
 import { listarFincasReporte } from "../api/apiClient";
 import useAuthStore from "../store/authStore";
 
+import PageIntro from "../components/app/PageIntro";
 import Boton from "../components/ui/Boton";
 import Badge from "../components/ui/Badge";
 import TarjetaDato from "../components/ui/TarjetaDato";
@@ -151,20 +152,20 @@ export default function Dashboard() {
         {/* Header */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
           <div className="flex flex-col gap-4">
-            {/* Título + bienvenida */}
             <div className="flex flex-col gap-2">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">Dashboard</h1>
-
+              <PageIntro
+                title="Dashboard"
+                subtitle="Indicadores rápidos de tareas e inventario."
+                actions={header?.rango?.default_ultimos_30_dias ? <Badge variante="info">Últimos 30 días</Badge> : null}
+              />
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="text-base sm:text-lg font-semibold text-slate-800">
                     Bienvenido, <span className="text-emerald-700">{nombre}</span>
                   </span>
                   <span className="text-slate-300">•</span>
-                  <span className="text-sm text-slate-500">Indicadores rápidos de tareas e inventario</span>
+                  <span className="text-sm text-slate-500">Resumen operativo del sistema</span>
                 </div>
-
-                {header?.rango?.default_ultimos_30_dias ? <Badge variante="info">Últimos 30 días</Badge> : null}
               </div>
             </div>
 

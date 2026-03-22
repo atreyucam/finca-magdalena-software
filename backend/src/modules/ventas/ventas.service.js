@@ -660,7 +660,21 @@ exports.listarVentas = async (query = {}) => {
     where.estado = estado;
   }
 
-  if (query.mes) {
+  const desde = normalizeDate(query.desde, { fieldName: "desde" });
+  const hasta = normalizeDate(query.hasta, { fieldName: "hasta" });
+
+  if (desde && hasta && desde > hasta) {
+    throw badRequest("El rango de fechas es invalido");
+  }
+
+  if (desde || hasta) {
+    where.fecha_entrega = {
+      ...(desde ? { [Op.gte]: desde } : {}),
+      ...(hasta ? { [Op.lte]: hasta } : {}),
+    };
+  }
+
+  if (!where.fecha_entrega && query.mes) {
     const mes = String(query.mes).trim();
     if (!/^\d{4}-\d{2}$/.test(mes)) {
       throw badRequest("mes invalido. Usa formato YYYY-MM");

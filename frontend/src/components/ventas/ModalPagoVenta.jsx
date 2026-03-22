@@ -86,7 +86,7 @@ export default function ModalPagoVenta({ abierto, venta, onGuardado, onCancelar 
         <Boton type="button" variante="fantasma" onClick={onCancelar} disabled={guardando}>
           Cancelar
         </Boton>
-        <Boton tipo="submit" variante="exito" cargando={guardando}>
+        <Boton tipo="submit" variante="primario" cargando={guardando}>
           Guardar pago
         </Boton>
       </div>

@@ -15,5 +15,8 @@ const clientesWriteLimiter = rateLimitByUser({
 router.get("/", requireAuth, requireRole("Propietario", "Tecnico"), controller.listarClientes);
 router.get("/:id", requireAuth, requireRole("Propietario", "Tecnico"), controller.obtenerCliente);
 router.post("/", requireAuth, clientesWriteLimiter, requireRole("Propietario", "Tecnico"), controller.crearCliente);
+router.patch("/:id", requireAuth, clientesWriteLimiter, requireRole("Propietario", "Tecnico"), controller.editarCliente);
+router.patch("/:id/desactivar", requireAuth, clientesWriteLimiter, requireRole("Propietario", "Tecnico"), controller.desactivarCliente);
+router.delete("/:id", requireAuth, clientesWriteLimiter, requireRole("Propietario", "Tecnico"), controller.eliminarCliente);
 
 module.exports = router;

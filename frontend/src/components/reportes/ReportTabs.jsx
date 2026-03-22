@@ -1,9 +1,10 @@
 const TABS = [
   { key: "alta", label: "Alta dirección" },
-  { key: "produccion", label: "Producción / Cosecha" },
-  { key: "tareas", label: "Tareas" },
+  { key: "comercial", label: "Comercial" },
+  { key: "abastecimiento", label: "Abastecimiento" },
+  { key: "operacion", label: "Operación" },
+  { key: "rrhh", label: "Recursos Humanos" },
   { key: "inventario", label: "Inventario" },
-  { key: "pagos", label: "Mano de obra" },
 ];
 
 export default function ReportTabs({ tab, setTab }) {

@@ -5,6 +5,7 @@ import { listarClientes, listarVentas } from "../api/apiClient";
 import useListado from "../hooks/useListado";
 import useToast from "../hooks/useToast";
 import useAuthStore from "../store/authStore";
+import PageIntro from "../components/app/PageIntro";
 import Input from "../components/ui/Input";
 import Select from "../components/ui/Select";
 import Boton from "../components/ui/Boton";
@@ -87,20 +88,18 @@ export default function Ventas() {
   return (
     <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-[1500px] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Ventas</h1>
-            <p className="text-slate-500 font-medium">
-              Flujo comercial por fases: entrega, liquidación y pago.
-            </p>
-          </div>
-
-          {canCreate && (
-            <Boton onClick={() => navigate(`${base}/ventas/nueva`)} icono={Plus}>
-              Nueva venta
-            </Boton>
-          )}
-        </div>
+        <PageIntro
+          title="Ventas"
+          subtitle="Flujo comercial por fases: entrega, liquidación y pago."
+          className="mb-6"
+          actions={
+            canCreate ? (
+              <Boton onClick={() => navigate(`${base}/ventas/nueva`)} icono={Plus}>
+                Nueva venta
+              </Boton>
+            ) : null
+          }
+        />
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
           <Input

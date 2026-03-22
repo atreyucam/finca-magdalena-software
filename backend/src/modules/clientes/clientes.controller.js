@@ -9,6 +9,15 @@ exports.crearCliente = async (req, res, next) => {
   }
 };
 
+exports.editarCliente = async (req, res, next) => {
+  try {
+    const updated = await service.editarCliente(req.params.id, req.body || {});
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.listarClientes = async (req, res, next) => {
   try {
     const data = await service.listarClientes(req.query || {});
@@ -21,6 +30,24 @@ exports.listarClientes = async (req, res, next) => {
 exports.obtenerCliente = async (req, res, next) => {
   try {
     const data = await service.obtenerCliente(req.params.id);
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.desactivarCliente = async (req, res, next) => {
+  try {
+    const data = await service.desactivarCliente(req.params.id);
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.eliminarCliente = async (req, res, next) => {
+  try {
+    const data = await service.eliminarCliente(req.params.id);
     res.json(data);
   } catch (error) {
     next(error);

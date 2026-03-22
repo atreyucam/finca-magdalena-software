@@ -74,6 +74,39 @@ describe("clientes.service v1", () => {
     ).rejects.toMatchObject({ status: 409, code: "CONFLICT" });
   });
 
+  test("edita cliente existente", async () => {
+    const save = jest.fn(async function saveFn() {
+      return this;
+    });
+    models.Cliente.findByPk.mockResolvedValue({
+      id: 9,
+      nombre: "Cliente Antiguo",
+      identificacion: "1790011223001",
+      telefono: null,
+      correo: null,
+      direccion: null,
+      activo: true,
+      created_at: "2026-03-09T10:00:00.000Z",
+      updated_at: "2026-03-09T10:00:00.000Z",
+      save,
+    });
+
+    const out = await service.editarCliente(9, {
+      nombre: "Cliente Editado",
+      telefono: "0999999999",
+      direccion: "Nueva direccion",
+    });
+
+    expect(models.Cliente.findByPk).toHaveBeenCalledWith(9);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(out).toMatchObject({
+      id: 9,
+      nombre: "Cliente Editado",
+      telefono: "0999999999",
+      direccion: "Nueva direccion",
+    });
+  });
+
   test("lista clientes con paginacion", async () => {
     models.Cliente.findAndCountAll.mockResolvedValue({
       count: 1,

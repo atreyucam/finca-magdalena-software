@@ -210,17 +210,25 @@ export default function ModalLiquidacionVenta({ abierto, venta, onGuardado, onCa
         </div>
       </div>
 
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-        <p className="text-xs uppercase tracking-wide font-bold text-emerald-700">Total calculado</p>
-        <p className="text-2xl font-black text-emerald-800">{money(total)}</p>
-        <p className="text-xs text-emerald-700 mt-1">El backend recalcula subtotales y total final.</p>
+      <div className="flex justify-end">
+        <div className="min-w-[280px] max-w-full overflow-hidden rounded-2xl border border-emerald-200 bg-emerald-50">
+          <div className="grid grid-cols-[1fr_auto] items-stretch">
+            <div className="flex flex-col justify-center px-4 py-3">
+              <p className="text-xs uppercase tracking-wide font-bold text-emerald-700">Total calculado</p>
+              <p className="text-xs text-emerald-700 mt-1">El backend recalcula subtotales y total final.</p>
+            </div>
+            <div className="border-l border-emerald-200 px-4 py-3 text-right">
+              <p className="text-2xl font-bold text-emerald-800">{money(total)}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
         <Boton type="button" variante="fantasma" onClick={onCancelar} disabled={guardando}>
           Cancelar
         </Boton>
-        <Boton tipo="submit" variante="exito" cargando={guardando}>
+        <Boton tipo="submit" variante="primario" cargando={guardando}>
           Guardar liquidación
         </Boton>
       </div>

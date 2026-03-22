@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, Plus, Search } from "lucide-react";
 import { listarCompras } from "../api/apiClient";
 import useListado from "../hooks/useListado";
+import PageIntro from "../components/app/PageIntro";
 import Input from "../components/ui/Input";
 import Boton from "../components/ui/Boton";
 import Badge from "../components/ui/Badge";
@@ -57,17 +58,16 @@ export default function Compras() {
   return (
     <section className="-m-4 sm:-m-6 lg:-m-8 bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-[1400px] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-sm">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Compras</h1>
-            <p className="text-slate-500 font-medium">
-              Registro formal de entradas de stock por factura.
-            </p>
-          </div>
-          <Boton onClick={() => navigate("/owner/compras/nueva")} icono={Plus}>
-            Nueva compra
-          </Boton>
-        </div>
+        <PageIntro
+          title="Compras"
+          subtitle="Registro formal de entradas de stock por factura."
+          className="mb-6"
+          actions={
+            <Boton onClick={() => navigate("/owner/compras/nueva")} icono={Plus}>
+              Nueva compra
+            </Boton>
+          }
+        />
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
           <Input

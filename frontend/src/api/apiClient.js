@@ -339,6 +339,9 @@ export const crearProveedor = (data) => api.post("/proveedores", data);
 export const listarClientes = (params = {}) => api.get("/clientes", { params });
 export const obtenerCliente = (id) => api.get(`/clientes/${id}`);
 export const crearCliente = (data) => api.post("/clientes", data);
+export const editarCliente = (id, data) => api.patch(`/clientes/${id}`, data);
+export const desactivarCliente = (id) => api.patch(`/clientes/${id}/desactivar`);
+export const eliminarCliente = (id) => api.delete(`/clientes/${id}`);
 
 // ================= COMPRAS =================
 export const listarCompras = (params = {}) => api.get("/compras", { params });
@@ -365,6 +368,15 @@ export const listarLotesReporte = async (finca_id) => (await api.get("/reportes/
 
 // Reporte de tareas
 export const reporteTareas = async (params) => (await api.get("/reportes/tareas", { params })).data;
+
+export const reporteAltaDireccion = async (params) =>
+  (await api.get("/reportes/alta-direccion", { params })).data;
+
+export const reporteComercialVentas = async (params) =>
+  (await api.get("/reportes/comercial/ventas", { params })).data;
+
+export const reporteAbastecimientoCompras = async (params) =>
+  (await api.get("/reportes/abastecimiento/compras", { params })).data;
 
 
 // ✅ Reportes - Inventario (4 secciones)

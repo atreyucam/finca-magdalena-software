@@ -15,6 +15,9 @@ const reportesLimiter = rateLimitByUser({
   message: { code: "TOO_MANY_REQUESTS", message: "Demasiadas solicitudes de reportes. Intenta de nuevo en 1 minuto." },
 });
 
+router.get("/alta-direccion", requireAuth, reportesLimiter, requireRole("Propietario", "Tecnico"), controller.reporteAltaDireccion);
+router.get("/comercial/ventas", requireAuth, reportesLimiter, requireRole("Propietario", "Tecnico"), controller.reporteComercialVentas);
+router.get("/abastecimiento/compras", requireAuth, reportesLimiter, requireRole("Propietario", "Tecnico"), controller.reporteAbastecimientoCompras);
 router.get("/tareas", requireAuth, reportesLimiter, requireRole('Propietario','Tecnico'), controller.reporteTareas);
 
 // ✅ Inventario (4 secciones)
@@ -32,8 +35,6 @@ router.get("/mano-obra/detalle",  requireAuth, reportesLimiter, requireRole('Pro
 router.get("/filtros/fincas", requireAuth, reportesLimiter, filtros.listarFincas);
 router.get("/filtros/cosechas", requireAuth, reportesLimiter, filtros.listarCosechasPorFinca);
 router.get("/filtros/lotes", requireAuth, reportesLimiter, filtros.listarLotesPorFinca);
-console.log(requireRole);
-
 
 // ✅ Producción / Cosecha
 router.get("/produccion/resumen",    requireAuth, reportesLimiter, requireRole('Propietario','Tecnico'), controller.reporteProduccionResumen);

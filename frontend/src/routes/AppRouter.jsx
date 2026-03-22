@@ -35,6 +35,8 @@ import DetalleCompra from "../pages/DetalleCompra";
 import Ventas from "../pages/Ventas";
 import NuevaVenta from "../pages/NuevaVenta";
 import DetalleVenta from "../pages/DetalleVenta";
+import ClientesVentas from "../pages/ClientesVentas";
+import DetalleCliente from "../pages/DetalleCliente";
 
 export default function AppRouter() {
   const { isBootstrapped } = useAuth();
@@ -59,6 +61,8 @@ export default function AppRouter() {
               <Route path="compras/nueva" element={<NuevaCompra />} />
               <Route path="compras/:id" element={<DetalleCompra />} />
               <Route path="ventas" element={<Ventas />} />
+              <Route path="ventas/clientes" element={<ClientesVentas />} />
+              <Route path="ventas/clientes/:id" element={<DetalleCliente />} />
               <Route path="ventas/nueva" element={<NuevaVenta />} />
               <Route path="ventas/:id" element={<DetalleVenta />} />
               <Route path="produccion" element={<Produccion />} />
@@ -81,6 +85,8 @@ export default function AppRouter() {
               <Route path="tareas" element={<Tareas />} />
               <Route path="inventario" element={<Inventario />} />
               <Route path="ventas" element={<Ventas />} />
+              <Route path="ventas/clientes" element={<ClientesVentas />} />
+              <Route path="ventas/clientes/:id" element={<DetalleCliente />} />
               <Route path="ventas/nueva" element={<NuevaVenta />} />
               <Route path="ventas/:id" element={<DetalleVenta />} />
               <Route path="usuarios" element={<Usuarios />} />
